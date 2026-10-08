@@ -7,7 +7,8 @@ afterEach(() => {
 })
 
 // jsdom 未实现的浏览器 API，HeroUI / React Aria 组件在测试中会用到。
-if (!('matchMedia' in window)) {
+// 注意：部分 jsdom 版本会挂上不可调用的 matchMedia 占位，这里按「是否是函数」判断。
+if (typeof window.matchMedia !== 'function') {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
