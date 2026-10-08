@@ -200,7 +200,7 @@ func (h *productHandler) fetchProductDetail(ctx context.Context, job importJob) 
 	}}
 }
 
-// buildUpstreamPrices 组装上游价格缓存：保留 product_pricings 原文 + 挑选出生效的四周期价格。
+// buildUpstreamPrices 组装上游价格缓存：保留 product_pricings 原文 + 挑选出生效的六周期价格。
 //
 // 库存与试用数量取 /cart/get_product_config 的 products.qty / products.ontrial
 // （实测 /cart/all 的 qty / ontrial / stock_control 恒为 0，不可用）。
@@ -227,6 +227,8 @@ func buildUpstreamPrices(raw json.RawMessage, rows []upstream.Pricing) (pricing.
 		pricing.CycleQuarterly:    selected.Quarterly,
 		pricing.CycleSemiAnnually: selected.SemiAnnually,
 		pricing.CycleAnnually:     selected.Annually,
+		pricing.CycleBiennially:   selected.Biennially,
+		pricing.CycleTriennially:  selected.Triennially,
 	}
 	return result, nil
 }

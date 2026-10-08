@@ -65,6 +65,7 @@ func New(opts Options) *gin.Engine {
 		upstream: opts.Upstream,
 		logger:   opts.Logger,
 	}
+	coupons := &couponHandler{store: st, logger: opts.Logger}
 	mw := &middleware{store: st, tokens: tokens}
 
 	apiV1 := engine.Group("/api/v1")
@@ -86,6 +87,10 @@ func New(opts Options) *gin.Engine {
 		// 阶段 4（下单/支付）才要求会员 token。只返回已上架商品。
 		apiV1.GET("/products", products.listMemberProducts)
 		apiV1.GET("/products/:id", products.getMemberProduct)
+
+		// 优惠码校验（阶段 3b）：公开只读接口，供下单前试算折扣；
+		// 折扣的应用（扣减金额、使用记账）留到订单/支付阶段。
+		apiV1.GET("/coupons/:code/validate", coupons.validateCoupon)
 
 		// 管理端：登录开放，其余需要管理员 token；
 		// 改状态类接口额外要求角色为 admin 或 finance（support 返回 403）。
@@ -116,6 +121,15 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/product-groups", products.listProductGroups)
 			adminGroup.PUT("/product-groups/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProductGroup)
+
+			// 优惠码（阶段 3b）：查看类所有角色可调用；创建/修改要求 admin 或 finance。
+			// 不提供 DELETE——停用即 status=off（契约写明）。
+			adminGroup.GET("/coupons", coupons.listCoupons)
+			adminGroup.GET("/coupons/:id", coupons.getCoupon)
+			adminGroup.POST("/coupons",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.createCoupon)
+			adminGroup.PUT("/coupons/:id",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.updateCoupon)
 		}
 	}
 

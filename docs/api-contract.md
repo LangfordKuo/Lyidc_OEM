@@ -778,7 +778,7 @@ curl -s https://lyew.com/cart/credit
 2. 探活失败**不返回 5xx**，便于前端把它当作状态展示而不是错误弹窗；管理员 token 无效仍按第 1.1 节返回 `401`。
 3. 密钥只以脱敏形式出现在响应与日志中（`1sXR****ZG5`），完整密钥仅存在于本地 `config.yaml`。
 
-## 10. 商品与计费（阶段 3a）
+## 10. 商品与计费（阶段 3a 交付；阶段 3b 起计费周期扩为 6 个）
 
 本节描述商品目录的导入、本地定价与上下架。数据来源是上游「魔方财务系统」的**只读**接口
 （`GET /cart/all` + `GET /cart/get_product_config`，见第 8 节），本阶段对上游不做任何写操作。
@@ -820,13 +820,30 @@ curl -s https://lyew.com/cart/credit
 
 ### 10.2 定价模型
 
+**计费周期（6 个）与中文显示名**
+
+| 周期名（本地 / 接口） | 上游字段名（`product_pricings`） | 中文显示名 |
+| --- | --- | --- |
+| `monthly` | `monthly` | 月付 |
+| `quarterly` | `quarterly` | 季付 |
+| `semiannual` | `semiannually` | 半年付 |
+| `annual` | `annually` | 年付 |
+| `biennial` | `biennially` | 两年付 |
+| `triennial` | `triennially` | 三年付 |
+
+本地周期名沿用「去 -ly」规范（`semiannually` → `semiannual`、`annually` → `annual`、
+`biennially` → `biennial`、`triennially` → `triennial`）。接口输出、`pricing_json`、优惠码
+适用周期一律使用**本地周期名**；上游字段名只出现在上游原文（`upstream_prices_json.rows`）中。
+中文显示名本期只做文案约定（供前端展示），接口不下发。
+
 **上游价格缓存 `upstream_prices_json`**
 
 ```json
 {
   "code": "CNY",
   "prices": {
-    "monthly": "20.00", "quarterly": "60.00", "semiannual": "-1.00", "annual": "200.00"
+    "monthly": "20.00", "quarterly": "60.00", "semiannual": "-1.00", "annual": "200.00",
+    "biennial": "-1.00", "triennial": "-1.00"
   },
   "rows": [ { "id": 1, "type": "product", "currency": 1, "code": "CNY", "monthly": "20.00", "…": "上游原文" } ]
 }
@@ -835,11 +852,13 @@ curl -s https://lyew.com/cart/credit
 | 字段 | 说明 |
 | --- | --- |
 | `code` | 选中价格行的货币代码（优先选 `CNY` 行，其次首行「月付价可用」的行，最后回退首行） |
-| `prices` | 四个周期的上游原值；键是**周期名**（`monthly` / `quarterly` / `semiannual` / `annual`，注意不是上游字段名 `annually` / `semiannually`） |
+| `prices` | 六个周期的上游原值；键是**周期名**（`monthly` / `quarterly` / `semiannual` / `annual` / `biennial` / `triennial`，注意不是上游字段名 `annually` / `semiannually` / `biennially` / `triennially`）；`biennial` / `triennial` 分别取自上游 `biennially` / `triennially` 字段 |
 | `rows` | 上游 `product_pricings` 原文（仅管理端详情接口返回，便于与上游对账） |
 
 约定：**负数表示该周期不售**（上游实测用 `-1.00` 标记未开通的周期，见 10.6 第 2 条）。
 上游价不可用（缺省、非法、负数）时该周期视为「无上游价」。
+阶段 3a 时期写入的旧 4 键缓存（缺 `biennial` / `triennial`）仍可被正常解析——缺失键视为无上游价；
+重新导入一次即会整体刷新为 6 键（解析升级导致首次导入出现 `updated>0` 属预期，见 10.4 导入接口说明）。
 
 **本地定价规则 `pricing_json`**（三种模式，可组合）
 
@@ -854,13 +873,14 @@ curl -s https://lyew.com/cart/credit
 | --- | --- | --- |
 | `mode` | string | `upstream`（直接用上游价）/ `markup`（加价率）/ `fixed`（固定覆盖价）；缺省按 `upstream` |
 | `markup_percent` | number | 加价率（百分比，最多两位小数，取值范围 `-100` ~ `1000`，负数即折扣）。`mode=markup` 时必填；`mode=fixed` 时可选（作用于未被固定价覆盖的周期）；`mode=upstream` 时不允许出现 |
-| `fixed` | object | 固定覆盖价：周期名 → 金额字符串。键只能是 `monthly` / `quarterly` / `semiannual` / `annual`。`mode=fixed` 时至少一项；`mode=upstream` 时不允许出现 |
+| `fixed` | object | 固定覆盖价：周期名 → 金额字符串。键只能是 6 个本地周期名（`monthly` / `quarterly` / `semiannual` / `annual` / `biennial` / `triennial`）。`mode=fixed` 时至少一项；`mode=upstream` 时不允许出现。旧 4 周期子集（只写前 4 个键）继续合法 |
 
 **单周期计算顺序**：上游价 →（若配置了 `markup_percent`）按上游价加价 →（若该周期有固定价）用固定价覆盖。
 
 1. 加价：`上游价 × (1 + markup_percent/100)`，**四舍五入到分**（half-up，例：`20.05 × 1.10 = 22.055 → 22.06`）。
 2. 固定价**不依赖上游价**：上游该周期不售时，固定价照样生效。
-3. 上游价不可用且无固定价覆盖 → 该周期**不可售**，接口输出 `null`（不回退成 `0.00`）。
+3. 上游价不可用且无固定价覆盖 → 该周期**不可售**，接口输出 `null`（不回退成 `0.00`）；
+   未被 `fixed` 覆盖的周期照常回退上游价（含 `biennial` / `triennial`）。
 4. 金额一律用定点小数字符串（如 `"22.00"`），全链路整数分计算，避免浮点误差；金额格式为非负十进制、最多两位小数、上限 `999999999999.99`。
 5. 规则校验是**严格模式**：出现未知字段（如把 `markup_percent` 拼成 `markup_percentt`）直接报错，避免「少写一个字母 → 静默不加价」造成资金损失。
 
@@ -899,7 +919,10 @@ curl -s https://lyew.com/cart/credit
             "name": "香港二区 CN2 A型",
             "type": "dcimcloud",
             "sort": 0,
-            "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+            "prices": {
+              "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00",
+              "biennial": null, "triennial": null
+            },
             "stock_qty": 70,
             "stock_control": 1,
             "ontrial_max": 0
@@ -914,13 +937,13 @@ curl -s https://lyew.com/cart/credit
 
 | 字段 | 说明 |
 | --- | --- |
-| `prices` | 四周期本地售价；`null` 表示该周期不可售 |
+| `prices` | 六周期本地售价；六个键**始终存在**，`null` 表示该周期不可售 |
 | `stock_qty` / `stock_control` | `stock_control=1` 时 `stock_qty` 才是有效库存；`0` 表示上游不限库存 |
 | `ontrial_max` | 可试用数量（`0` 表示不提供试用） |
 
 #### `GET /api/v1/products/:id`
 
-商品详情：配置项 + 四周期价格 + 库存/试用信息。`:id` 是**本地商品 ID**。
+商品详情：配置项 + 六周期价格 + 库存/试用信息。`:id` 是**本地商品 ID**。
 
 | 项目 | 说明 |
 | --- | --- |
@@ -938,7 +961,10 @@ curl -s https://lyew.com/cart/credit
     "name": "香港二区 CN2 A型",
     "type": "dcimcloud",
     "sort": 0,
-    "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+    "prices": {
+      "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00",
+      "biennial": null, "triennial": null
+    },
     "stock_qty": 70,
     "stock_control": 1,
     "ontrial_max": 0,
@@ -1009,6 +1035,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
 2. 单个商品的详情抓取失败不中断整次导入，计入 `failed` 并跳过该商品；**目录里有商品但全部失败**时返回 `500`。
 3. 首次导入按上游目录顺序写入 `sort`（分组与商品都是）。
 4. 对上游已删除的商品不做处理（本地保留，由管理端下架）。
+5. **周期解析升级后的首次导入会出现 `updated>0`，属预期**：阶段 3b 把 `upstream_prices_json`
+   从 4 键扩为 6 键（新增 `biennial` / `triennial`），而导入的「上游变化检测」按字段整串比较，
+   因此升级后首次导入会刷新所有商品的该字段（`updated=<商品数>`）；**再导入一次必回到
+   `unchanged=<商品数>`**（幂等保持）。
 
 错误码：
 
@@ -1050,7 +1080,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
         "stock_control": 1,
         "ontrial_max": 0,
         "pricing": { "mode": "markup", "markup_percent": 10 },
-        "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+        "prices": {
+          "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00",
+          "biennial": null, "triennial": null
+        },
         "created_at": "2026-10-08T09:00:00Z",
         "updated_at": "2026-10-08T09:12:03Z"
       }
@@ -1108,7 +1141,7 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 | `40002` | 400 | 定价规则不成立（缺 `markup_percent`、`fixed` 为空、`mode=upstream` 携带加价率/固定价等） |
 | `403` | 403 | 角色为 `support` |
 | `404` | 404 | `商品不存在` |
-| `409` | 409 | **更新后为上架状态，但四个周期都没有可用价格**（`商品没有任何可用周期的价格，无法上架（请先配置固定价或确认上游价格可用）`）：避免上架一个买不到的商品 |
+| `409` | 409 | **更新后为上架状态，但六个周期都没有可用价格**（`商品没有任何可用周期的价格，无法上架（请先配置固定价或确认上游价格可用）`）：避免上架一个买不到的商品 |
 | `50001` | 500 | 写入本地库失败 |
 
 #### `GET /api/v1/admin/product-groups`
@@ -1171,7 +1204,10 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
    （例：商品 1 `stock_control=1, qty=70`）。因此导入的库存/试用一律取自**商品详情接口**，
    `stock_control` 随 `config_json` 缓存下发到视图，`stock_qty` 落 `products.stock_qty`。
 2. **负数价格表示「该周期不售」**：实测商品 1 的 `biennially` / `triennially` 为 `-1.00`；
-   159 个商品里 `monthly` 有 5 个、`quarterly` 33 个、`semiannually` 54 个、`annually` 32 个为负值或缺省。
+   159 个商品里 `monthly` 有 5 个、`quarterly` 33 个、`semiannually` 54 个、`annually` 32 个、
+   `biennially` / `triennially` 各 158 个为负值或缺省。阶段 3b 复核：两年付/三年付仅
+   「襄阳云服务器-A型」（本地 `id=112`，`upstream` 模式）有价——上游 `biennially=800.00` /
+   `triennially=1200.00`，本地 `prices` 对应输出 `800.00` / `1200.00`。
    本地定价据此把该周期判为「无上游价」（输出 `null`），**不会**退化成 `0.00` 或负数。
 3. **目录与详情两个接口的字段不一致**：`/cart/all` 的商品 `gid` 为 0（分组关系由目录的嵌套结构给出），
    详情接口的 `products.gid` 才是真实分组；`/cart/all` 有 `module`（如 `idcsmart_common`）而详情接口为空。
@@ -1184,11 +1220,228 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
    入库保留原文，前端渲染需自行反转义。
 7. **并发抓取安全**：导入对上游是纯只读（`/cart/all` + `/cart/get_product_config`），
    4 并发抓 159 个商品实测约 6.5 秒（串行约 40 秒以上）；客户端自带 405 重登与幂等 GET 重试。
+8. **六周期解析升级的实测表现（阶段 3b，2026-10-08 生产上游复核）**：升级后第一次导入
+   `updated=159`（`upstream_prices_json` 从 4 键整体刷新为 6 键），紧接着第二次导入
+   `created=0, updated=0, unchanged=159, groups=29`（幂等保持）；商品 1（本地 `id=1`，
+   `markup` 10%）回读 `prices.biennial` / `prices.triennial` 均为 `null`（上游 `-1.00`），
+   `upstream_prices.prices` 六键齐备。优惠码真机用例：`annual` + `PERCENT10`（percent 10%、限 annual）
+   → `price=220.00, discount_amount=22.00, final_amount=198.00`；`monthly` + 同码 →
+   `cycle_not_applicable`；`annual` + `CASH20`（fixed 20、全周期）→ `20.00 / 200.00`；
+   不存在码 → `404 优惠码不存在`；`cash20` 重复创建 → `409`（大小写不敏感）。
 
-## 11. 变更记录
+## 11. 优惠码（阶段 3b）
+
+优惠码的**规则与校验**在阶段 3b 交付：管理端 CRUD + 会员端公开校验接口。
+折扣的**应用**（下单抵扣、使用记账、新购/续费区分）留到订单/支付阶段（见 11.6）。
+
+### 11.1 数据模型（coupons 表）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 本地优惠码 ID（对外主键） |
+| `code` | string | 优惠码：3-32 位 `[A-Za-z0-9_-]`；**唯一且大小写不敏感**（列排序规则 `utf8mb4_general_ci`——`welcome10` 与 `WELCOME10` 视为同一个码，冲突返回 `409`） |
+| `type` | string | 折扣类型：`percent`（按比例）/ `fixed`（固定减免）；**创建后不可修改** |
+| `value` | string | 折扣值（DECIMAL(12,2) 定点字符串）：`percent` 时是百分比（`0 < x ≤ 100`）；`fixed` 时是减免金额（`> 0`）；上限 `9999999999.99` |
+| `cycles_json` | string[] | 适用周期：空数组 `[]` 表示**全部 6 周期**；元素必须是本地周期名（`monthly` / `quarterly` / `semiannual` / `annual` / `biennial` / `triennial`）；落库时去重并按标准周期顺序排列 |
+| `starts_at` | string \| null | 生效时间（RFC3339 UTC）；`null` = 立即生效 |
+| `expires_at` | string \| null | 过期时间（RFC3339 UTC）；`null` = 永不过期；**`now > expires_at` 判过期**（边界为闭区间：等于过期时间时仍有效） |
+| `max_uses` | int | 最大使用次数，`0` = 不限 |
+| `used_count` | int | 已使用次数（默认 0）；**本阶段只读不增**，扣减与并发控制留订单阶段 |
+| `status` | string | `on` 启用 / `off` 停用（默认 `on`）；**不提供 DELETE —— 停用即 `status=off`** |
+| `comment` | string | 备注（管理端可见，≤ 255 字符，可空） |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+### 11.2 折扣计算与校验语义
+
+**折扣计算**（全部整数分计算，percent 四舍五入到分 half-up）：
+
+| type | 折扣额 | 说明 |
+| --- | --- | --- |
+| `percent` | `price × value%` | 例：`220.00 × 10% = 22.00`；`20.05 × 10% = 2.005 → 2.01` |
+| `fixed` | `min(value, price)` | 超额封顶：减免大于售价时按售价计 |
+
+`final_amount = price − discount_amount`（不会为负）；`price` 是该商品该周期的**本地售价**
+（与会员端 `prices` 同周期的值一致）。金额一律为定点小数字符串（两位小数）。
+
+**校验判定顺序**（依次判断，命中即返回）：
+
+| 顺序 | 条件 | reason |
+| --- | --- | --- |
+| 1 | `status != on` | `disabled` |
+| 2 | `now < starts_at` | `not_started` |
+| 3 | `now > expires_at` | `expired` |
+| 4 | `max_uses > 0` 且 `used_count >= max_uses` | `used_up` |
+| 5 | 适用周期不含该周期，**或该商品该周期本地不可售**（`price = null`） | `cycle_not_applicable` |
+
+`reason` 枚举**固定为这 5 个**。第 5 条的两种情形归入同一枚举：不可售的周期没有折扣可算，
+前端拿到 `cycle_not_applicable` 即视为「该周期不可用此码」。
+
+### 11.3 管理端接口
+
+#### `POST /api/v1/admin/coupons`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance`（`support` 返回 `403`） |
+| 请求体 | `code`（必填）、`type`（必填）、`value`（必填）、`cycles`（可选，省略/null/空数组 = 全部周期）、`starts_at` / `expires_at`（可选，RFC3339，null = 不限制）、`max_uses`（可选，缺省 0）、`status`（可选，缺省 `on`）、`comment`（可选） |
+| 成功 | HTTP 200，`data` 为优惠码对象（结构见下） |
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/api/v1/admin/coupons \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"code":"WELCOME10","type":"percent","value":"10","cycles":["annual"],"max_uses":100,"comment":"新人首年优惠"}'
+```
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": 1,
+    "code": "WELCOME10",
+    "type": "percent",
+    "value": "10.00",
+    "cycles": ["annual"],
+    "starts_at": null,
+    "expires_at": null,
+    "max_uses": 100,
+    "used_count": 0,
+    "status": "on",
+    "comment": "新人首年优惠",
+    "created_at": "2026-10-08T09:30:00Z",
+    "updated_at": "2026-10-08T09:30:00Z"
+  }
+}
+```
+
+校验规则与错误码：
+
+| code | HTTP | 场景 |
+| --- | --- | --- |
+| `40001` | 400 | `code` 非 3-32 位 `[A-Za-z0-9_-]`、`type` 取值非法、`value` 写法非法（非十进制/超两位小数/超 `9999999999.99`）、`cycles` 含非法周期、时间非 RFC3339、`status` 非法、`comment` 超 255 字符 |
+| `40002` | 400 | `percent` 的 `value` 不在 `(0, 100]`、`fixed` 的 `value ≤ 0`、`starts_at` 不早于 `expires_at`、`max_uses` 超出 `0 ~ 4294967295` |
+| `403` | 403 | 角色为 `support` |
+| `409` | 409 | `code` 已存在（**比较不区分大小写**） |
+| `50001` | 500 | 写入本地库失败 |
+
+#### `GET /api/v1/admin/coupons`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 查询参数 | `page`（默认 1）、`page_size`（默认 20，1-100）、`status`（`on` / `off`）、`keyword`（按 `code` 模糊匹配，不区分大小写） |
+| 成功 | HTTP 200，`data` 为 `{items, page, page_size, total}`，**新建在前**（`id` 降序） |
+| 错误码 | `40001`（分页参数越界/非数字、`status` 取值非法） |
+
+#### `GET /api/v1/admin/coupons/:id`
+
+按本地 ID 查询单条优惠码（结构同创建响应）。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 错误码 | `40001`（ID 非正整数）、`404`（`优惠码不存在`） |
+
+#### `PUT /api/v1/admin/coupons/:id`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance` |
+| 请求体 | `code` / `value` / `cycles` / `starts_at` / `expires_at` / `max_uses` / `status` / `comment`；字段均可选但**至少提供一个**。`type` 不可修改（请求中的 `type` 字段被忽略） |
+| 成功 | HTTP 200，`data` 为更新后的优惠码对象 |
+
+三态说明：`cycles` / `starts_at` / `expires_at` 传 `null` 表示**清空**——时间清为 `NULL`
+（不限制），`cycles` 恢复为全部周期；不传（键缺席）表示保持原值。`starts_at` / `expires_at`
+的先后关系按**更新后的最终值**校验（未提供的沿用库内现值）。
+
+```bash
+# 停用（替代删除）并放宽为全部周期
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/coupons/1 \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"status":"off","cycles":null,"expires_at":null}'
+```
+
+错误码：与创建一致（`40001` / `40002` / `403` / `404` 优惠码不存在 / `409` code 冲突 / `50001`）。
+
+### 11.4 公开校验接口
+
+#### `GET /api/v1/coupons/:code/validate`
+
+下单前的折扣试算：校验优惠码并计算某商品某周期的折扣明细。**无需鉴权**，
+`:code` 匹配不区分大小写。
+
+| 项目 | 说明 |
+| --- | --- |
+| 查询参数 | `product_id`（必填，**本地商品 ID**，正整数）、`cycle`（必填，本地周期名） |
+| 成功 | HTTP 200，`data` 为 `{valid, ...}` |
+
+判定顺序：**先参数格式（40001）→ 再 code 存在性（404）→ 再商品存在且上架（404）→ 最后业务判定**。
+
+```bash
+curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cycle=annual'
+```
+
+有效（HTTP 200）：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "valid": true,
+    "code": "WELCOME10",
+    "type": "percent",
+    "value": "10.00",
+    "price": "220.00",
+    "discount_amount": "22.00",
+    "final_amount": "198.00"
+  }
+}
+```
+
+无效（HTTP 200，只带 `valid` 与 `reason`）：
+
+```json
+{ "code": 0, "message": "ok", "data": { "valid": false, "reason": "cycle_not_applicable" } }
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 库内优惠码原文（回带规范化后的写法，便于前端展示） |
+| `price` | 该商品该周期的本地售价（会员端 `prices` 中的同周期值） |
+| `discount_amount` / `final_amount` | 折扣额与折后价（定点小数字符串，见 11.2） |
+
+错误码：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | `product_id` 缺失/非正整数（`product_id 必须为正整数（本地商品 ID）`）、`cycle` 缺失或非本地周期名（`cycle 需为以下之一：…`） |
+| `404` | 404 | code 不存在（`优惠码不存在`）、商品不存在**或已下架**（`商品不存在`，与会员端商品接口语义一致） |
+| `50001` | 500 | 查询本地库失败 |
+
+### 11.5 角色权限矩阵（优惠码部分）
+
+| 接口 | admin | finance | support |
+| --- | --- | --- | --- |
+| `GET /api/v1/coupons/:code/validate` | 公开（无需 token） | 公开 | 公开 |
+| `GET /api/v1/admin/coupons`、`GET /api/v1/admin/coupons/:id` | ✓ | ✓ | ✓ |
+| `POST /api/v1/admin/coupons` | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/coupons/:id` | ✓ | ✓ | ✗（`403`） |
+
+### 11.6 暂不支持的能力（留到订单/支付阶段）
+
+1. **商品范围限定**：优惠码目前只按「周期」限定适用范围，不区分商品/分组（全站通用）。
+2. **每人限用**：没有「每个会员限用 N 次」的约束（`max_uses` 是全站总次数上限）。
+3. **使用记账**：`used_count` 本阶段**只读不增**——没有核销记录表，也没有下单抵扣链路；
+   扣减与并发控制（防超用）留到订单阶段与订单事务一并实现。
+4. **新购/续费区分**：优惠码不区分首购与续费场景。
+
+## 12. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v5 | 阶段 3b：计费周期 4 → 6（新增 `biennial` / `triennial`，上游字段 `biennially` / `triennially` 映射与中文显示名入契约；`upstream_prices_json`、`pricing_json.fixed`、会员端 `prices` 同步扩为 6 键）；新增第 11 节「优惠码」（coupons 数据模型、管理端 CRUD、公开校验接口 `GET /coupons/:code/validate`、折扣计算口径与 reason 枚举、暂不支持清单）；变更记录补记 v4 |
+| 2026-10-08 | v4 | 阶段 3a（补记）：新增第 10 节「商品与计费」（上游导入与幂等、`upstream_prices_json` 缓存、upstream/markup/fixed 三模式定价、上下架校验、会员端只读目录、管理端接口与角色矩阵、生产上游实测差异） |
 | 2026-10-08 | v3 | 阶段 2：新增第 8 节「上游对接」（鉴权机制、`{status,msg,data}` 与状态码映射、上游接口清单、实测示例、实测与文档不符之处/字段类型踩坑）与第 9 节「管理端上游探活接口」；本阶段对生产上游完成真机联调（开通/开关机/重启/重装/暂停/恢复/续费/取消申请） |
 | 2026-10-08 | v2 | 阶段 1：新增第 6 节「认证与账号」（会员注册/登录/资料/改密、管理员登录/资料/会员列表/启禁用）、1.1 认证方式（JWT HS256 + aud 区分两类 token）、1.2 时间与时区（DATETIME 存 UTC）、RBAC 矩阵与开发默认管理员说明 |
 | 2026-10-08 | v1 | 阶段 0：建立统一响应包、错误码表与 `/api/v1/health` 契约 |

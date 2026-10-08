@@ -24,16 +24,19 @@ var (
 	ErrEmailTaken = errors.New("邮箱已被占用")
 	// ErrDuplicate 表示其它唯一键冲突（对应 code=409）。
 	ErrDuplicate = errors.New("唯一键冲突")
+	// ErrCouponCodeTaken 表示优惠码 code 唯一键冲突（大小写不敏感，对应 code=409）。
+	ErrCouponCodeTaken = errors.New("优惠码已存在")
 )
 
 // mysqlDuplicateEntry 是 MySQL 唯一键冲突错误码。
 const mysqlDuplicateEntry = 1062
 
-// 唯一索引名（见 backend/migrations/0002、0003）。
+// 唯一索引名（见 backend/migrations/0002、0003、0005）。
 const (
 	indexMembersUsername = "uk_members_username"
 	indexMembersEmail    = "uk_members_email"
 	indexAdminsUsername  = "uk_admins_username"
+	indexCouponsCode     = "uk_coupons_code"
 )
 
 // Store 是阶段 1 的数据访问入口。
@@ -65,6 +68,8 @@ func mapDuplicateError(err error) error {
 		return ErrEmailTaken
 	case strings.Contains(mysqlErr.Message, indexAdminsUsername):
 		return ErrUsernameTaken
+	case strings.Contains(mysqlErr.Message, indexCouponsCode):
+		return ErrCouponCodeTaken
 	default:
 		return fmt.Errorf("%w: %s", ErrDuplicate, mysqlErr.Message)
 	}

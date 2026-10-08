@@ -31,12 +31,16 @@ type fakePrices struct {
 	Quarterly    string
 	SemiAnnually string
 	Annually     string
+	Biennially   string
+	Triennially  string
 }
 
 func (p fakePrices) monthly() string   { return orUnsold(p.Monthly) }
 func (p fakePrices) quarterly() string { return orUnsold(p.Quarterly) }
 func (p fakePrices) semi() string      { return orUnsold(p.SemiAnnually) }
 func (p fakePrices) annual() string    { return orUnsold(p.Annually) }
+func (p fakePrices) biennial() string  { return orUnsold(p.Biennially) }
+func (p fakePrices) triennial() string { return orUnsold(p.Triennially) }
 
 // orUnsold 空串按上游习惯补 "-1.00"。
 func orUnsold(amount string) string {
@@ -118,9 +122,9 @@ func (c *fakeCatalog) catalogBody() string {
 func detailBody(product fakeProduct) string {
 	pricing := fmt.Sprintf(
 		`{"id":%d,"type":"product","relid":%d,"currency":1,"code":"CNY",`+
-			`"monthly":%q,"quarterly":%q,"semiannually":%q,"annually":%q,"biennially":"-1.00","triennially":"-1.00"}`,
+			`"monthly":%q,"quarterly":%q,"semiannually":%q,"annually":%q,"biennially":%q,"triennially":%q}`,
 		product.ID, product.ID, product.Prices.monthly(), product.Prices.quarterly(),
-		product.Prices.semi(), product.Prices.annual())
+		product.Prices.semi(), product.Prices.annual(), product.Prices.biennial(), product.Prices.triennial())
 
 	// 配置项里刻意带一个 hidden=1 的选项与一个 hidden=1 的值，用于验证会员端过滤。
 	configGroups := `[{"id":1,"name":"区域","description":"","options":[` +
@@ -918,5 +922,70 @@ func TestAdminProductDetailExposesUpstreamPrices(t *testing.T) {
 	if len(detail.ConfigGroups) != 1 || len(detail.ConfigGroups[0].Options) != 2 {
 		// 管理端不做 hidden 过滤，应看到 2 个选项。
 		t.Fatalf("管理端配置项应包含全部选项，实际 %+v", detail.ConfigGroups)
+	}
+}
+
+// TestProductImportSixCyclePrices 验证六周期价格提取（上游 biennially/triennially →
+// 本地 biennial/triennial），以及阶段 3a 的旧 4 键 upstream_prices_json 在重新导入时
+// 被刷新回 6 键（updated=1），刷新后恢复幂等（unchanged）。
+func TestProductImportSixCyclePrices(t *testing.T) {
+	gdb := testDatabase(t)
+	catalog := &fakeCatalog{groups: []fakeGroup{{ID: 1, Name: "六周期分组", Products: []fakeProduct{{
+		ID: 301, Name: "六周期商品", Type: "dcimcloud", Module: "idcsmart_common",
+		Prices: fakePrices{
+			Monthly: "20.00", Quarterly: "60.00", SemiAnnually: "120.00",
+			Annually: "200.00", Biennially: "380.00", Triennially: "540.00",
+		},
+	}}}}}
+	engine := newProductEngine(t, gdb, newFakeCatalogClient(t, catalog))
+	token := adminTokenFor(t, engine, gdb, model.RoleAdmin)
+
+	first := importProducts(t, engine, token)
+	if first.Created != 1 || first.Updated != 0 || first.Unchanged != 0 {
+		t.Fatalf("首次导入计数异常: %+v", first)
+	}
+	productID := productIDByUpstreamPID(t, gdb, 301)
+
+	// 库内上游价格缓存应含 6 个周期键。
+	var stored model.Product
+	if err := gdb.Where("id = ?", productID).Take(&stored).Error; err != nil {
+		t.Fatalf("查询商品失败: %v", err)
+	}
+	upstreamPrices, err := pricing.ParseUpstreamPrices(stored.UpstreamPricesJSON)
+	if err != nil {
+		t.Fatalf("解析上游价格缓存失败: %v", err)
+	}
+	for _, cycle := range pricing.Cycles {
+		if _, ok := upstreamPrices.Prices[cycle]; !ok {
+			t.Fatalf("upstream_prices_json 缺少周期键 %s：%v", cycle, upstreamPrices.Prices)
+		}
+	}
+	if upstreamPrices.Prices[pricing.CycleBiennially] != "380.00" ||
+		upstreamPrices.Prices[pricing.CycleTriennially] != "540.00" {
+		t.Fatalf("biennial/triennial 提取异常: %v", upstreamPrices.Prices)
+	}
+
+	// 上架后会员端应能看到两年付/三年付售价（upstream 模式直接用上游价）。
+	updateProductOK(t, engine, token, productID, map[string]any{"status": "on"})
+	detail := memberDetail(t, engine, productID)
+	assertAllCyclesPresent(t, detail.Prices, "会员端详情")
+	if priceOf(detail.Prices, pricing.CycleBiennially) != "380.00" ||
+		priceOf(detail.Prices, pricing.CycleTriennially) != "540.00" {
+		t.Fatalf("会员端六周期价格异常: %v", detail.Prices)
+	}
+
+	// 模拟阶段 3a 的旧 4 键数据：重新导入应把它刷新回 6 键。
+	legacy := `{"code":"CNY","prices":{"monthly":"20.00","quarterly":"60.00","semiannual":"120.00","annual":"200.00"}}`
+	if err := gdb.Model(&model.Product{}).Where("id = ?", productID).
+		Update("upstream_prices_json", legacy).Error; err != nil {
+		t.Fatalf("写入旧格式缓存失败: %v", err)
+	}
+	second := importProducts(t, engine, token)
+	if second.Updated != 1 || second.Unchanged != 0 {
+		t.Fatalf("旧 4 键数据应被刷新（updated=1），实际: %+v", second)
+	}
+	third := importProducts(t, engine, token)
+	if third.Updated != 0 || third.Unchanged != 1 {
+		t.Fatalf("刷新后应恢复幂等（unchanged=1），实际: %+v", third)
 	}
 }

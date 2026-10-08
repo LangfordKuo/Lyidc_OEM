@@ -6,7 +6,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
-// priceView 是四周期价格表：null 表示该周期不可售（上游无价且本地未覆盖固定价）。
+// priceView 是六周期价格表：null 表示该周期不可售（上游无价且本地未覆盖固定价）。
 type priceView map[string]*string
 
 // configOptionValueView 是可配置项的一个可选值（upstream_id 是下单参数 configoption 的键，
@@ -125,7 +125,7 @@ type memberProductListView struct {
 	Total  int               `json:"total"`
 }
 
-// memberProductDetailView 是会员端商品详情（配置项 + 四周期价格 + 库存/试用信息）。
+// memberProductDetailView 是会员端商品详情（配置项 + 六周期价格 + 库存/试用信息）。
 type memberProductDetailView struct {
 	memberProductView
 	Description  string              `json:"description"`
@@ -154,7 +154,7 @@ func productPrices(product *model.Product) (pricing.Rule, pricing.UpstreamPrices
 	return rule, upstreamPrices, rule.Prices(upstreamPrices.Prices), nil
 }
 
-// newPriceView 把四周期价格转成对外视图：四个周期的键**始终存在**，
+// newPriceView 把六周期价格转成对外视图：六个周期的键**始终存在**，
 // 不可售的周期输出 null（而不是省略键，便于前端稳定地按周期渲染）。
 func newPriceView(prices map[string]string) priceView {
 	view := make(priceView, len(pricing.Cycles))

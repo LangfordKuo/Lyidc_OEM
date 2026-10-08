@@ -159,12 +159,12 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 	if len(req.PricingJSON) > 0 {
 		raw, err := pricingRawJSON(req.PricingJSON)
 		if err != nil {
-			failPricingRule(c, err)
+			failRuleError(c, err)
 			return
 		}
 		normalized, err := pricing.Normalize(raw)
 		if err != nil {
-			failPricingRule(c, err)
+			failRuleError(c, err)
 			return
 		}
 		update.PricingJSON = &normalized
@@ -232,7 +232,7 @@ func (h *productHandler) ensureSellable(c *gin.Context, current *model.Product, 
 	if update.PricingJSON != nil {
 		forced, err := pricing.Parse(*update.PricingJSON)
 		if err != nil {
-			failPricingRule(c, err)
+			failRuleError(c, err)
 			return err
 		}
 		prices = forced.Prices(upstreamPrices.Prices)
@@ -384,7 +384,7 @@ func (h *productHandler) listMemberProducts(c *gin.Context) {
 	response.Success(c, memberProductListView{Groups: views, Total: total})
 }
 
-// getMemberProduct 处理 GET /api/v1/products/:id：详情（配置项 + 四周期价格 + 库存/试用）。
+// getMemberProduct 处理 GET /api/v1/products/:id：详情（配置项 + 六周期价格 + 库存/试用）。
 // 下架商品与不存在的商品统一返回 404。
 func (h *productHandler) getMemberProduct(c *gin.Context) {
 	id, ok := productIDParam(c)
@@ -515,16 +515,17 @@ func pricingRawJSON(raw json.RawMessage) (string, error) {
 	return text, nil
 }
 
-// failPricingRule 把定价规则错误映射为错误码：格式类 40001、规则类 40002。
-func failPricingRule(c *gin.Context, err error) {
-	if errors.Is(err, pricing.ErrRule) {
+// failRuleError 把「格式/规则」两类业务校验错误映射为错误码：
+// 规则类（定价规则不成立、优惠码规则不成立等）→ 40002，其余格式类 → 40001。
+func failRuleError(c *gin.Context, err error) {
+	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) {
 		response.Fail(c, response.CodeValidationFailed, err.Error())
 		return
 	}
 	response.Fail(c, response.CodeInvalidParam, err.Error())
 }
 
-// hasAnyPrice 判断四个周期里是否至少有一个可用价格。
+// hasAnyPrice 判断六个周期里是否至少有一个可用价格。
 func hasAnyPrice(prices map[string]string) bool {
 	for _, cycle := range pricing.Cycles {
 		if prices[cycle] != "" {

@@ -24,15 +24,22 @@ import (
 )
 
 // 支持的计费周期（顺序即对外输出顺序）。
+//
+// 本地周期名沿用「去 -ly」规范：上游字段名 biennially / triennially
+// 对应本地 biennial / triennial（与 semiannually→semiannual、annually→annual 一致）。
 const (
 	CycleMonthly      = "monthly"
 	CycleQuarterly    = "quarterly"
 	CycleSemiAnnually = "semiannual"
 	CycleAnnually     = "annual"
+	CycleBiennially   = "biennial"
+	CycleTriennially  = "triennial"
 )
 
-// Cycles 是本阶段支持计算与展示的四个周期。
-var Cycles = []string{CycleMonthly, CycleQuarterly, CycleSemiAnnually, CycleAnnually}
+// Cycles 是支持计算与展示的六个周期。
+var Cycles = []string{
+	CycleMonthly, CycleQuarterly, CycleSemiAnnually, CycleAnnually, CycleBiennially, CycleTriennially,
+}
 
 // 定价模式取值（Rule.Mode）。
 const (
@@ -127,7 +134,7 @@ func Normalize(raw string) (string, error) {
 	return string(encoded), nil
 }
 
-// Prices 按规则计算四个周期的本地售价。
+// Prices 按规则计算六个周期的本地售价。
 //
 // upstream 为周期 → 上游价格字符串（来自 UpstreamPrices.Prices，可缺周期）。
 // 返回值每个周期都有键；空串表示该周期不可售。

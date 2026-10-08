@@ -194,6 +194,91 @@ func TestPricesIgnoresUnusableUpstreamValues(t *testing.T) {
 	})
 }
 
+// fullUpstreamSix 是六周期都可用的一组上游价（阶段 3b 起 biennial/triennial 参与计算）。
+func fullUpstreamSix() map[string]string {
+	upstream := fullUpstream()
+	upstream[CycleBiennially] = "380.00"
+	upstream[CycleTriennially] = "540.00"
+	return upstream
+}
+
+func TestCyclesSetIsSix(t *testing.T) {
+	want := []string{"monthly", "quarterly", "semiannual", "annual", "biennial", "triennial"}
+	if len(Cycles) != len(want) {
+		t.Fatalf("Cycles = %v，期望 %v", Cycles, want)
+	}
+	for i, cycle := range want {
+		if Cycles[i] != cycle {
+			t.Fatalf("Cycles[%d] = %q，期望 %q", i, Cycles[i], cycle)
+		}
+		if !IsValidCycle(cycle) {
+			t.Errorf("IsValidCycle(%q) = false，期望 true", cycle)
+		}
+	}
+	if IsValidCycle("biennially") || IsValidCycle("triennially") {
+		t.Error("上游字段名 biennially / triennially 不应被当作本地周期名")
+	}
+}
+
+func TestPricesSixCyclesWithMarkup(t *testing.T) {
+	percent := 10.0
+	rule := Rule{Mode: ModeMarkup, MarkupPercent: &percent}
+	assertPrices(t, rule, fullUpstreamSix(), map[string]string{
+		CycleMonthly:      "22.00",
+		CycleQuarterly:    "66.00",
+		CycleSemiAnnually: "132.00",
+		CycleAnnually:     "220.00",
+		CycleBiennially:   "418.00", // 380.00 × 1.10
+		CycleTriennially:  "594.00", // 540.00 × 1.10
+	})
+}
+
+func TestPricesFixedSupportsSixCycles(t *testing.T) {
+	// fixed 的合法键扩为 6 个；未覆盖周期正常回退上游价。
+	rule := Rule{Mode: ModeFixed, Fixed: map[string]string{
+		CycleBiennially:  "399.00",
+		CycleTriennially: "499.00",
+	}}
+	assertPrices(t, rule, fullUpstreamSix(), map[string]string{
+		CycleMonthly:      "20.00",
+		CycleQuarterly:    "60.00",
+		CycleSemiAnnually: "120.00",
+		CycleAnnually:     "200.00",
+		CycleBiennially:   "399.00",
+		CycleTriennially:  "499.00",
+	})
+}
+
+func TestPricesLegacyFourCycleDataStaysValid(t *testing.T) {
+	// 旧 4 周期数据继续合法：fixed 只写 4 周期子集可解析，
+	// 旧 upstream_prices_json（只有 4 键）下新增两周期回退为不可售。
+	legacy, err := Parse(`{"mode":"fixed","fixed":{"monthly":"25.00","annual":"200.00"}}`)
+	if err != nil {
+		t.Fatalf("旧 4 周期 fixed 子集应保持合法，实际报错: %v", err)
+	}
+	assertPrices(t, legacy, fullUpstream(), map[string]string{
+		CycleMonthly:      "25.00",
+		CycleQuarterly:    "60.00",
+		CycleSemiAnnually: "120.00",
+		CycleAnnually:     "200.00",
+		CycleBiennially:   "",
+		CycleTriennially:  "",
+	})
+}
+
+func TestParseUpstreamPricesSixCycles(t *testing.T) {
+	raw := `{"code":"CNY","prices":{"monthly":"20.00","quarterly":"60.00","semiannual":"120.00",` +
+		`"annual":"200.00","biennial":"-1.00","triennial":"540.00"}}`
+	parsed, err := ParseUpstreamPrices(raw)
+	if err != nil {
+		t.Fatalf("ParseUpstreamPrices 返回错误: %v", err)
+	}
+	prices := Default().Prices(parsed.Prices)
+	if prices[CycleBiennially] != "" || prices[CycleTriennially] != "540.00" {
+		t.Fatalf("六周期上游价计算异常: %v", prices)
+	}
+}
+
 func TestParseAmount(t *testing.T) {
 	valid := map[string]int64{
 		"0":               0,

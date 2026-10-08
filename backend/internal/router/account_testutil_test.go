@@ -138,10 +138,12 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM admins",
 		"DELETE FROM products",
 		"DELETE FROM product_groups",
+		"DELETE FROM coupons",
 		"ALTER TABLE members AUTO_INCREMENT = 1",
 		"ALTER TABLE admins AUTO_INCREMENT = 1",
 		"ALTER TABLE products AUTO_INCREMENT = 1",
 		"ALTER TABLE product_groups AUTO_INCREMENT = 1",
+		"ALTER TABLE coupons AUTO_INCREMENT = 1",
 	}
 	for _, statement := range statements {
 		if err := gdb.Exec(statement).Error; err != nil {
