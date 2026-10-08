@@ -69,7 +69,7 @@ func testDatabase(t *testing.T) *gorm.DB {
 		t.Fatalf("准备测试数据库失败: %v", testDBErr)
 	}
 
-	resetAccountTables(t, testDB)
+	resetBusinessTables(t, testDB)
 	return testDB
 }
 
@@ -130,14 +130,18 @@ func prepareTestDatabase(dsn string) error {
 	return nil
 }
 
-// resetAccountTables 清空 members/admins，保证用例之间互不影响。
-func resetAccountTables(t *testing.T, gdb *gorm.DB) {
+// resetBusinessTables 清空业务表（账号 + 商品目录），保证用例之间互不影响。
+func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 	t.Helper()
 	statements := []string{
 		"DELETE FROM members",
 		"DELETE FROM admins",
+		"DELETE FROM products",
+		"DELETE FROM product_groups",
 		"ALTER TABLE members AUTO_INCREMENT = 1",
 		"ALTER TABLE admins AUTO_INCREMENT = 1",
+		"ALTER TABLE products AUTO_INCREMENT = 1",
+		"ALTER TABLE product_groups AUTO_INCREMENT = 1",
 	}
 	for _, statement := range statements {
 		if err := gdb.Exec(statement).Error; err != nil {

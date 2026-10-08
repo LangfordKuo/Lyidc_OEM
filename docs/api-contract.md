@@ -778,7 +778,414 @@ curl -s https://lyew.com/cart/credit
 2. 探活失败**不返回 5xx**，便于前端把它当作状态展示而不是错误弹窗；管理员 token 无效仍按第 1.1 节返回 `401`。
 3. 密钥只以脱敏形式出现在响应与日志中（`1sXR****ZG5`），完整密钥仅存在于本地 `config.yaml`。
 
-## 10. 变更记录
+## 10. 商品与计费（阶段 3a）
+
+本节描述商品目录的导入、本地定价与上下架。数据来源是上游「魔方财务系统」的**只读**接口
+（`GET /cart/all` + `GET /cart/get_product_config`，见第 8 节），本阶段对上游不做任何写操作。
+
+### 10.1 数据模型与字段归属
+
+**商品分组（product_group，本地表 `product_groups`）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 本地分组 ID（管理端过滤/排序用，也是会员端分组 ID） |
+| `upstream_group_id` | int | 上游分组 ID（唯一键） |
+| `name` | string | 分组名（**本地字段**：首次导入取自上游，之后只能在管理端改） |
+| `sort` | int | 排序值（**本地字段**：首次导入按上游顺序写入，升序） |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+**商品（product，本地表 `products`）**
+
+| 字段 | 类型 | 归属 | 说明 |
+| --- | --- | --- | --- |
+| `id` | int | 本地 | 本地商品 ID（对外主键，会员端只用它） |
+| `upstream_pid` | int | 上游 | 上游商品 ID（唯一键；阶段 4 下单时作为 `pid`） |
+| `upstream_group_id` | int | 上游 | 所属上游分组 ID |
+| `name` / `description` / `type` / `module` | string | 上游 | 商品名/描述/类型/模块 |
+| `config_json` | object | 上游 | `GET /cart/get_product_config` 的 `data` 原文缓存（可配置项、自定义字段、价格行） |
+| `upstream_prices_json` | object | 上游 | 上游周期价格原文与挑选结果，见 10.2 |
+| `pricing_json` | object | **本地** | 本地定价规则，见 10.2 |
+| `stock_qty` | int | 上游 | 库存数量（`stock_control=1` 时有效） |
+| `ontrial_max` | int | 上游 | 可试用数量（`0` 表示不提供试用） |
+| `status` | string | **本地** | `on` 上架 / `off` 下架（导入的新商品默认 `off`） |
+| `sort` | int | **本地** | 排序值（首次导入按上游顺序写入，之后由管理端控制，升序） |
+| `created_at` / `updated_at` | string | — | RFC3339（UTC） |
+
+**导入的写入边界（幂等的关键）**：导入只覆盖**上游字段**（`name`、`description`、`type`、`module`、
+`config_json`、`upstream_prices_json`、`stock_qty`、`ontrial_max`，以及商品的 `upstream_group_id`）；
+**本地字段**（`pricing_json`、`status`、`sort`，分组的 `name`、`sort`）在更新分支**永不覆盖**——
+重复导入不会冲掉本地定价与上下架状态。因此「重复导入仅计数变化」：第二次导入同一批数据必然返回
+`created=0, updated=0, unchanged=<商品总数>`。
+
+### 10.2 定价模型
+
+**上游价格缓存 `upstream_prices_json`**
+
+```json
+{
+  "code": "CNY",
+  "prices": {
+    "monthly": "20.00", "quarterly": "60.00", "semiannual": "-1.00", "annual": "200.00"
+  },
+  "rows": [ { "id": 1, "type": "product", "currency": 1, "code": "CNY", "monthly": "20.00", "…": "上游原文" } ]
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 选中价格行的货币代码（优先选 `CNY` 行，其次首行「月付价可用」的行，最后回退首行） |
+| `prices` | 四个周期的上游原值；键是**周期名**（`monthly` / `quarterly` / `semiannual` / `annual`，注意不是上游字段名 `annually` / `semiannually`） |
+| `rows` | 上游 `product_pricings` 原文（仅管理端详情接口返回，便于与上游对账） |
+
+约定：**负数表示该周期不售**（上游实测用 `-1.00` 标记未开通的周期，见 10.6 第 2 条）。
+上游价不可用（缺省、非法、负数）时该周期视为「无上游价」。
+
+**本地定价规则 `pricing_json`**（三种模式，可组合）
+
+```json
+{"mode":"upstream"}
+{"mode":"markup","markup_percent":10}
+{"mode":"fixed","fixed":{"monthly":"25.00","annual":"200.00"}}
+{"mode":"markup","markup_percent":10,"fixed":{"monthly":"25.00"}}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `mode` | string | `upstream`（直接用上游价）/ `markup`（加价率）/ `fixed`（固定覆盖价）；缺省按 `upstream` |
+| `markup_percent` | number | 加价率（百分比，最多两位小数，取值范围 `-100` ~ `1000`，负数即折扣）。`mode=markup` 时必填；`mode=fixed` 时可选（作用于未被固定价覆盖的周期）；`mode=upstream` 时不允许出现 |
+| `fixed` | object | 固定覆盖价：周期名 → 金额字符串。键只能是 `monthly` / `quarterly` / `semiannual` / `annual`。`mode=fixed` 时至少一项；`mode=upstream` 时不允许出现 |
+
+**单周期计算顺序**：上游价 →（若配置了 `markup_percent`）按上游价加价 →（若该周期有固定价）用固定价覆盖。
+
+1. 加价：`上游价 × (1 + markup_percent/100)`，**四舍五入到分**（half-up，例：`20.05 × 1.10 = 22.055 → 22.06`）。
+2. 固定价**不依赖上游价**：上游该周期不售时，固定价照样生效。
+3. 上游价不可用且无固定价覆盖 → 该周期**不可售**，接口输出 `null`（不回退成 `0.00`）。
+4. 金额一律用定点小数字符串（如 `"22.00"`），全链路整数分计算，避免浮点误差；金额格式为非负十进制、最多两位小数、上限 `999999999999.99`。
+5. 规则校验是**严格模式**：出现未知字段（如把 `markup_percent` 拼成 `markup_percentt`）直接报错，避免「少写一个字母 → 静默不加价」造成资金损失。
+
+**校验错误码划分**：格式类（非法 JSON、未知字段、未知周期、金额写法非法、`mode` 取值非法、
+加价率小数超两位）→ `40001`；规则类（`mode=markup` 缺 `markup_percent`、`mode=fixed` 的 `fixed` 为空、
+`mode=upstream` 携带 `markup_percent`/`fixed`、加价率越界）→ `40002`。
+
+### 10.3 会员端接口（只读）
+
+商品目录**无需鉴权**：商品与价格对访客可见（阶段 4 的下单/支付接口才要求会员 token）。
+会员端只暴露**已上架**（`status=on`）商品，且**不返回任何上游 ID**（`upstream_pid` / `upstream_group_id` 都不出现）。
+
+#### `GET /api/v1/products`
+
+按分组组织的上架商品目录（不含空分组；分组与商品均按 `sort` 升序）。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 不需要 |
+| 查询参数 | 无 |
+| 成功 | HTTP 200，`data` 为 `{groups, total}` |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "groups": [
+      {
+        "id": 1,
+        "name": "香港二区",
+        "sort": 0,
+        "products": [
+          {
+            "id": 1,
+            "name": "香港二区 CN2 A型",
+            "type": "dcimcloud",
+            "sort": 0,
+            "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+            "stock_qty": 70,
+            "stock_control": 1,
+            "ontrial_max": 0
+          }
+        ]
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `prices` | 四周期本地售价；`null` 表示该周期不可售 |
+| `stock_qty` / `stock_control` | `stock_control=1` 时 `stock_qty` 才是有效库存；`0` 表示上游不限库存 |
+| `ontrial_max` | 可试用数量（`0` 表示不提供试用） |
+
+#### `GET /api/v1/products/:id`
+
+商品详情：配置项 + 四周期价格 + 库存/试用信息。`:id` 是**本地商品 ID**。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 不需要 |
+| 路径参数 | `id`：本地商品 ID（正整数） |
+| 成功 | HTTP 200，`data` 为商品详情 |
+| 错误码 | `40001`（ID 非正整数）、`404`（商品不存在**或已下架**——下架商品对会员端等同于不存在） |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": 1,
+    "name": "香港二区 CN2 A型",
+    "type": "dcimcloud",
+    "sort": 0,
+    "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+    "stock_qty": 70,
+    "stock_control": 1,
+    "ontrial_max": 0,
+    "description": "&lt;li&gt;CPU:2核心&lt;/li&gt;\n&lt;li&gt;内存:1G&lt;/li&gt;",
+    "group": { "id": 1, "name": "香港二区" },
+    "config_groups": [
+      {
+        "id": 1,
+        "name": "区域",
+        "options": [
+          {
+            "id": 1, "name": "area|区域", "type": 12, "upstream_id": 0,
+            "values": [ { "id": 1, "name": "1|HK^香港", "upstream_id": 0 } ]
+          }
+        ]
+      }
+    ],
+    "custom_fields": [],
+    "updated_at": "2026-10-08T09:12:03Z"
+  }
+}
+```
+
+约定：
+
+1. `config_groups[].options[].upstream_id` / `values[].upstream_id` 是阶段 4 下单时
+   `configoption[<upstream_id>]` 的键，会员端**保留下发**（商品级的上游 ID 仍不下发）。
+2. 会员端**过滤掉上游标记为隐藏**（`hidden != 0`）的可配置项与可选值；管理端不做过滤。
+3. `name` 是上游文案原文（形如 `area|区域`、`1|HK^香港`），阶段 3a 不做文案清洗。
+4. `description` 是上游原文，含 HTML 实体转义（`&lt;li&gt;`）与换行，前端如需渲染 HTML 需自行反转义。
+
+### 10.4 管理端接口
+
+管理端接口全部挂在管理员 token 下（`aud=admin`）。**导入 / 改定价 / 上下架 / 改分组仅 `admin`、`finance` 可调用，`support` 返回 `403`**；查看类接口（列表、详情）所有角色可调用。
+
+#### `POST /api/v1/admin/products/import`
+
+从上游拉取商品目录与逐个商品详情，批量 upsert 到本地（幂等）。**上游侧全程只读**。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance` |
+| 请求体 | 无 |
+| 上游调用 | `GET /cart/all` 一次 + `GET /cart/get_product_config` 每个商品一次（4 并发） |
+| 超时 | 单次上游请求取 `upstream.timeout_seconds`；整次导入上限 5 分钟 |
+| 成功 | HTTP 200，`data` 为 `{created, updated, unchanged, groups, failed, failed_pids}` |
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
+  -H 'Authorization: Bearer <admin-token>'
+```
+
+```json
+{ "code": 0, "message": "ok", "data": { "created": 159, "updated": 0, "unchanged": 0, "groups": 29, "failed": 0 } }
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `created` | 新建商品数（新商品默认 `status=off`、`pricing_json={"mode":"upstream"}`，须人工定价后上架） |
+| `updated` | 上游字段发生变化的商品数 |
+| `unchanged` | 与库内完全一致的商品数 |
+| `groups` | 本次处理的分组数（分组只创建不覆盖） |
+| `failed` / `failed_pids` | 详情抓取失败而被跳过的商品数与 ID 列表（`failed_pids` 最多 20 个，`failed=0` 时不出现） |
+
+行为约定：
+
+1. 同一批数据重复导入：`created=0, updated=0, unchanged=<商品数>, groups=<分组数>`（幂等）。
+2. 单个商品的详情抓取失败不中断整次导入，计入 `failed` 并跳过该商品；**目录里有商品但全部失败**时返回 `500`。
+3. 首次导入按上游目录顺序写入 `sort`（分组与商品都是）。
+4. 对上游已删除的商品不做处理（本地保留，由管理端下架）。
+
+错误码：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | —（本接口无请求体） |
+| `403` | 403 | 角色为 `support` |
+| `500` | 500 | 上游未配置（`上游未配置，无法导入商品`）、上游目录拉取失败（`上游商品目录拉取失败：…`）、全部商品详情抓取失败 |
+| `50001` | 500 | 写入本地库失败 |
+
+#### `GET /api/v1/admin/products`
+
+分页查询商品（含下架商品）。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 查询参数 | `page`（默认 1）、`page_size`（默认 20，1-100）、`group_id`（**本地分组 ID**）、`status`（`on` / `off`）、`keyword`（商品名模糊匹配） |
+| 成功 | HTTP 200，`data` 为 `{items, page, page_size, total}`，按 `sort` 升序、`id` 升序 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "upstream_pid": 1,
+        "upstream_group_id": 1,
+        "group_id": 1,
+        "group_name": "香港二区",
+        "name": "香港二区 CN2 A型",
+        "type": "dcimcloud",
+        "module": "idcsmart_common",
+        "status": "on",
+        "sort": 0,
+        "stock_qty": 70,
+        "stock_control": 1,
+        "ontrial_max": 0,
+        "pricing": { "mode": "markup", "markup_percent": 10 },
+        "prices": { "monthly": "22.00", "quarterly": "66.00", "semiannual": "132.00", "annual": "220.00" },
+        "created_at": "2026-10-08T09:00:00Z",
+        "updated_at": "2026-10-08T09:12:03Z"
+      }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "total": 159
+  }
+}
+```
+
+错误码：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | 分页参数越界/非数字、`status` 取值非法、`group_id` 非正整数 |
+| `404` | 404 | `group_id` 指向不存在的分组（`分组不存在`） |
+| `401` / `403` | 401/403 | token 无效 / 管理员被禁用 |
+
+#### `GET /api/v1/admin/products/:id`
+
+商品详情 = 列表项字段 + `description` + `config_groups` + `custom_fields` + `upstream_prices`（上游价格缓存原文，含 `rows`）。`:id` 为本地商品 ID。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 成功 | HTTP 200，`data` 为商品详情（字段见上；`config_groups` 不做 hidden 过滤） |
+| 错误码 | `40001`（ID 非正整数）、`404`（`商品不存在`） |
+
+#### `PUT /api/v1/admin/products/:id`
+
+修改本地字段：定价规则、上下架、排序。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance` |
+| 请求体 | `pricing_json`（定价规则，见 10.2）、`status`（`on` / `off`）、`sort`（`-999999` ~ `999999`）；三个字段均可选但**至少提供一个** |
+| 成功 | HTTP 200，`data` 为更新后的商品详情（与 `GET /admin/products/:id` 同构） |
+
+```bash
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"pricing_json":{"mode":"markup","markup_percent":10},"status":"on","sort":3}'
+```
+
+注意：`pricing_json` 既接受**对象**（`{"mode":"markup","markup_percent":10}`）也接受**字符串**
+（`"{\"mode\":\"markup\",\"markup_percent\":10}"`），传 `null` 表示重置为缺省规则 `{"mode":"upstream"}`。
+`status` 与 `sort` 只在提供时才修改；未提供的字段保持原值。
+
+错误码：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | 未提供任何字段、定价规则格式非法（含未知字段/未知周期/金额写法非法）、`status` 取值非法、`sort` 越界、ID 非正整数 |
+| `40002` | 400 | 定价规则不成立（缺 `markup_percent`、`fixed` 为空、`mode=upstream` 携带加价率/固定价等） |
+| `403` | 403 | 角色为 `support` |
+| `404` | 404 | `商品不存在` |
+| `409` | 409 | **更新后为上架状态，但四个周期都没有可用价格**（`商品没有任何可用周期的价格，无法上架（请先配置固定价或确认上游价格可用）`）：避免上架一个买不到的商品 |
+| `50001` | 500 | 写入本地库失败 |
+
+#### `GET /api/v1/admin/product-groups`
+
+列出全部分组（含空分组）与分组下的商品计数。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 成功 | HTTP 200，`data` 为 `{items}`，按 `sort` 升序 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "upstream_group_id": 1,
+        "name": "香港二区",
+        "sort": 0,
+        "products": { "total": 12, "on": 3, "off": 9 },
+        "created_at": "2026-10-08T09:00:00Z",
+        "updated_at": "2026-10-08T09:12:03Z"
+      }
+    ]
+  }
+}
+```
+
+#### `PUT /api/v1/admin/product-groups/:id`
+
+分组重命名 / 改排序。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance` |
+| 请求体 | `name`（1-128 字符，自动去首尾空格）、`sort`（`-999999` ~ `999999`）；至少提供一个 |
+| 成功 | HTTP 200，`data` 为更新后的分组（同列表项结构，`products` 计数为 0 值） |
+| 错误码 | `40001`（无字段、空名称、名称超长、`sort` 越界、ID 非正整数）、`403`（support）、`404`（`分组不存在`） |
+
+说明：分组名与排序是**本地字段**，导入不会覆盖（见 10.1），因此可以放心按自己的品牌重命名。
+
+### 10.5 角色权限矩阵（商品部分）
+
+| 接口 | admin | finance | support |
+| --- | --- | --- | --- |
+| `GET /api/v1/products`、`GET /api/v1/products/:id` | 公开（无需 token） | 公开 | 公开 |
+| `GET /api/v1/admin/products`、`GET /api/v1/admin/products/:id` | ✓ | ✓ | ✓ |
+| `GET /api/v1/admin/product-groups` | ✓ | ✓ | ✓ |
+| `POST /api/v1/admin/products/import` | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/products/:id`（改定价/上下架/排序） | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/product-groups/:id` | ✓ | ✓ | ✗（`403`） |
+
+### 10.6 实测差异与约定（2026-10-08，生产上游）
+
+1. **`/cart/all` 的库存与试用字段恒为 0，不可用**：实测 159 个商品的 `stock_control` / `qty` / `ontrial`
+   全为 0，而 `GET /cart/get_product_config` 的 `products.qty` / `stock_control` 才是真实值
+   （例：商品 1 `stock_control=1, qty=70`）。因此导入的库存/试用一律取自**商品详情接口**，
+   `stock_control` 随 `config_json` 缓存下发到视图，`stock_qty` 落 `products.stock_qty`。
+2. **负数价格表示「该周期不售」**：实测商品 1 的 `biennially` / `triennially` 为 `-1.00`；
+   159 个商品里 `monthly` 有 5 个、`quarterly` 33 个、`semiannually` 54 个、`annually` 32 个为负值或缺省。
+   本地定价据此把该周期判为「无上游价」（输出 `null`），**不会**退化成 `0.00` 或负数。
+3. **目录与详情两个接口的字段不一致**：`/cart/all` 的商品 `gid` 为 0（分组关系由目录的嵌套结构给出），
+   详情接口的 `products.gid` 才是真实分组；`/cart/all` 有 `module`（如 `idcsmart_common`）而详情接口为空。
+   导入时分组一律取**目录里的父分组 ID**，其余字段「目录优先、详情兜底」。
+4. **单商品详情体量最大约 22KB**（159 个商品实测，`product_pricings` + `config_groups` + `sub` 价格行），
+   故 `config_json` 用 `MEDIUMTEXT` 缓存原文。
+5. **可配置项文案是上游原文**：`option_name` 形如 `area|区域`、`1|HK^香港`（`code|名称` / `序号|代码^名称`），
+   阶段 3a 不清洗，会员端原样下发（见 10.3）。
+6. **`description` 含 HTML 实体转义**：上游把 `<li>` 存成 `&lt;li&gt;`（实测 159 个商品均是），
+   入库保留原文，前端渲染需自行反转义。
+7. **并发抓取安全**：导入对上游是纯只读（`/cart/all` + `/cart/get_product_config`），
+   4 并发抓 159 个商品实测约 6.5 秒（串行约 40 秒以上）；客户端自带 405 重登与幂等 GET 重试。
+
+## 11. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |

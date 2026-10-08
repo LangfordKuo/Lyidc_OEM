@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -42,6 +43,21 @@ func (c *Client) ProductConfig(ctx context.Context, productID int) (*ProductConf
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ProductConfigRaw 拉取商品配置并返回上游 data 原文，用于把详情原样缓存进商品表
+// （config_json：可配置项、自定义字段、价格行；实测单商品最大约 22KB）。
+func (c *Client) ProductConfigRaw(ctx context.Context, productID int) (json.RawMessage, error) {
+	params, err := productParams(productID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Get(ctx, pathProductConfig, params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
 }
 
 // Stock 查询商品库存，对应 GET /cart/stock_control。

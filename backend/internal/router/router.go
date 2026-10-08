@@ -60,6 +60,11 @@ func New(opts Options) *gin.Engine {
 	tokens := auth.NewTokenManager(opts.JWT)
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
+	products := &productHandler{
+		store:    st,
+		upstream: opts.Upstream,
+		logger:   opts.Logger,
+	}
 	mw := &middleware{store: st, tokens: tokens}
 
 	apiV1 := engine.Group("/api/v1")
@@ -76,6 +81,11 @@ func New(opts Options) *gin.Engine {
 			memberGroup.PUT("/me", members.updateMe)
 			memberGroup.POST("/me/password", members.changePassword)
 		}
+
+		// 商品目录（阶段 3a）：只读且无需鉴权——商品与价格对访客可见，
+		// 阶段 4（下单/支付）才要求会员 token。只返回已上架商品。
+		apiV1.GET("/products", products.listMemberProducts)
+		apiV1.GET("/products/:id", products.getMemberProduct)
 
 		// 管理端：登录开放，其余需要管理员 token；
 		// 改状态类接口额外要求角色为 admin 或 finance（support 返回 403）。
@@ -94,6 +104,18 @@ func New(opts Options) *gin.Engine {
 				upstreamGroup.GET("/health",
 					upstreamHealthHandler(opts.Upstream, opts.UpstreamTimeout))
 			}
+
+			// 商品与计费（阶段 3a）：所有角色可查看；导入/改定价/上下架/改分组要求 admin 或 finance。
+			adminGroup.GET("/products", products.listProducts)
+			adminGroup.GET("/products/:id", products.getProduct)
+			adminGroup.POST("/products/import",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.importProducts)
+			adminGroup.PUT("/products/:id",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProduct)
+
+			adminGroup.GET("/product-groups", products.listProductGroups)
+			adminGroup.PUT("/product-groups/:id",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProductGroup)
 		}
 	}
 

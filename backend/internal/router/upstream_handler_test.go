@@ -73,7 +73,7 @@ func fakeUpstreamClient(t *testing.T, handler http.HandlerFunc) *upstream.Client
 
 func TestUpstreamHealthRequiresAdminToken(t *testing.T) {
 	gdb := testDatabase(t)
-	resetAccountTables(t, gdb)
+	resetBusinessTables(t, gdb)
 	engine := newUpstreamEngine(t, gdb, nil)
 
 	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/upstream/health", "", nil)
@@ -85,7 +85,7 @@ func TestUpstreamHealthRequiresAdminToken(t *testing.T) {
 
 func TestUpstreamHealthWhenNotConfigured(t *testing.T) {
 	gdb := testDatabase(t)
-	resetAccountTables(t, gdb)
+	resetBusinessTables(t, gdb)
 	seedAdmin(t, gdb, "admin", "admin123456", model.RoleAdmin, model.StatusActive)
 	engine := newUpstreamEngine(t, gdb, nil)
 
@@ -110,7 +110,7 @@ func TestUpstreamHealthWhenNotConfigured(t *testing.T) {
 
 func TestUpstreamHealthConnected(t *testing.T) {
 	gdb := testDatabase(t)
-	resetAccountTables(t, gdb)
+	resetBusinessTables(t, gdb)
 	seedAdmin(t, gdb, "admin", "admin123456", model.RoleAdmin, model.StatusActive)
 
 	client := fakeUpstreamClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +151,7 @@ func TestUpstreamHealthConnected(t *testing.T) {
 
 func TestUpstreamHealthReportsUpstreamBusinessFailure(t *testing.T) {
 	gdb := testDatabase(t)
-	resetAccountTables(t, gdb)
+	resetBusinessTables(t, gdb)
 	seedAdmin(t, gdb, "admin", "admin123456", model.RoleAdmin, model.StatusActive)
 
 	client := fakeUpstreamClient(t, func(w http.ResponseWriter, _ *http.Request) {
