@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { consoleNavItems, paths } from '../../app/paths'
+import { useUnreadCountEffect } from '../../hooks/useUnreadCount'
 import {
   IconBell,
   IconDashboard,
@@ -29,9 +30,23 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }): string {
   ].join(' ')
 }
 
-// ConsoleLayout 是会员区骨架布局：顶栏 + 侧栏（移动端改为横向滚动导航）+ 内容区。
-// 7a 只提供骨架与占位路由，7b 在各路由内填充真实功能。
+/** 未读通知徽章：0 条时不渲染，避免侧栏出现无意义的「0」。 */
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) {
+    return null
+  }
+  return (
+    <span className="ml-auto rounded-full bg-danger px-1.5 py-0.5 text-[10px] leading-4 font-medium text-danger-foreground">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
+// ConsoleLayout 是会员区布局：顶栏 + 侧栏（移动端改为横向滚动导航）+ 内容区。
+// 侧栏「通知」入口带未读徽章（进入会员区时拉取一次，已读操作后由通知页刷新）。
 export default function ConsoleLayout() {
+  const unread = useUnreadCountEffect(true)
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SiteHeader />
@@ -44,6 +59,7 @@ export default function ConsoleLayout() {
                 <NavLink key={item.to} to={item.to} end={item.end} className={sidebarLinkClass}>
                   <Icon className="size-4.5" />
                   {item.label}
+                  {item.to === paths.consoleNotifications ? <UnreadBadge count={unread} /> : null}
                 </NavLink>
               )
             })}
@@ -62,7 +78,7 @@ export default function ConsoleLayout() {
                 end={item.end}
                 className={({ isActive }) =>
                   [
-                    'shrink-0 rounded-full border px-3 py-1.5 text-xs',
+                    'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs',
                     isActive
                       ? 'border-transparent bg-accent text-accent-foreground'
                       : 'border-border text-muted',
@@ -70,6 +86,9 @@ export default function ConsoleLayout() {
                 }
               >
                 {item.label}
+                {item.to === paths.consoleNotifications ? (
+                  <UnreadBadge count={unread} />
+                ) : null}
               </NavLink>
             ))}
           </nav>

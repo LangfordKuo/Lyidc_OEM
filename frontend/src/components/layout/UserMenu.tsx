@@ -1,15 +1,38 @@
 import { Dropdown } from '@heroui/react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { fetchBalance } from '../../api/finance'
 import { useAuth } from '../../auth/authContext'
 import { paths } from '../../app/paths'
 import { formatMoney } from '../../lib/format'
 
-// UserMenu 是顶栏右侧的会员菜单：昵称 + 余额 + 控制台/订单入口 + 退出登录。
+// UserMenu 是顶栏右侧的会员菜单：昵称 + 余额（实时读取）+ 控制台/订单/充值入口 + 退出登录。
 // HeroUI v3 的 Dropdown.Trigger 本身就是按钮，无需再包一层 Button。
 export default function UserMenu() {
-  const { member, logout } = useAuth()
+  const { member, setBalance, logout } = useAuth()
   const navigate = useNavigate()
+  const memberId = member?.id
+
+  // 余额实时化：登录后（含切换账号）拉一次服务端余额，覆盖本地缓存的旧值。
+  useEffect(() => {
+    if (!memberId) {
+      return
+    }
+    let cancelled = false
+    fetchBalance()
+      .then((result) => {
+        if (!cancelled) {
+          setBalance(result.balance)
+        }
+      })
+      .catch(() => {
+        // 读取失败保留缓存值（菜单不展示错误，避免顶栏噪音）
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [memberId, setBalance])
 
   if (!member) {
     return null

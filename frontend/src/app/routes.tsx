@@ -15,7 +15,9 @@ import ConsoleNotifications from '../pages/console/ConsoleNotifications'
 import ConsoleOrders from '../pages/console/ConsoleOrders'
 import ConsoleOverview from '../pages/console/ConsoleOverview'
 import ConsoleRecharge from '../pages/console/ConsoleRecharge'
+import ConsoleServerDetail from '../pages/console/ConsoleServerDetail'
 import ConsoleServers from '../pages/console/ConsoleServers'
+import ConsoleTicketDetail from '../pages/console/ConsoleTicketDetail'
 import ConsoleTickets from '../pages/console/ConsoleTickets'
 import { paths } from './paths'
 
@@ -46,9 +48,11 @@ export const routes: RouteObject[] = [
             children: [
               { index: true, element: <ConsoleOverview /> },
               { path: 'servers', element: <ConsoleServers /> },
+              { path: 'servers/:id', element: <ConsoleServerDetail /> },
               { path: 'orders', element: <ConsoleOrders /> },
               { path: 'recharge', element: <ConsoleRecharge /> },
               { path: 'tickets', element: <ConsoleTickets /> },
+              { path: 'tickets/:id', element: <ConsoleTicketDetail /> },
               { path: 'notifications', element: <ConsoleNotifications /> },
             ],
           },

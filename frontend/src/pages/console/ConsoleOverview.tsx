@@ -115,7 +115,8 @@ export default function ConsoleOverview() {
       <Card variant="secondary">
         <Card.Content>
           <p className="text-sm text-muted">
-            当前为前端一期（阶段 7a）：官网、认证、商品与下单支付已可用；会员区各功能页将在阶段 7b 填充。
+            会员区已可用：服务器（开关机 / 重装 / 改密 / 续费 / 终止申请 / 操作记录）、订单与继续支付、
+            余额充值、工单与站内通知。遇到问题可提交工单，我们会通过站内通知与邮件回复。
           </p>
         </Card.Content>
       </Card>

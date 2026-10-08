@@ -8,12 +8,16 @@ export const paths = {
   checkout: (productId: number | string) => `/checkout/${productId}`,
   payResult: '/pay/result',
 
-  // 会员区（7b 填充内容，本批为骨架 + 占位）
+  // 会员区
   console: '/console',
   consoleServers: '/console/servers',
+  /** 实例详情（7b 新增）。 */
+  consoleServerDetail: (id: number | string) => `/console/servers/${id}`,
   consoleOrders: '/console/orders',
   consoleRecharge: '/console/recharge',
   consoleTickets: '/console/tickets',
+  /** 工单详情（7b 新增）。 */
+  consoleTicketDetail: (id: number | string) => `/console/tickets/${id}`,
   consoleNotifications: '/console/notifications',
 } as const
 
