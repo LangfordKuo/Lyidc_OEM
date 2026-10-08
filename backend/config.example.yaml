@@ -16,6 +16,14 @@ database:
   # 连接最长存活时间，支持 Go duration 写法（如 30m、1h）
   conn_max_lifetime: 1h
 
+jwt:
+  # JWT（HS256）签名密钥：会员与管理员 token 共用，用 aud 区分。
+  # 警告：以下是开发默认值，生产环境必须改成足够随机的强密钥（建议 32 字节以上），
+  #       否则任何人都能伪造 token；服务启动时若检测到仍是该默认值会打印告警日志。
+  secret: "lyidc-dev-secret-change-me"
+  # token 有效期（小时），缺省 168 = 7 天，取值 1-8760。
+  expire_hours: 168
+
 log:
   # 日志级别：debug | info | warn | error
   level: "info"

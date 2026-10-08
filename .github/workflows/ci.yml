@@ -14,6 +14,22 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: lyidc_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      # 账号体系集成测试（httptest + 真实 MySQL 5.7）使用的测试库 DSN
+      LYIDC_TEST_DSN: "root:root@tcp(127.0.0.1:3306)/lyidc_test?charset=utf8mb4&parseTime=true&loc=UTC&multiStatements=true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

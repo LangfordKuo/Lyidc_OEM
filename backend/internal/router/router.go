@@ -8,8 +8,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 )
 
 // PingFunc 探测依赖组件（数据库）连通性；返回 nil 表示正常。
@@ -22,6 +27,11 @@ type Options struct {
 	Ping PingFunc
 	// HealthTimeout 是健康检查探测数据库的超时，缺省 2s。
 	HealthTimeout time.Duration
+	// DB 是账号体系（阶段 1）使用的数据库句柄；nil 表示启动时数据库不可用，
+	// 此时账号接口返回 code=50001（数据库错误）。
+	DB *gorm.DB
+	// JWT 是 token 签发/校验配置；零值回退到开发默认密钥与 7 天有效期。
+	JWT config.JWTConfig
 }
 
 // New 创建 gin 引擎并注册全部路由。
@@ -37,9 +47,38 @@ func New(opts Options) *gin.Engine {
 	engine.HandleMethodNotAllowed = true
 	engine.Use(gin.Recovery(), requestLogger(opts.Logger))
 
+	st := store.New(opts.DB)
+	tokens := auth.NewTokenManager(opts.JWT)
+	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
+	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
+	mw := &middleware{store: st, tokens: tokens}
+
 	apiV1 := engine.Group("/api/v1")
 	{
 		apiV1.GET("/health", healthHandler(opts))
+
+		// 会员端：注册与登录开放，其余需要会员 token。
+		apiV1.POST("/auth/register", members.register)
+		apiV1.POST("/auth/login", members.login)
+
+		memberGroup := apiV1.Group("/members", mw.requireMember())
+		{
+			memberGroup.GET("/me", members.me)
+			memberGroup.PUT("/me", members.updateMe)
+			memberGroup.POST("/me/password", members.changePassword)
+		}
+
+		// 管理端：登录开放，其余需要管理员 token；
+		// 改状态类接口额外要求角色为 admin 或 finance（support 返回 403）。
+		apiV1.POST("/admin/auth/login", admins.login)
+
+		adminGroup := apiV1.Group("/admin", mw.requireAdmin())
+		{
+			adminGroup.GET("/profile", admins.profile)
+			adminGroup.GET("/members", admins.listMembers)
+			adminGroup.PUT("/members/:id/status",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), admins.updateMemberStatus)
+		}
 	}
 
 	engine.NoRoute(notFoundHandler)

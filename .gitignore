@@ -42,6 +42,7 @@ Desktop.ini
 
 # ---- 工具与临时文件 ----
 .codex-*/
+.claude-*/
 *.log
 *.tmp
 *.temp

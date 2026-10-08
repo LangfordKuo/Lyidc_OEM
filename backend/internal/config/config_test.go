@@ -264,6 +264,94 @@ func TestSlogLevelFallsBackToInfo(t *testing.T) {
 	}
 }
 
+func TestDefaultJWTConfigIsDevelopmentDefault(t *testing.T) {
+	cfg := Default()
+
+	if cfg.JWT.Secret != DefaultJWTSecret {
+		t.Errorf("jwt.secret 缺省值 = %q, 期望 %q", cfg.JWT.Secret, DefaultJWTSecret)
+	}
+	if cfg.JWT.ExpireHours != DefaultJWTExpireHours {
+		t.Errorf("jwt.expire_hours 缺省值 = %d, 期望 %d", cfg.JWT.ExpireHours, DefaultJWTExpireHours)
+	}
+	if DefaultJWTExpireHours != 24*7 {
+		t.Errorf("缺省有效期 = %d 小时, 期望 168（7 天）", DefaultJWTExpireHours)
+	}
+	if !cfg.JWT.UsesDefaultSecret() {
+		t.Error("UsesDefaultSecret() 对缺省密钥返回 false")
+	}
+}
+
+func TestLoadAppliesJWTConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+jwt:
+  secret: "production-secret-please-change"
+  expire_hours: 24
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("写入临时配置失败: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) 返回错误: %v", path, err)
+	}
+	if cfg.JWT.Secret != "production-secret-please-change" {
+		t.Errorf("jwt.secret = %q, 期望按文件覆盖", cfg.JWT.Secret)
+	}
+	if cfg.JWT.ExpireHours != 24 {
+		t.Errorf("jwt.expire_hours = %d, 期望 24", cfg.JWT.ExpireHours)
+	}
+	if cfg.JWT.UsesDefaultSecret() {
+		t.Error("自定义密钥被判定为默认密钥")
+	}
+}
+
+func TestValidateRejectsInvalidJWTConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			name:   "密钥为空",
+			mutate: func(c *Config) { c.JWT.Secret = "   " },
+			want:   "jwt.secret",
+		},
+		{
+			name:   "有效期为 0",
+			mutate: func(c *Config) { c.JWT.ExpireHours = 0 },
+			want:   "jwt.expire_hours",
+		},
+		{
+			name:   "有效期为负",
+			mutate: func(c *Config) { c.JWT.ExpireHours = -1 },
+			want:   "jwt.expire_hours",
+		},
+		{
+			name:   "有效期超过上限",
+			mutate: func(c *Config) { c.JWT.ExpireHours = MaxJWTExpireHours + 1 },
+			want:   "jwt.expire_hours",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.mutate(&cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate() 期望返回错误，实际为 nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Validate() 错误 %v 未包含 %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestMaskDSNHidesPassword(t *testing.T) {
 	masked := MaskDSN(DefaultDSN)
 

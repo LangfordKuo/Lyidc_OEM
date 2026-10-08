@@ -25,6 +25,14 @@ const (
 	DefaultConnMaxLifetime = time.Hour
 	DefaultLogLevel        = "info"
 	DefaultLogFormat       = "text"
+
+	// DefaultJWTSecret 是开发默认签名密钥。警告：生产环境必须改成足够随机的强密钥，
+	// 否则任何人都能伪造 token（服务启动时会打印告警日志）。
+	DefaultJWTSecret = "lyidc-dev-secret-change-me"
+	// DefaultJWTExpireHours 是 token 缺省有效期：168 小时 = 7 天。
+	DefaultJWTExpireHours = 168
+	// MaxJWTExpireHours 是 token 有效期上限（8760 小时 = 1 年），防止误配成超长有效期。
+	MaxJWTExpireHours = 8760
 )
 
 // EnvConfigPath 是显式指定配置文件路径的环境变量名。
@@ -37,10 +45,24 @@ var DefaultSearchPaths = []string{"config.yaml", filepath.Join("backend", "confi
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
+	JWT      JWTConfig      `yaml:"jwt"`
 	Log      LogConfig      `yaml:"log"`
 
 	// SourcePath 记录实际加载的配置文件路径，为空表示使用缺省值。
 	SourcePath string `yaml:"-"`
+}
+
+// JWTConfig 是 JWT 签发与校验配置。
+type JWTConfig struct {
+	// Secret 是 HS256 签名密钥。缺省为开发默认值 DefaultJWTSecret，生产必须修改。
+	Secret string `yaml:"secret"`
+	// ExpireHours 是 token 有效期（小时），缺省 168（7 天）。
+	ExpireHours int `yaml:"expire_hours"`
+}
+
+// UsesDefaultSecret 判断当前是否仍在使用开发默认密钥。
+func (j JWTConfig) UsesDefaultSecret() bool {
+	return j.Secret == DefaultJWTSecret
 }
 
 // ServerConfig 是 HTTP 服务配置。
@@ -75,6 +97,10 @@ func Default() Config {
 			MaxOpenConns:    DefaultMaxOpenConns,
 			MaxIdleConns:    DefaultMaxIdleConns,
 			ConnMaxLifetime: DefaultConnMaxLifetime,
+		},
+		JWT: JWTConfig{
+			Secret:      DefaultJWTSecret,
+			ExpireHours: DefaultJWTExpireHours,
 		},
 		Log: LogConfig{
 			Level:  DefaultLogLevel,
@@ -163,6 +189,14 @@ func (c Config) Validate() error {
 	}
 	if c.Database.ConnMaxLifetime < 0 {
 		errs = append(errs, fmt.Errorf("database.conn_max_lifetime 不能为负数: %s", c.Database.ConnMaxLifetime))
+	}
+
+	if strings.TrimSpace(c.JWT.Secret) == "" {
+		errs = append(errs, errors.New("jwt.secret 不能为空（缺省应使用开发默认值，留空即视为误配）"))
+	}
+	if c.JWT.ExpireHours <= 0 || c.JWT.ExpireHours > MaxJWTExpireHours {
+		errs = append(errs, fmt.Errorf("jwt.expire_hours %d 非法（应在 1-%d 之间，单位小时）",
+			c.JWT.ExpireHours, MaxJWTExpireHours))
 	}
 
 	if _, err := ParseLogLevel(c.Log.Level); err != nil {

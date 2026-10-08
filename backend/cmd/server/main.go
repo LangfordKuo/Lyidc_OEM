@@ -41,6 +41,9 @@ func main() {
 	} else {
 		logger.Info("配置加载完成", "path", cfg.SourcePath)
 	}
+	if cfg.JWT.UsesDefaultSecret() {
+		logger.Warn("jwt.secret 正在使用开发默认密钥，生产环境必须修改", "config_key", "jwt.secret")
+	}
 
 	gin.SetMode(ginMode(cfg.Server.Mode))
 
@@ -55,6 +58,8 @@ func main() {
 	engine := router.New(router.Options{
 		Logger: logger,
 		Ping:   db.PingFunc(gdb),
+		DB:     gdb,
+		JWT:    cfg.JWT,
 	})
 
 	srv := &http.Server{

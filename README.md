@@ -2,7 +2,7 @@
 
 岭云互联 IDC 财务系统，代理对接专用。
 
-一个独立部署的 IDC 财务/计费系统（对标魔方财务、WHMCS），后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + HeroUI（Tailwind CSS v4）。当前处于**阶段 0：脚手架**，只包含工程结构与基建（配置、数据库连接、迁移、统一响应包、健康检查），不含任何业务功能。
+一个独立部署的 IDC 财务/计费系统（对标魔方财务、WHMCS），后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + HeroUI（Tailwind CSS v4）。当前已完成**阶段 0：脚手架**（配置、数据库连接、迁移、统一响应包、健康检查）与**阶段 1：账号体系**（会员注册/登录/资料/改密、管理员登录与会员管理 RBAC）。
 
 ## 目录结构
 
@@ -12,7 +12,10 @@ backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/ba
   cmd/migrate/           数据库迁移命令（up / down / version）
   internal/config/       配置加载与校验（backend/config.yaml）
   internal/db/           MySQL 连接与连接池
-  internal/router/       路由注册与健康检查
+  internal/auth/         JWT 签发/校验与 bcrypt 密码工具
+  internal/model/        GORM 实体（members / admins）与金额类型
+  internal/store/        数据访问层（GORM 查询封装）
+  internal/router/       路由注册、中间件（鉴权/RBAC）与接口处理
   internal/response/     统一响应包与错误码表
   migrations/            编号 SQL 迁移文件（golang-migrate 风格）
 frontend/                React 前端（Vite + TS + HeroUI v3 + Tailwind v4）
@@ -65,6 +68,11 @@ go vet ./...
 go test ./...
 ```
 
+账号体系的集成测试（httptest + 真实 MySQL 5.7）使用独立测试库，默认
+`root:lyidc123@tcp(127.0.0.1:3306)/lyidc_test`（自动建库并执行迁移）；
+可用环境变量 `LYIDC_TEST_DSN` 覆盖（CI 使用 `root:root@.../lyidc_test`）。
+MySQL 不可达时这些用例会整体跳过（`t.Skip`）。
+
 ### 2. 前端
 
 ```bash
@@ -84,10 +92,11 @@ npm run build       # 类型检查 + 生产构建
 
 ## 文档
 
-- [docs/api-contract.md](docs/api-contract.md)：统一响应包、错误码表、`/api/v1/health` 契约。**后续阶段改接口必须先改本文档再改代码。**
+- [docs/api-contract.md](docs/api-contract.md)：统一响应包、错误码表、`/api/v1/health`、认证与账号（会员/管理员）契约。**后续阶段改接口必须先改本文档再改代码。**
 - [frontend/README.md](frontend/README.md)：前端目录与命令速查。
 
 ## 阶段规划
 
 - 阶段 0（已完成）：脚手架、配置、数据库连接、迁移、统一响应包、健康检查、CI。
-- 阶段 1 及以后：客户、产品、订单、账单、支付、代理对接等业务表与接口（业务代码一律不得写占位假数据）。
+- 阶段 1（已完成）：账号体系（`members` / `admins` 表、JWT HS256 双受众、会员与管理员接口、RBAC 角色守卫、开发默认管理员 `admin / admin123456`）。
+- 阶段 2 及以后：客户、产品、订单、账单、支付、代理对接等业务表与接口（业务代码一律不得写占位假数据）。
