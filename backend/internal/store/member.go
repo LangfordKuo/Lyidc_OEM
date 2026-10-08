@@ -179,6 +179,23 @@ func (s *Store) ListMembers(ctx context.Context, filter MemberFilter) ([]model.M
 	return items, total, nil
 }
 
+// MembersByIDs 按主键批量查询会员（管理端工单列表/详情组装 member 概要用）；
+// ids 为空时返回空切片（不发起查询）。
+func (s *Store) MembersByIDs(ctx context.Context, ids []uint64) ([]model.Member, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.Member, 0)
+	if len(ids) == 0 {
+		return items, nil
+	}
+	if err := db.Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // memberByID 是内部按主键查询，复用已有 GORM 句柄。
 func memberByID(db *gorm.DB, id uint64) (*model.Member, error) {
 	return memberBy(db, "id = ?", id)

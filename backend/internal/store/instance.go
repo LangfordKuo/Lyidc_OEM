@@ -283,6 +283,23 @@ func (s *Store) ListDueInstances(ctx context.Context, dueBefore time.Time, limit
 	return items, nil
 }
 
+// InstancesByIDs 按主键批量查询实例（工单视图组装 instance 概要、校验归属用）；
+// ids 为空时返回空切片（不发起查询）。**只用于概要展示**：调用方不得把敏感字段放进列表视图。
+func (s *Store) InstancesByIDs(ctx context.Context, ids []uint64) ([]model.Instance, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.Instance, 0)
+	if len(ids) == 0 {
+		return items, nil
+	}
+	if err := db.Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // instanceBy 是内部按条件查询单条实例。
 func instanceBy(db *gorm.DB, query string, args ...any) (*model.Instance, error) {
 	var instance model.Instance

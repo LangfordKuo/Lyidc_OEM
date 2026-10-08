@@ -43,3 +43,20 @@ func (s *Store) TouchAdminLogin(ctx context.Context, id uint64, at time.Time) er
 	return db.Model(&model.Admin{}).Where("id = ?", id).
 		UpdateColumn("last_login_at", at.UTC()).Error
 }
+
+// AdminsByIDs 按主键批量查询管理员（工单消息的 author_name 解析用）；
+// ids 为空时返回空切片（不发起查询）。
+func (s *Store) AdminsByIDs(ctx context.Context, ids []uint64) ([]model.Admin, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.Admin, 0)
+	if len(ids) == 0 {
+		return items, nil
+	}
+	if err := db.Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}

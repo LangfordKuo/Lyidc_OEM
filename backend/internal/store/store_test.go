@@ -51,6 +51,18 @@ func TestStoreWithoutDatabaseReturnsUnavailable(t *testing.T) {
 		"AdminByID":            errOf(st.AdminByID(ctx, 1)),
 		"AdminByUsername":      errOf(st.AdminByUsername(ctx, "admin")),
 		"TouchAdminLogin":      st.TouchAdminLogin(ctx, 1, now),
+		// 工单（阶段 6a）。
+		"CreateTicketWithMessage": errOf3(st.CreateTicketWithMessage(ctx, TicketInput{})),
+		"ListTickets":             errOf2(st.ListTickets(ctx, TicketFilter{Page: 1, PageSize: 10})),
+		"TicketByID":              errOf(st.TicketByID(ctx, 1)),
+		"TicketByIDForMember":     errOf(st.TicketByIDForMember(ctx, 1, 1)),
+		"CountOpenTickets":        errOf(st.CountOpenTickets(ctx, 1)),
+		"ListTicketMessages":      errOf(st.ListTicketMessages(ctx, 1, false)),
+		"AppendTicketReply":       errOf3(st.AppendTicketReply(ctx, 1, TicketReplyInput{})),
+		"CloseTicket":             errOf3(st.CloseTicket(ctx, 1)),
+		"MembersByIDs":            errOf(st.MembersByIDs(ctx, []uint64{1})),
+		"AdminsByIDs":             errOf(st.AdminsByIDs(ctx, []uint64{1})),
+		"InstancesByIDs":          errOf(st.InstancesByIDs(ctx, []uint64{1})),
 	}
 
 	for name, err := range tests {
@@ -65,3 +77,6 @@ func errOf[T any](_ T, err error) error { return err }
 
 // errOf2 对应返回 (切片, 计数, 错误) 的方法。
 func errOf2[T any](_ T, _ int64, err error) error { return err }
+
+// errOf3 对应返回 (值, 附带值, 错误) 的方法（工单的创建/回复/关闭）。
+func errOf3[T any, U any](_ T, _ U, err error) error { return err }

@@ -47,6 +47,7 @@ const (
 	indexCouponsCode      = "uk_coupons_code"
 	indexOrdersTradeNo    = "uk_orders_trade_no"
 	indexRechargesTradeNo = "uk_recharges_trade_no"
+	indexTicketsTradeNo   = "uk_tickets_trade_no"
 )
 
 // Store 是阶段 1 的数据访问入口。
@@ -81,7 +82,8 @@ func mapDuplicateError(err error) error {
 	case strings.Contains(mysqlErr.Message, indexCouponsCode):
 		return ErrCouponCodeTaken
 	case strings.Contains(mysqlErr.Message, indexOrdersTradeNo),
-		strings.Contains(mysqlErr.Message, indexRechargesTradeNo):
+		strings.Contains(mysqlErr.Message, indexRechargesTradeNo),
+		strings.Contains(mysqlErr.Message, indexTicketsTradeNo):
 		return ErrTradeNoTaken
 	default:
 		return fmt.Errorf("%w: %s", ErrDuplicate, mysqlErr.Message)

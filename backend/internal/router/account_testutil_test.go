@@ -146,6 +146,9 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM recharges",
 		"DELETE FROM ledger",
 		"DELETE FROM settings",
+		// 工单（阶段 6a）：先删消息再删工单。
+		"DELETE FROM ticket_messages",
+		"DELETE FROM tickets",
 		"ALTER TABLE members AUTO_INCREMENT = 1",
 		"ALTER TABLE admins AUTO_INCREMENT = 1",
 		"ALTER TABLE products AUTO_INCREMENT = 1",
@@ -156,6 +159,8 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"ALTER TABLE orders AUTO_INCREMENT = 1",
 		"ALTER TABLE recharges AUTO_INCREMENT = 1",
 		"ALTER TABLE ledger AUTO_INCREMENT = 1",
+		"ALTER TABLE ticket_messages AUTO_INCREMENT = 1",
+		"ALTER TABLE tickets AUTO_INCREMENT = 1",
 	}
 	for _, statement := range statements {
 		if err := gdb.Exec(statement).Error; err != nil {

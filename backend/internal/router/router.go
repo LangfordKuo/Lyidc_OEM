@@ -124,6 +124,8 @@ func New(opts Options) *gin.Engine {
 	}
 	instances := &instanceHandler{store: st, ops: instanceOperator, logger: opts.Logger}
 	adminSettings := &settingsHandler{store: st, reader: settingsReader, logger: opts.Logger}
+	// 阶段 6a：工单（纯本地域，不调用上游；管理端为 admin + support 的客服域）。
+	tickets := &ticketHandler{store: st, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
 	{
@@ -184,6 +186,14 @@ func New(opts Options) *gin.Engine {
 			memberAPI.GET("/recharges", finance.listRecharges)
 			memberAPI.GET("/finance/balance", finance.getBalance)
 			memberAPI.GET("/finance/ledger", finance.listLedger)
+
+			// 工单（阶段 6a，契约 16）：仅本人（他人工单与不存在统一 404）；
+			// 内部备注（internal=true）的消息绝不出现在会员端响应里。
+			memberAPI.POST("/tickets", tickets.createTicket)
+			memberAPI.GET("/tickets", tickets.listMyTickets)
+			memberAPI.GET("/tickets/:id", tickets.getMyTicket)
+			memberAPI.POST("/tickets/:id/reply", tickets.replyMyTicket)
+			memberAPI.POST("/tickets/:id/close", tickets.closeMyTicket)
 		}
 
 		// 管理端：登录开放，其余需要管理员 token；
@@ -264,6 +274,17 @@ func New(opts Options) *gin.Engine {
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.createCoupon)
 			adminGroup.PUT("/coupons/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.updateCoupon)
+
+			// 工单（阶段 6a，契约 16.3）：工单域是**客服域**——admin 与 support 全权
+			// （这是唯一给 support 写权限的域），finance 一律 403（含只读）。
+			adminTickets := adminGroup.Group("/tickets",
+				requireAdminRole(model.RoleAdmin, model.RoleSupport))
+			{
+				adminTickets.GET("", tickets.listAdminTickets)
+				adminTickets.GET("/:id", tickets.getAdminTicket)
+				adminTickets.POST("/:id/reply", tickets.adminReplyTicket)
+				adminTickets.POST("/:id/close", tickets.adminCloseTicket)
+			}
 		}
 	}
 

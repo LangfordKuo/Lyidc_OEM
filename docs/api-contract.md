@@ -2058,6 +2058,8 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `POST /api/v1/instances/:id/power`、`/reinstall`、`/reset-password`、`/renew`、`GET /api/v1/instances/:id/reinstall-options`、`/logs`（阶段 5b） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST/GET /api/v1/recharges`、`GET /api/v1/finance/balance`、`GET /api/v1/finance/ledger` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST\|GET /api/v1/payments/epay/notify`、`GET /api/v1/payments/epay/return` | 公开（无鉴权，验签是凭证） | 公开 | 公开 | 公开 |
+| `POST/GET /api/v1/tickets`、`GET /api/v1/tickets/:id`、`POST /api/v1/tickets/:id/reply`、`/close`（阶段 6a） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `GET/POST /api/v1/admin/tickets`、`GET /api/v1/admin/tickets/:id`、`POST /api/v1/admin/tickets/:id/reply`、`/close`（阶段 6a，客服域） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 
 ### 12.8 错误码汇总（阶段 4 新增场景）
 
@@ -3032,10 +3034,210 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 ② 终止/退款联动（终止后按剩余周期的退款策略，涉及财务口径）；③ 到期提醒通知（阶段 6）；
 ④ 管理端实例详情页与前端展示（前端零改动，本批只扩接口字段）。
 
-## 16. 变更记录
+## 16. 工单系统（阶段 6a）
+
+本节描述：数据模型（16.1）、状态机（16.2）、接口契约与权限矩阵（16.3）、边界与限流（16.4）、
+真机实测（16.5）。数据结构由**迁移 0010** 引入（新建 `tickets` 与 `ticket_messages` 两张表，
+**不改动 0001–0009 已应用的任何结构**）。
+
+> 本批范围（6a）：会员提单 → 管理员/客服处理 → 关闭的完整闭环，纯本地域、**不调用上游**。
+> **通知体系（站内通知 + 邮件 SMTP + 到期提醒）属阶段 6b**：本批只在工单事件处预留日志与挂点，
+> 不做任何通知发送。
+
+### 16.1 数据模型（迁移 0010）
+
+#### `tickets`（工单主表）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | bigint | 主键 |
+| `trade_no` | varchar(32) | 工单号：`T` + UTC 时间（`yyyyMMddHHmmss`）+ 6 位随机大写字母/数字，如 `T20261008201530K7Q2ZP`（契约 12.2.5 单号规则的第三个前缀，与 `O`/`R` 同口径） |
+| `member_id` | bigint | 提单会员 ID（会员端一切读写按该列隔离） |
+| `instance_id` | bigint \| null | 关联实例（可选；**必须是该会员自己的实例**，无关联为 NULL） |
+| `category` | enum | `technical` 技术 / `billing` 财务 / `other` 其他 |
+| `subject` | varchar(100) | 标题（5-100 字符） |
+| `status` | enum | `open` / `replied` / `closed`（状态机见 16.2） |
+| `last_reply_at` | datetime | 最近一条**消息**的时间（**含管理员内部备注**，UTC）——列表排序与待办定位的锚点 |
+| `closed_at` | datetime \| null | 关闭时间（UTC；未关闭为 NULL） |
+| `created_at` / `updated_at` | datetime | 创建 / 最后更新时间（UTC） |
+
+索引：`uk_tickets_trade_no`（唯一）、`idx_tickets_member`(`member_id`, `id`)、
+`idx_tickets_status`(`status`, `last_reply_at`)、`idx_tickets_instance`(`instance_id`)。
+
+#### `ticket_messages`（工单消息）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | bigint | 主键 |
+| `ticket_id` | bigint | 所属工单（`tickets.id`） |
+| `author_type` | enum | `member` 会员 / `admin` 管理员（客服同属 admin） |
+| `author_id` | bigint | 作者 ID（按 `author_type` 解释为 `members.id` 或 `admins.id`） |
+| `content` | text | 正文（1-5000 字符；首尾空白已由服务端裁剪） |
+| `internal` | tinyint(1) | 管理员**内部备注**：`1` 仅管理端可见，会员端接口绝不返回 |
+| `created_at` | datetime | 发送时间（UTC） |
+
+索引：`idx_ticket_messages_ticket`(`ticket_id`, `id`)。
+
+**首条消息即工单正文**（结构性保证）：创建工单在同一事务内写入 `tickets` 与 `ticket_messages`
+首条记录（`author_type=member`、`internal=0`），因此「工单必有至少一条消息、且首条为会员消息」
+恒成立，详情接口不需要拼接 `subject`/`content` 之外的伪消息。
+
+### 16.2 状态机（定稿）
+
+```
+              会员提单
+                 │
+                 ▼
+        ┌──▶ open（待客服处理）──────────┐
+        │         ▲                     │
+ 会员回复 │         │ 管理员公开回复        │ 关闭（会员 / 管理员）
+        │         ▼                     ▼
+        └──  replied（待会员）─────▶ closed（终态）
+                    关闭（会员 / 管理员）
+```
+
+| 事件 | 触发者 | 状态迁移 | `last_reply_at` | 说明 |
+| --- | --- | --- | --- | --- |
+| 创建工单 | 会员 | （新）→ `open` | = 创建时间 | 同事务写入首条消息 |
+| 会员回复 | 会员（本人） | `open` / `replied` → `open` | 推进 | 已关闭 → `40002` |
+| 管理员公开回复 | admin / support | `open` / `replied` → `replied` | 推进 | `internal=false`；已关闭 → `40002` |
+| 管理员内部备注 | admin / support | **状态不变** | 推进 | `internal=true`（见下方定稿第 2 条） |
+| 关闭 | 会员（本人）/ admin / support | `open` / `replied` → `closed` | 不变 | 写入 `closed_at` |
+| 重复关闭 | 同上 | `closed` → `closed` | 不变 | **幂等**：200 + `already_closed=true`，`closed_at` 保持首次值 |
+
+定稿要点：
+
+1. **`closed` 是终态**：关闭后任何一方都不能再回复（会员端与管理端一致 `40002`「工单已关闭」）；
+   会员如需继续请**新开工单**——本批**不做重开**（与 15.8 的终止幂等口径一致：终态只读）。
+2. **内部备注不改变状态**（定稿）：内部备注是客服协作信息，不是「对会员的回复」，因此
+   `status` 保持原值（会员视角仍是「等待客服处理」），也不会在会员端产生任何可见消息；
+   但它是一次**活动**，所以照常推进 `last_reply_at`（待办排序按最近活动）。
+3. **关闭幂等**（定稿）：重复关闭不报错、不覆盖 `closed_at`——便于前端重试与多标签页并发。
+4. **`replied` 只由管理员公开回复产生**：会员回复一律把工单推回 `open`，状态是「球在谁手里」的
+   唯一表达，不需要额外的已读标记。
+
+### 16.3 接口契约与权限矩阵
+
+#### 视图对象
+
+`ticket` 对象（列表项 / 详情 / 回复与关闭响应共用；时间为 RFC3339 UTC）：
+
+```json
+{
+  "id": 1,
+  "trade_no": "T20261008201530K7Q2ZP",
+  "subject": "主机无法连接，请协助排查",
+  "category": "technical",
+  "status": "open",
+  "instance_id": 3,
+  "instance": {"id": 3, "name": "oem-o20261008105520t0j03j", "product_name": "香港云服务器", "status": "active"},
+  "last_reply_at": "2026-10-08T12:15:30Z",
+  "closed_at": null,
+  "created_at": "2026-10-08T12:15:30Z",
+  "updated_at": "2026-10-08T12:15:30Z"
+}
+```
+
+- `instance_id` 为 `null` 时 `instance` 也为 `null`（未关联实例）；
+- `instance` 是**概要**（`id` / `name` / `product_name` / `status`），不含主机账号密码等敏感字段；
+- 管理端视图在此基础上多 `member_id` 与 `member` 概要 `{id, username, nickname}`。
+
+`message` 对象：
+
+```json
+{"id": 12, "author_type": "admin", "author_id": 1, "author_name": "cs01",
+ "content": "已为您重启主机，请再试。", "internal": false, "created_at": "2026-10-08T12:20:00Z"}
+```
+
+- `author_name` 为作者账号名（会员端与管理端一致；账号已删除时回退 `-`）；
+- **会员端**的任何响应中 `internal` 恒为 `false`，且 `internal=true` 的消息**一律不返回**。
+
+#### 会员端接口（仅本人；他人工单与不存在的工单统一 `404 工单不存在`）
+
+| 接口 | 请求体 / 查询参数 | 成功 `data` | 错误码 |
+| --- | --- | --- | --- |
+| `POST /api/v1/tickets` | `subject`（必填 5-100 字符）、`content`（必填 1-5000 字符）、`category`（必填三值之一）、`instance_id`（可选正整数） | `{ticket, message}`（`status=open`、首条消息为会员消息） | `401`、`40001`（ID / category 非法）、`40002`（标题或内容空白 / 超长 / **未关闭工单已达上限**）、`404`（`instance_id` 非本人实例或不存在） |
+| `GET /api/v1/tickets` | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选筛选） | `{items, page, page_size, total}`，排序 `last_reply_at DESC, id DESC` | `401`、`40001`（分页越界 / status 非法） |
+| `GET /api/v1/tickets/:id` | — | `ticket` + `messages`（**不含内部备注**，按时间正序） | `401`、`40001`、`404` |
+| `POST /api/v1/tickets/:id/reply` | `content`（必填 1-5000 字符） | `{ticket, message}`；状态回 `open` | `401`、`40001`、`404`、`40002`（内容非法 / 工单已关闭） |
+| `POST /api/v1/tickets/:id/close` | — | `{ticket, already_closed}`（重复关闭 `already_closed=true`） | `401`、`40001`、`404` |
+
+#### 管理端接口（**admin + support 全权；finance 一律 `403`**——工单域为客服域）
+
+| 接口 | 请求体 / 查询参数 | 成功 `data` | 错误码 |
+| --- | --- | --- | --- |
+| `GET /api/v1/admin/tickets` | `page` / `page_size`、`status`、`category`、`member_id`、`keyword`（匹配**标题或工单号**，LIKE 通配符已转义） | `{items, page, page_size, total}`（含 `member` 概要） | `401`、`403`、`40001` |
+| `GET /api/v1/admin/tickets/:id` | — | `ticket` + `messages`（**含内部备注**，`internal` 原样输出） | `401`、`403`、`40001`、`404` |
+| `POST /api/v1/admin/tickets/:id/reply` | `content`（必填）、`internal`（可选 bool，缺省 `false`） | `{ticket, message}`；`internal=false` → 状态 `replied`，`internal=true` → 状态不变 | `401`、`403`、`40001`、`404`、`40002`（内容非法 / 工单已关闭） |
+| `POST /api/v1/admin/tickets/:id/close` | — | `{ticket, already_closed}` | `401`、`403`、`40001`、`404` |
+
+**权限矩阵**：
+
+| 接口 | admin | support | finance | 会员 |
+| --- | --- | --- | --- | --- |
+| `/api/v1/tickets` 全部（会员端） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `/api/v1/admin/tickets` 全部（管理端） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+
+> 与既有矩阵的差异：工单域是**唯一让 `support` 拥有写权限**的域（客服就是工单的处理人），
+> 而财务（`finance`）在工单域**只读也不允许**——沿用「finance 只看钱、support 只看/处理服务」
+> 的既有边界（12.7）。
+
+### 16.4 边界与限流（定稿）
+
+1. **未关闭工单上限 20**：`status ∈ {open, replied}` 的工单数达 20 后，创建返回 `40002`
+   「未关闭工单数已达上限 20，请先关闭既有工单」；关闭任一工单后可继续创建。
+   计数与插入不在同一把锁内，**并发下允许瞬时超出**（防滥用而非强一致配额，与 12.9 第 2 条的
+   「不做强校验」一致）。
+2. **字段约束**：`subject` 5-100 字符、`content` 1-5000 字符，均按**裁剪首尾空白后**的 rune 数计
+   （多字节中文按字符计）；纯空白一律拒绝；超长拒绝而不是截断（避免静默丢内容）。
+3. **错误码口径**：枚举取值非法 / ID 非法 / 分页越界 → `40001`；长度、空白、上限、已关闭回复
+   等规则类 → `40002`；`instance_id` 非本人实例或不存在 → `404 实例不存在`（与 14.4 同口径，
+   不暴露他人实例的存在性）。
+4. **越权隔离**：会员端任何接口都按 `member_id` 过滤，他人工单与不存在工单同为 `404`；
+   管理端不限制归属（客服可见全站工单）。
+5. **无外部依赖**：工单链路只读写本地库，不调用上游、不发通知；6b 的通知发送在
+   `tickets`/`ticket_messages` 写入点挂接（本批在这些位置留有明确的日志与注释锚点）。
+6. **不做（留后续批次）**：附件、指派/转派、优先级、SLA 与首响时限、自定义分类、
+   内部备注的编辑与删除、关键字搜索消息正文、工单重开、会员端撤回消息。
+
+### 16.5 真机实测（2026-10-08，开发库）
+
+环境：开发库 `lyidc`（迁移 `0009 → 0010`，`version: 10 (dirty=false)`），后端 `127.0.0.1:8080`，
+**全流程真实中文内容**（无 mock、无上游调用）。测试数据准备：注册会员 `vfy6a`（id=9）并直接写库
+造一台属于该会员的 active 实例（`instance_id=3`，host 30001）；`cs6a` / `fin6a` 两条管理员记录
+（support / finance 角色）用于角色矩阵实测。
+
+| 步骤 | 请求 | 结果（证据） |
+| --- | --- | --- |
+| 提单（关联自己的实例） | `POST /tickets` | 200；工单号 **`T20261008121849W0QLH7`**（前缀 T + UTC 时间 + 6 位随机，长度 21）；`status=open`、`closed_at=null`、`last_reply_at=created_at`；实例概要 `{id:3, name:"oem-ticket-vfy6a", product_name:"香港云服务器-验证用", status:"active"}`；首条消息 `author_type=member / author_id=9 / internal=false` |
+| 列表 / 详情 | `GET /tickets?status=open`、`GET /tickets/1` | 200；列表含实例概要；详情消息流 1 条（中文原文完整：`从今天早上 9 点开始 SSH 就一直连不上（超时）…`） |
+| 会员回复 | `POST /tickets/1/reply` | 200；状态保持 `open`、消息 #2 落库、`last_reply_at` 由 12:18:50 推进到 12:18:53 |
+| admin 内部备注 | `POST /admin/tickets/1/reply {internal:true}` | 200；消息 #3 `internal=true / author=admin(id=1)`，**状态保持 `open`**（定稿第 2 条实测生效） |
+| 内部备注不泄漏 | `GET /tickets/1`（会员） | 200；消息流仅 2 条，内部备注内容**未出现**；管理端 `GET /admin/tickets/1` 同时可见 3 条（含 internal=true） |
+| support 公开回复 | `POST /admin/tickets/1/reply {internal:false}` | 200；消息 #4 `author=cs6a(id=2)`，**状态 open → replied**（待会员） |
+| 会员回复 | `POST /tickets/1/reply` | 200；**状态 replied → open** |
+| finance 角色 | 管理端 4 个接口（列表/详情/回复/关闭） | **全部 `403 当前角色无权执行该操作`**（含只读；`requireAdminRole(admin, support)` 实测生效） |
+| 关闭（会员） | `POST /tickets/1/close` | 200；`status=closed`、`closed_at=2026-10-08T12:19:14Z`、`already_closed=false` |
+| 关闭后回复 | 会员端与管理端各一次 | **均 `40002 工单已关闭，如需继续请新开工单`**（终态只读） |
+| 重复关闭 | 再次 `POST /tickets/1/close` | 200 + `already_closed=true`，`closed_at` **仍为 12:19:14Z**（幂等、不覆盖首次值） |
+| 未登录 | 会员端与管理端各一次 | **`401 未携带或携带了无效的凭证`** |
+| 越权关联 | `POST /tickets {instance_id:1}`（实例 1 属于会员 7） | **`404 实例不存在`**（与 14.4 同口径，不暴露他人实例存在性） |
+| 字段校验 | 标题 2 字 / `category=urgent` | `40002 工单规则不成立: 标题需为 5-100 个字符（当前 2）` / `40001 category 只能是 technical / billing / other` |
+| 限流 | 连续提单 20 次 → 第 21 次 | 20 次全 200；第 21 次 **`40002 未关闭工单数已达上限 20，请先关闭既有工单`** |
+| 关闭后放行 | 关闭 1 单（id=21）后再提单 | 200，新工单 **`T20261008121929YJM2C7`**（id=22）——closed 不计入上限 |
+| 库内一致性 | `SELECT … FROM tickets / ticket_messages` | 工单 1：`status=closed`、`closed_at=12:19:14`；消息 #1-#5 与接口时序一致，内部备注 `internal=1` 落库；限流后 `open_tickets=20`、`closed_tickets=2` |
+| 服务日志 | `server_6a.log` | 6b 通知挂点日志按事件打印：`工单已创建 … instance_id=3`、`工单收到会员回复 … status=open`、`工单收到管理员回复 … internal=true status=open`、`工单收到管理员回复 … role=support internal=false status=replied`、`工单已关闭 … already_closed=false/true`；访问日志状态码与上表逐条对应（401/403/200/400） |
+
+**结论**：6a 的提单 → 处理 → 关闭闭环、状态机（含内部备注不改状态、关闭幂等）、
+内部备注隔离、角色矩阵（support 全权 / finance 全禁）与限流全部在真机按契约生效；
+工单域**零上游调用**、零外部依赖。测试数据（会员 9 的 22 张工单与两套实例、`cs6a`/`fin6a` 两个
+测试管理员）留在开发库作证据，生产部署前按需清理。
+
+## 17. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v11 | 阶段 6a：新增第 16 节「工单系统」——**迁移 0010**（新建 `tickets` / `ticket_messages` 两表，**不改 0001–0009**）；**状态机定稿**（`open` 待客服 ↔ `replied` 待会员 → `closed` 终态；会员回复回 `open`、管理员公开回复转 `replied`、**内部备注不改状态**只推进 `last_reply_at`、关闭**幂等**（重复关闭 `already_closed=true` 且不覆盖 `closed_at`）、`closed` 后回复一律 `40002`）；**单号前缀 `T`**（复用 12.2.5 规则与 `createWithTradeNo`）；**限流定稿**（未关闭工单上限 20，超限 `40002`，并发允许瞬时超出）；**字段约束**（`subject` 5-100 / `content` 1-5000 字符，裁剪首尾空白后按 rune 计，纯空白拒绝）；**接口**（会员端 `POST/GET /tickets`、`GET /tickets/:id`、`POST /tickets/:id/reply|close`；管理端 `GET /admin/tickets`（status/category/member_id/keyword 筛选）、`GET /admin/tickets/:id`、`POST /admin/tickets/:id/reply|close`）；**权限定稿**（工单域为客服域：**admin + support 全权，finance 一律 403**；会员端仅本人，他人工单统一 404）；**内部备注不泄漏**（`internal=true` 的消息绝不进会员端响应）；同步更新 12.7（角色矩阵补工单两行）；**真机实测（16.5）**——开发库（迁移 0009→0010）全流程中文内容演练：工单号 `T20261008121849W0QLH7` 全生命周期（提单 → 会员回复 → 内部备注（状态保持 open）→ support 公开回复（转 replied）→ 会员回复（回 open）→ 关闭 → 关闭后回复 40002 → 重复关闭 `already_closed=true` 且 `closed_at` 不覆盖）、内部备注对会员端零泄漏、finance 四接口全 403、越权关联实例 404、第 21 单 40002 且关闭一单后放行、库内消息流与 6b 挂点日志逐条对应；通知体系（站内通知 + 邮件 SMTP + 到期提醒）留**阶段 6b**，本批只在工单事件处预留挂点 |
 | 2026-10-08 | v10 | 阶段 5c：新增 **15.8「取消/终止流程」**——**迁移 0009**（`instances` 扩 `cancel_request_id` / `cancel_type` / `cancel_status`(none/pending/done) / `cancel_reason` / `cancel_requested_at` + `idx_instances_cancel`；`instance_operation_logs.action` 仅注释扩展，VARCHAR(32) 无 DDL 变更）；**状态机定稿**（取消申请是与服务状态正交的标记：在途期间 `status` 保持 `active`/`suspended` 不变，上游确认删除后一次性转 `terminated`；迁移 0007 的 `cancelled` 枚举**保留但不再写入**）；**接口**（会员端 `POST /instances/:id/cancel`、管理端 `POST /admin/instances/:id/cancel`（仅 admin、reason 必填）；`type` = `immediate`/`end_of_billing` → 上游 `Immediate`/`Endofbilling`；**重复申请幂等**（在途返回现状 `duplicate=true`，不重复提交上游但留审计）；允许状态 `active`/`suspended`）；**收敛规则**（主机不在列表或 `domainstatus ∈ {Deleted, Terminated}` → `terminated` + `cancel_status=done` + 审计 `cancel_sync`，幂等；回读故障与「主机不存在」严格区分，绝不误收敛）；**操作矩阵更新**（`terminated` 终态全操作拒绝；`cancel_status=pending` 时禁续费；其他操作不受在途申请影响）；**扫描扩展**（到期暂停排除在途申请实例；新增终止收敛阶段 `cancel_scanned/converged/failed`，immediate 每轮回读、end_of_billing 到期后回读，失败不写审计并下轮重试）；**审计 action 扩展** `cancel` / `cancel_sync`；**视图扩展**（实例列表/详情/`sync` 响应新增取消字段，新增 `terminated` 标志）；**真机实测（15.8.6）**——上游终止完成后主机**仍在 `hostinfo` 列表中且 `domainstatus=Deleted`**、对已删除主机的重复申请返回 `200 + data.domainstatus=Deleted`（无申请号，区别于首次申请的 `202 + pending + cancel_request_id`）、两台遗留真机（10922/10923）经同步收敛为 `terminated` 且审计留痕、终态操作矩阵实测全部 `40002`；同步更新 14.2（instances 状态说明）、15.1（矩阵与状态图）、15.2/15.3（renew 收紧、sync 行为与错误码）、15.4（action 枚举）、15.6（扫描范围与边界） |
 | 2026-10-08 | v9 | 阶段 5b：新增第 15 节「实例操作与续费」——**操作矩阵与状态约束**（会员端电源/重装/改密仅 `active`；续费 `active`/`suspended`；管理端 suspend/unsuspend 仅 `admin` 且状态受限、sync 全角色；硬操作 `hard_off`/`hard_reboot` 按需开放并标注风险；上游操作异步受理语义与密码强度口径）；**`instance_operation_logs` 审计表**（迁移 0008：id/instance_id/actor_type(member/admin/system)/actor_id/action/status/message(脱敏)/created_at；全部操作含失败尝试与系统自动操作留痕；审计不参与业务事务）；**续费链路**（orders 扩 `type` ENUM('new','renew') + `instance_id`，`POST /instances/:id/renew` 按当前商品售价建单、**不支持优惠码**；支付成功 → 认领行锁幂等 → `RenewHost` → 回读顺延 `next_due_date` → 订单 active；suspended 续费成功自动 Unsuspend（失败不阻断）；失败置 `failed` + 管理员重试同入口；订单视图新增 `type`/`instance_id`）；**到期暂停扫描**（启动延迟 1 分钟 + 每 24h；`active` 且 `next_due_date < now` → 上游 Suspend + 本地 suspended + 审计 actor=system；失败下轮重试、上游已暂停幂等收敛、上游不可达整轮跳过；不做到期提醒）；**接口**（会员端 `POST /instances/:id/power|reinstall|reset-password|renew`、`GET /instances/:id/reinstall-options|logs`；管理端 `POST /admin/instances/:id/suspend|unsuspend|sync`、`GET /admin/instances/:id/logs`）；错误码新增 `50003`（上游调用失败）；**真机实测差异（15.7）**——`configoption` 口径行为级复核通过（所选 os 精确生效，对照组为默认值）、`/host/details` 可作回读来源、`/host/cloudos` 必须带 `os_config_option_id`、电源/重装/改密为异步受理（`process` 中间态与 `406 重置密码中不能执行该操作`）；同步更新 12.3（orders 两列）/12.4（订单视图 `type`/`instance_id`）/12.7（角色矩阵）/12.8（错误码）/14.1（状态机交付分支按 type 分流）/14.2（instances 状态说明：本批起产生 suspended）；变更记录移到第 16 节 |
 | 2026-10-08 | v8 | 阶段 5a：新增第 14 节「订单交付与自动开通」——**订单状态机扩为 6 态**（`pending → paid → provisioning → active / failed`，`cancelled` 仅 `pending`；迁移 0007 ALTER ENUM 并新增 `host_id` / `provision_error` / `delivered_at` 列；**入账幂等集合扩为交付态**：`paid`/`provisioning`/`active`/`failed` 重复回调一律幂等、不重复触发交付）；**instances 表**（订单↔实例一对一 + 上游主机 ID 唯一；订单快照字段、上游同步字段（到期时间/domainstatus/IP/端口/账号密码）、状态枚举（本期只写 `active`，后三者留 5b）；敏感字段仅会员本人详情可见、不进列表与日志）；**自动交付时序**（入账提交后触发、不阻塞回调；认领行锁幂等；`CreateHost` 开通参数拼装（pid/周期映射/host 生成/16 位随机密码/`configoption` 快照）；回读失败不阻断交付；失败置 `failed` + 脱敏原因；超时与落库兜底；进程崩溃悬挂为已知边界；可测性以 `DeliveryTrigger` 注入同步实现）；**接口**（会员端 `GET /instances`、`GET /instances/:id`；管理端 `GET /admin/instances`、`POST /admin/orders/:id/retry-delivery`（仅 admin，同步执行、失败仍 200 返回订单供处置））；同步更新 12.3（状态机与列）/12.4（订单视图三字段与状态提示）/12.7（角色矩阵）/12.8（错误码）/12.9（边界第 1、5 条）/12.10（第 7 条改为已落地+5b 范围）；**真机实测差异（14.5）**——下单/交付 `configoption` 键值口径修正为上游本地 id（上游源码与生产数据佐证：真实商品 `upstream_id` 恒为 0 且未识别键被静默忽略），10.3/12.3/12.4/14.3 同步；**真机全链路演练**（订单 O20261008105520T0J03J → host 10922 → 回读核对一致 → 终止申请 cancel_request_id=432）；变更记录移到第 15 节 |

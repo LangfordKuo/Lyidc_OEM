@@ -539,7 +539,8 @@ func pricingRawJSON(raw json.RawMessage) (string, error) {
 // 规则类（定价/优惠码/设置项/财务规则不成立）→ 40002，其余格式类 → 40001。
 func failRuleError(c *gin.Context, err error) {
 	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) ||
-		errors.Is(err, settings.ErrRule) || errors.Is(err, errFinanceRule) {
+		errors.Is(err, settings.ErrRule) || errors.Is(err, errFinanceRule) ||
+		errors.Is(err, errTicketRule) {
 		response.Fail(c, response.CodeValidationFailed, err.Error())
 		return
 	}
