@@ -1,0 +1,23 @@
+# Lyidc_OEM 后端配置示例。
+# 使用方法：复制为 backend/config.yaml（该文件已被 .gitignore 忽略），按本地环境修改。
+
+server:
+  # HTTP 服务监听地址（host:port）
+  addr: "127.0.0.1:8080"
+  # gin 运行模式：debug | release | test
+  mode: "release"
+
+database:
+  # MySQL 5.7 连接串（DSN），multiStatements 供迁移使用
+  dsn: "root:lyidc123@tcp(127.0.0.1:3306)/lyidc?charset=utf8mb4&parseTime=true&loc=Local&multiStatements=true"
+  # 连接池参数
+  max_open_conns: 25
+  max_idle_conns: 5
+  # 连接最长存活时间，支持 Go duration 写法（如 30m、1h）
+  conn_max_lifetime: 1h
+
+log:
+  # 日志级别：debug | info | warn | error
+  level: "info"
+  # 日志格式：text | json
+  format: "text"

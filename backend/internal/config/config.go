@@ -1,0 +1,213 @@
+// Package config 负责加载与校验 Lyidc_OEM 后端配置。
+package config
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	gomysql "github.com/go-sql-driver/mysql"
+	"gopkg.in/yaml.v3"
+)
+
+// 缺省值。
+const (
+	DefaultAddr            = "127.0.0.1:8080"
+	DefaultMode            = "release"
+	DefaultDSN             = "root:lyidc123@tcp(127.0.0.1:3306)/lyidc?charset=utf8mb4&parseTime=true&loc=Local&multiStatements=true"
+	DefaultMaxOpenConns    = 25
+	DefaultMaxIdleConns    = 5
+	DefaultConnMaxLifetime = time.Hour
+	DefaultLogLevel        = "info"
+	DefaultLogFormat       = "text"
+)
+
+// EnvConfigPath 是显式指定配置文件路径的环境变量名。
+const EnvConfigPath = "LYIDC_CONFIG"
+
+// DefaultSearchPaths 是未显式指定配置文件时的查找顺序（相对当前工作目录）。
+var DefaultSearchPaths = []string{"config.yaml", filepath.Join("backend", "config.yaml")}
+
+// Config 是后端完整配置。
+type Config struct {
+	Server   ServerConfig   `yaml:"server"`
+	Database DatabaseConfig `yaml:"database"`
+	Log      LogConfig      `yaml:"log"`
+
+	// SourcePath 记录实际加载的配置文件路径，为空表示使用缺省值。
+	SourcePath string `yaml:"-"`
+}
+
+// ServerConfig 是 HTTP 服务配置。
+type ServerConfig struct {
+	Addr string `yaml:"addr"`
+	Mode string `yaml:"mode"`
+}
+
+// DatabaseConfig 是 MySQL 连接配置。
+type DatabaseConfig struct {
+	DSN             string        `yaml:"dsn"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
+}
+
+// LogConfig 是日志配置。
+type LogConfig struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+// Default 返回带缺省值的配置。
+func Default() Config {
+	return Config{
+		Server: ServerConfig{
+			Addr: DefaultAddr,
+			Mode: DefaultMode,
+		},
+		Database: DatabaseConfig{
+			DSN:             DefaultDSN,
+			MaxOpenConns:    DefaultMaxOpenConns,
+			MaxIdleConns:    DefaultMaxIdleConns,
+			ConnMaxLifetime: DefaultConnMaxLifetime,
+		},
+		Log: LogConfig{
+			Level:  DefaultLogLevel,
+			Format: DefaultLogFormat,
+		},
+	}
+}
+
+// Load 加载配置：显式路径 > 环境变量 LYIDC_CONFIG > 默认查找路径 > 缺省值。
+// 未找到任何配置文件时返回缺省配置且不报错。
+func Load(explicitPath string) (Config, error) {
+	cfg := Default()
+
+	path, err := ResolvePath(explicitPath)
+	if err != nil {
+		return cfg, err
+	}
+	if path == "" {
+		return cfg, nil
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, fmt.Errorf("读取配置文件 %s: %w", path, err)
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return cfg, fmt.Errorf("解析配置文件 %s: %w", path, err)
+	}
+
+	cfg.SourcePath = path
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("配置校验失败 (%s): %w", path, err)
+	}
+	return cfg, nil
+}
+
+// ResolvePath 返回实际使用的配置文件路径；返回空字符串表示未找到配置文件。
+func ResolvePath(explicitPath string) (string, error) {
+	if path := strings.TrimSpace(explicitPath); path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("指定的配置文件不可用: %w", err)
+		}
+		return path, nil
+	}
+
+	if path := strings.TrimSpace(os.Getenv(EnvConfigPath)); path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return "", fmt.Errorf("环境变量 %s 指向的配置文件不可用: %w", EnvConfigPath, err)
+		}
+		return path, nil
+	}
+
+	for _, path := range DefaultSearchPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", nil
+}
+
+// Validate 校验配置取值，返回全部问题的聚合错误。
+func (c Config) Validate() error {
+	var errs []error
+
+	if _, _, err := net.SplitHostPort(c.Server.Addr); err != nil {
+		errs = append(errs, fmt.Errorf("server.addr %q 非法（应为 host:port）: %w", c.Server.Addr, err))
+	}
+	switch strings.ToLower(c.Server.Mode) {
+	case "debug", "release", "test":
+	default:
+		errs = append(errs, fmt.Errorf("server.mode %q 非法（可选 debug/release/test）", c.Server.Mode))
+	}
+
+	if strings.TrimSpace(c.Database.DSN) == "" {
+		errs = append(errs, errors.New("database.dsn 不能为空"))
+	}
+	if c.Database.MaxOpenConns < 0 {
+		errs = append(errs, fmt.Errorf("database.max_open_conns 不能为负数: %d", c.Database.MaxOpenConns))
+	}
+	if c.Database.MaxIdleConns < 0 {
+		errs = append(errs, fmt.Errorf("database.max_idle_conns 不能为负数: %d", c.Database.MaxIdleConns))
+	}
+	if c.Database.MaxOpenConns > 0 && c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		errs = append(errs, fmt.Errorf("database.max_idle_conns (%d) 不能大于 max_open_conns (%d)",
+			c.Database.MaxIdleConns, c.Database.MaxOpenConns))
+	}
+	if c.Database.ConnMaxLifetime < 0 {
+		errs = append(errs, fmt.Errorf("database.conn_max_lifetime 不能为负数: %s", c.Database.ConnMaxLifetime))
+	}
+
+	if _, err := ParseLogLevel(c.Log.Level); err != nil {
+		errs = append(errs, err)
+	}
+	switch strings.ToLower(c.Log.Format) {
+	case "text", "json":
+	default:
+		errs = append(errs, fmt.Errorf("log.format %q 非法（可选 text/json）", c.Log.Format))
+	}
+
+	return errors.Join(errs...)
+}
+
+// SlogLevel 返回日志级别；解析失败时回退到 info。
+func (c LogConfig) SlogLevel() slog.Level {
+	level, err := ParseLogLevel(c.Level)
+	if err != nil {
+		return slog.LevelInfo
+	}
+	return level
+}
+
+// ParseLogLevel 解析日志级别文本。
+func ParseLogLevel(value string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return slog.LevelInfo, fmt.Errorf("log.level %q 非法（可选 debug/info/warn/error）", value)
+	}
+}
+
+// MaskDSN 解析 DSN 后抹掉密码，便于安全打印日志。
+func MaskDSN(dsn string) string {
+	parsed, err := gomysql.ParseDSN(dsn)
+	if err != nil {
+		return "<无法解析的 DSN>"
+	}
+	parsed.Passwd = ""
+	return parsed.FormatDSN()
+}

@@ -1,0 +1,13 @@
+/* HeroUI v3 要求 Tailwind CSS 先导入，顺序不可颠倒 */
+@import "tailwindcss";
+@import "@heroui/styles";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
