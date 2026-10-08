@@ -1,0 +1,3340 @@
+# 代理商（app\admin\controller\AgentController）
+
+
+---
+
+## GET 资源池登录信息
+
+- name: `app\admin\controller\AgentController::getResourceInfo`
+- url: `/admin/agent/resourceinfo`
+- 返回字段: [' username:账号', ' password:密码']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getResourceInfo
+接口：资源池登录信息
+接口地址：/admin/agent/resourceinfo 
+GET
+资源池登录信息 -- wyh
+时间 2021-09-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "username":"账号",
+    "password":"密码",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 提交资源池登录信息
+
+- name: `app\admin\controller\AgentController::postResourceInfo`
+- url: `/admin/agent/resourceinfo`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postResourceInfo
+接口：提交资源池登录信息
+接口地址：/admin/agent/resourceinfo 
+POST
+提交资源池登录信息 -- wyh
+时间 2021-09-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+API
+username
+字符串
+必填
+-
+-
+账号
+password
+字符串
+必填
+-
+-
+API密钥
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+username
+password
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 工单传递
+
+- name: `app\admin\controller\AgentController::postResourceTicketOpen`
+- url: `/admin/agent/resourceticketopen`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postResourceTicketOpen
+接口：工单传递
+接口地址：/admin/agent/resourceticketopen 
+POST
+工单传递 -- wyh
+时间 2021-09-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+API
+ticket_open
+整型
+必填
+-
+-
+是否开启工单传递:1是,0否
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+ticket_open
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 测试链接
+
+- name: `app\admin\controller\AgentController::postLinkToResource`
+- url: `/admin/agent/linktoresource`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postLinkToResource
+接口：测试链接
+接口地址：/admin/agent/linktoresource 
+POST
+测试链接 -- wyh
+时间 2021-09-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 商品列表
+
+- name: `app\admin\controller\AgentController::getProducts`
+- url: `/admin/agent/products`
+- 返回字段: ['products:列表@', ' product_count:产品 总数', ' local_qty:本地 库存 总', ' upstream_qty:上游 库存 总', ' host_total:数量 总', ' host_active:激活 总']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getProducts
+接口：商品列表
+接口地址：/admin/agent/products 
+GET
+商品列表 -- wyh
+时间 2021-09-01
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+keyword
+mixed
+非必填
+-
+-
+关键字搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "products":[{//列表
+      "id":"",
+      "gname":"分类名称",
+      "qty":"本地",
+      "upstream_qty":"上游",
+      "host_count":"数量",
+      "host_active":"激活",
+      "billingcycle_zh":"周期",
+    }]
+    "product_count":"产品 总数",
+    "local_qty":"本地 库存 总",
+    "upstream_qty":"上游 库存 总",
+    "host_total":"数量 总",
+    "host_active":"激活 总",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+keyword
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单列表搜索页面
+
+- name: `app\admin\controller\AgentController::getOrderSearchPage`
+- url: `admin/agent/ordersearchpage`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getOrderSearchPage
+接口：订单列表搜索页面
+接口地址：admin/agent/ordersearchpage 
+get
+订单列表搜索页面 -- xiong
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+status
+整型
+非必填
+-
+-
+订单状态
+order_type
+整型
+非必填
+-
+-
+订购类型
+supplier_username
+字符串
+非必填
+-
+-
+卖家
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+status
+order_type
+supplier_username
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 订单列表
+
+- name: `app\admin\controller\AgentController::getOrder`
+- url: `admin/agent/order`
+- 返回字段: [' count:总数', ' rows:订单列表信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getOrder
+接口：订单列表
+接口地址：admin/agent/order 
+GET
+订单列表 -- wyh
+接口说明:订单列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+type
+字符串
+非必填
+-
+-
+订单类型order_type
+value
+字符串
+非必填
+-
+-
+传返回的type的键
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "count":"总数",
+    "rows":[{//订单列表信息
+      "id":"资源池订单ID",
+      "local_id":"本地订单ID(跳转至订单内页以这个为准)",
+      "local_hostid":"本地产品ID(跳转至产品内页以这个为准)",
+      "name":"商品名称",
+      "domain":"主机名",
+      "local_name":"本地商品",
+      "local_domain":"本地主机",
+      "product_type":"产品类型",
+      "dedicatedip":"IP",
+      "supplier_username":"供应商用户名(卖家)",
+      "agent_username":"代理商用户名(买家?用户?)",
+      "local_username":"在代理商购买商品的客户",
+      "order_status":"订单状态",
+      "create_time":"订购时间",
+      "invoice_type_zh":"订单类型",
+      "billingcycle_zh":"周期",
+      "payment":"代理商",
+      "local_payment":"",
+      "order_notes":"代理商",
+      "local_order_notes":"客户在代理商处的",
+      "i_status":"订单支付状态：除了Unpaid外，其他都有退款按钮",
+      "evaluation_id":"评论ID,大于0代表已评论",
+      "resource_amount":"资源池购买价格",
+      "current_rate":"相对资源池货币汇率",
+      "after_sale":"售后记录信息(有此值，则显示",
+      "hosts":[{//产品信息
+        "hostid":"产品ID",
+        "local_hostid":"本地产品ID(跳转以至产品内页以这个为准)",
+        "name":"产品名称",
+        "domain":"主机名",
+        "dedicatedip":"IP",
+        "billingcycle":"周期",
+        "firstpaymentamount":"金额",
+        "type":"产品类型",
+      }]
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+type
+value
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 续费订单列表搜索页面
+
+- name: `app\admin\controller\AgentController::getRenewSearchPage`
+- url: `admin/agent/renewsearchpage`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getRenewSearchPage
+接口：续费订单列表搜索页面
+接口地址：admin/agent/renewsearchpage 
+get
+续费订单列表搜索页面 -- xiong
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+status
+整型
+非必填
+-
+-
+订单状态
+supplier_username
+字符串
+非必填
+-
+-
+卖家
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+status
+supplier_username
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 续费订单列表
+
+- name: `app\admin\controller\AgentController::getRenew`
+- url: `admin/agent/renew`
+- 返回字段: [' count:总数', ' rows:订单列表信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getRenew
+接口：续费订单列表
+接口地址：admin/agent/renew 
+GET
+续费订单列表 -- xiong
+接口说明:续费订单列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+type
+字符串
+非必填
+-
+-
+订单类型order_type
+value
+字符串
+非必填
+-
+-
+传返回的type的键
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "count":"总数",
+    "rows":[{//订单列表信息
+      "id":"资源池账单ID",
+      "name":"商品名称",
+      "domain":"主机名",
+      "dedicatedip":"IP",
+      "paid_time":"续费时间",
+      "amount":"金额",
+      "supplier_username":"供应商用户名(卖家)",
+      "payment":"代理商",
+      "local_hostid":"本地产品ID(跳转至产品内页以这个为准)",
+      "local_name":"本地商品",
+      "local_domain":"本地主机",
+      "local_invoiceid":"本地账单ID(跳转至账单内页以这个为准)",
+      "local_username":"在代理商购买商品的客户",
+      "local_payment":"",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+type
+value
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 售后详情
+
+- name: `app\admin\controller\AgentController::getAfterSaleDetail`
+- url: `/admin/agent/afterSaleDetail`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getAfterSaleDetail
+接口：售后详情
+接口地址：/admin/agent/afterSaleDetail 
+GET
+售后详情 -- xue
+时间 2021-09-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+1
+-
+after_sale.id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 退款详情
+
+- name: `app\admin\controller\AgentController::getRefundDetail`
+- url: `/admin/agent/refundDetail`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getRefundDetail
+接口：退款详情
+接口地址：/admin/agent/refundDetail 
+GET
+退款详情 -- xue
+时间 2021-09-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+1
+-
+账单ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品列表
+
+- name: `app\admin\controller\AgentController::getHost`
+- url: `/admin/agent/host`
+- 返回字段: [' status:状态,搜索使用', ' rows:产品信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getHost
+接口：产品列表
+接口地址：/admin/agent/host 
+GET
+产品列表 -- wyh
+时间 2021-09-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+AESC,DESC
+keywords
+mix
+非必填
+-
+-
+关键字搜索
+status
+mix
+非必填
+-
+-
+状态搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "status":"状态,搜索使用",
+    "rows":[{//产品信息
+      "id":"",
+      "name":"商品名称",
+      "domain":"主机名",
+      "dedicatedip":"IP",
+      "supplier_username":"卖家",
+      "agent_username":"买家(工单先不要)",
+      "order_status":"状态",
+      "create_time":"订购时间",
+      "amount":"金额",
+      "billingcycle_zh":"周期",
+      "local_hostid":"本地产品ID(跳转至产品内页需要此参数)",
+      "local_uid":"本地客户ID(跳转至产品内页需要此参数)",
+      "shop_name":"店铺名称",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+keywords
+status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 协查列表
+
+- name: `app\admin\controller\AgentController::getInspectionLists`
+- url: `/admin/agent/inspectionlists`
+- 返回字段: [' lists:商品列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getInspectionLists
+接口：协查列表
+接口地址：/admin/agent/inspectionlists 
+GET
+协查列表 -- wyh
+接口说明:协查列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+ASC,DESC
+keywords
+字符串
+非必填
+1
+-
+按关键字搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "lists":[{//商品列表
+      "id":"",
+      "username":"买家",
+      "dedicatedip":"独立ip",
+      "assignedips":"分配ip",
+      "create_time":"提交时间",
+      "status_zh":"状态",
+      "reason":"驳回原因，当status==Cancelled时，才显示",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+keywords
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##      POST 上传图片
+
+- name: `app\admin\controller\AgentController::postUpload`
+- url: `        admin/agent/upload`
+- 返回字段: ['     savename:上传的文件路径']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postUpload
+接口：上传图片
+接口地址： admin/agent/upload 
+ POST
+上传图片 -- wyh
+一般图片上传
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+image|file
+file
+必填
+0
+-
+图片
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "savename":"上传的文件路径",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+image|file
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 协查申请
+
+- name: `app\admin\controller\AgentController::postResourceInspection`
+- url: `/admin/agent/resourceinspection`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postResourceInspection
+接口：协查申请
+接口地址：/admin/agent/resourceinspection 
+POST
+协查申请 -- wyh
+接口说明:协查申请
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+police
+整型
+必填
+1
+-
+警官姓名
+agency
+整型
+必填
+1
+-
+执法机构
+ip
+整型
+必填
+1
+-
+调取IP
+orderid
+整型
+必填
+1
+-
+订单ID(这里只能选一个)
+email
+整型
+必填
+1
+-
+邮件地址
+phone
+整型
+必填
+1
+-
+联系电话
+police_card
+整型
+必填
+1
+-
+警官证((调上传文件接口admin/agent/upload取返回值savename))
+law
+整型
+必填
+1
+-
+法律文书(调上传文件接口admin/agent/upload取返回值savename)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+police
+agency
+ip
+orderid
+email
+phone
+police_card
+law
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 匹配ip订单
+
+- name: `app\admin\controller\AgentController::getInspectionIp`
+- url: `/admin/agent/inspectionip`
+- 返回字段: ['orders:订单信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getInspectionIp
+接口：匹配ip订单
+接口地址：/admin/agent/inspectionip 
+GET
+匹配ip订单 -- wyh
+接口说明:匹配ip订单
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+ip
+整型
+必填
+1
+-
+调取IP
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "orders":[{//订单信息
+      "id":"订单IDusername:客户companyname:公司名dedicatedip:ipassignedips:ipcreate_time:订购时间status_zh:状态，颜色",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+ip
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 协查详情
+
+- name: `app\admin\controller\AgentController::getInspectionDetail`
+- url: `/admin/agent/inspectiondetail`
+- 返回字段: [' inspection:协查信息@', 'client:基础信息@', 'agent:认证信息@', ' order:购买信息@', ' login:登录信息@']
+- 客户参数:  username:用户名 create_time:创建时间 lastlogin:最后登录时间 lastloginip:最后登录ip register:注册天数
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getInspectionDetail
+接口：协查详情
+接口地址：/admin/agent/inspectiondetail 
+GET
+协查详情 -- wyh
+接口说明:协查详情
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+1
+-
+协查ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "inspection":[{//协查信息
+      "police":"警官姓名",
+      "agency":"执法机构",
+      "ip":"调取IP",
+      "email":"邮件地址",
+      "phone":"联系电话",
+      "police_card":"警官证",
+      "law":"法律文书",
+      "status":"状态：Pending待审核（默认），Active通过，Cancelled驳回",
+      "status_zh":"状态：Pending待审核（默认），Active通过，Cancelled驳回",
+      "reason":"驳回原因",
+    }]
+    "client":[{//基础信息
+      "username":"用户名",
+      "create_time":"创建时间",
+      "lastlogin":"最后登录时间",
+      "lastloginip":"最后登录ip",
+      "register":"注册天数",
+    }]
+    "agent":[{//认证信息
+      "name":"姓名",
+      "email":"邮箱",
+      "phone":"电话",
+      "address":"地址",
+      "company":"公司名称",
+      "company_address":"公司地址",
+      "business_license":"营业执照",
+      "img_one":"身份证1",
+      "img_two":"身份证2",
+    }]
+    "order":[{//购买信息
+      "id":"",
+      "name":"名称",
+      "domain":"主机名",
+      "type_zh":"产品类型",
+      "dedicatedip":"IP",
+      "status_zh":"订单状态",
+      "create_time":"订购时间",
+      "invoice_type_zh":"订单类型",
+      "amount":"金额",
+      "billingcycle_zh":"周期",
+      "payment":"付款方式",
+    }]
+    "login":[{//登录信息
+      "id":"",
+      "create_time":"",
+      "description":"",
+      "user":"",
+      "orgin":"",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 退款
+
+- name: `app\admin\controller\AgentController::postRefund`
+- url: `/admin/agent/refund`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postRefund
+接口：退款
+接口地址：/admin/agent/refund 
+POST
+退款 -- wyh
+接口说明:退款
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+invoiceid
+整型
+必填
+1
+-
+账单ID
+amount
+整型
+必填
+1
+-
+退款金额
+subtotal
+整型
+必填
+1
+-
+总金额
+refund_reason
+字符串
+必填
+1
+-
+退款原因
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+invoiceid
+amount
+subtotal
+refund_reason
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 申请售后
+
+- name: `app\admin\controller\AgentController::postAfterSale`
+- url: `/admin/agent/aftersale`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postAfterSale
+接口：申请售后
+接口地址：/admin/agent/aftersale 
+POST
+申请售后 -- wyh
+接口说明:申请售后
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+orderid
+整型
+必填
+1
+-
+订单ID
+reason
+字符串
+必填
+1
+-
+申请原因
+agent_img[]
+数组
+非必填
+1
+-
+申请附件(调上传文件接口admin/agent/upload取返回值savename),拼接成数组
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+orderid
+reason
+agent_img[]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 撤销申请
+
+- name: `app\admin\controller\AgentController::postUnAfterSale`
+- url: `/admin/agent/unaftersale`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postUnAfterSale
+接口：撤销申请
+接口地址：/admin/agent/unaftersale 
+POST
+撤销申请 -- wyh
+接口说明:撤销申请
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+1
+-
+订单ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 基础信息
+
+- name: `app\admin\controller\AgentController::getBaseInfo`
+- url: `/admin/agent/baseinfo`
+- 返回字段: ['total:总利润', 'month:本月利润', 'host_total:产品总数', 'host_active:激活产品数', 'currency:货币', 'client:@']
+- 客户参数: credit:余额credit_limit:信用额credit_limit_balance:信用额余额prefix:货币前缀
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getBaseInfo
+接口：基础信息
+接口地址：/admin/agent/baseinfo 
+GET
+基础信息 -- wyh
+接口说明:基础信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "total":"总利润",
+    "month":"本月利润",
+    "host_total":"产品总数",
+    "host_active":"激活产品数",
+    "currency":"货币",
+    "client":"@",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 代理商日志
+
+- name: `app\admin\controller\AgentController::getAgentLogs`
+- url: `/admin/agent/agentLogs`
+- 返回字段: ['count:数量', 'logs:日志@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getAgentLogs
+接口：代理商日志
+接口地址：/admin/agent/agentLogs 
+GET
+代理商日志 -- wyh
+接口说明:代理商日志 TODO
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+desc
+整型
+非必填
+''
+-
+描述
+timer
+字符串
+非必填
+''
+-
+时间
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+ASC,DESC
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "count":"数量",
+    "logs":[{//日志
+      "id":"idcreate_time:时间desc:描述ip:ipreferer:来源active_name:操作人user_type_cn:操作人角色",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+desc
+timer
+limit
+order
+sort
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 消费数据
+
+- name: `app\admin\controller\AgentController::getConsumption`
+- url: `/admin/agent/consumption`
+- 返回字段: [' rows:商品列表@', 'gateways:支付列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getConsumption
+接口：消费数据
+接口地址：/admin/agent/consumption 
+GET
+消费数据 -- wyh
+接口说明:消费数据
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+ASC,DESC
+start
+整型
+必填
+10
+-
+开始时间
+end
+整型
+必填
+10
+-
+结束时间
+type
+字符串
+必填
+10
+-
+消费类型
+gateway
+字符串
+必填
+10
+-
+支付方式,传支付列表的name
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//商品列表
+      "id":"账单",
+      "subtotal":"金额",
+      "payment":"支付方式",
+      "paid_time":"支付时间",
+      "type":"消费类型",
+      "notes":"备注",
+    }]
+    "gateways":[{//支付列表
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+start
+end
+type
+gateway
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 收入概览
+
+- name: `app\admin\controller\AgentController::getIncome`
+- url: `/admin/agent/income`
+- 返回字段: [' arr:收入数据,需要根据类型,进行相应显示']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getIncome
+接口：收入概览
+接口地址：/admin/agent/income 
+GET
+收入概览 -- wyh
+接口说明:收入概览
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+字符串
+必填
+1
+-
+week近一周,month本月,year全年
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "arr":"收入数据,需要根据类型,进行相应显示",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品信息
+
+- name: `app\admin\controller\AgentController::getHostLists`
+- url: `/admin/agent/hostlists`
+- 返回字段: [' rows:商品列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getHostLists
+接口：产品信息
+接口地址：/admin/agent/hostlists 
+GET
+产品信息 -- wyh
+接口说明:产品信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+ASC,DESC
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//商品列表
+      "id":"",
+      "name":"产品名称",
+      "dedicatedip":"ip",
+      "paid_time":"支付时间",
+      "nextduedate":"到期时间",
+      "billingcycle_zh":"周期",
+      "amount":"售价",
+      "cost":"成本",
+      "notes":"备注",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##      GET 工单列表
+
+- name: `app\admin\controller\AgentController::getTickets`
+- url: `        admin/agent/tickets`
+- 返回字段: ['     .limit:每页条数', '     .page:当前页数', '     .sum:总条数', '     .max_page:最大页数', '     .list.id:工单id', '     .list.tid:工单tid', '     .list.uid:发起工单的用户id', '     .list.title:工单标题', '     .list.status:工单状态', '     .list.last_reply_time:最后回复时间戳', '     .list.flag_admin:标记的管理员名称', '     .list.department_name:部门名称', '     .list.user_name:发起工单的用户名', '     .list.format_time:格式化的最后回复时间']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getTickets
+接口：工单列表
+接口地址： admin/agent/tickets 
+ GET
+工单列表 -- wyh
+工单列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+tid
+字符串
+非必填
+-
+-
+tid
+email
+字符串
+非必填
+-
+-
+邮件地址
+content
+字符串
+非必填
+-
+-
+主题/内容
+priority
+字符串
+非必填
+all
+-
+优先级
+dptid
+整型
+非必填
+-
+-
+部门id
+uid
+整型
+非必填
+-
+-
+客户id
+status
+字符串
+非必填
+all
+-
+状态
+limit
+整型
+非必填
+10
+-
+条数
+page
+整型
+非必填
+1
+-
+页数
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    ".limit":"每页条数",
+    ".page":"当前页数",
+    ".sum":"总条数",
+    ".max_page":"最大页数",
+    ".list.id":"工单id",
+    ".list.tid":"工单tid",
+    ".list.uid":"发起工单的用户id",
+    ".list.title":"工单标题",
+    ".list.status":"工单状态",
+    ".list.last_reply_time":"最后回复时间戳",
+    ".list.flag_admin":"标记的管理员名称",
+    ".list.department_name":"部门名称",
+    ".list.user_name":"发起工单的用户名",
+    ".list.format_time":"格式化的最后回复时间",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+tid
+email
+content
+priority
+dptid
+uid
+status
+limit
+page
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 供应商任务队列列表
+
+- name: `app\admin\controller\AgentController::getRunMapLists`
+- url: `admin/agent/runmaplists`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getRunMapLists
+接口：供应商任务队列列表
+接口地址：admin/agent/runmaplists 
+GET
+供应商任务队列列表 -- 请设置auhtor注释
+接口说明: 供应商任务队列列表(重试调系统的重试接口)
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+keywords
+字符串
+非必填
+-
+-
+搜索关键字
+user
+字符串
+非必填
+-
+-
+用户名关键字
+from_type
+整型
+非必填
+-
+-
+来源类型
+status
+整型
+非必填
+-
+-
+状态
+active_type
+整型
+非必填
+-
+-
+来源类型
+status
+整型
+非必填
+-
+-
+执行状态
+page
+整型
+非必填
+1
+-
+页码
+limit
+整型
+非必填
+1
+-
+每页条数
+order
+字符串
+非必填
+create_time
+-
+排序字段
+sort
+字符串
+非必填
+desc
+-
+desc/asc，倒叙/顺序
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+keywords
+user
+from_type
+status
+active_type
+status
+page
+limit
+order
+sort
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 订单评价
+
+- name: `app\admin\controller\AgentController::postEvaluation`
+- url: `admin/agent/evaluation`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::postEvaluation
+接口：订单评价
+接口地址：admin/agent/evaluation 
+POST
+订单评价 -- xj
+接口说明:订单评价
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+content
+字符串
+必填
+-
+-
+评论内容
+type
+字符串
+必填
+-
+-
+类型great好评middle中评bad差评
+score
+字符串
+必填
+-
+-
+综合评价
+netword_score
+字符串
+必填
+-
+-
+网络质量
+hardware_score
+字符串
+必填
+-
+-
+硬件年限
+img
+数组
+必填
+-
+-
+图片
+id
+整型
+必填
+-
+-
+订单id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+content
+type
+score
+netword_score
+hardware_score
+img
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 生成资源池jwt
+
+- name: `app\admin\controller\AgentController::getToken`
+- url: `/admin/agent/token`
+- 返回字段: ['jwt:']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getToken
+接口：生成资源池jwt
+接口地址：/admin/agent/token 
+GET
+生成资源池jwt -- wyh
+时间 2021-09-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "jwt":"",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取销售员客户ids
+
+- name: `app\admin\controller\AgentController::getAdminSale`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getAdminSale
+接口：获取销售员客户ids
+接口地址：请设置url注释 
+GET
+获取销售员客户ids -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员 不可以查看sale_id为空的
+
+- name: `app\admin\controller\AgentController::check`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::check
+接口：检查当前用户是否为销售员 不可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 不可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员  可以查看sale_id为空的
+
+- name: `app\admin\controller\AgentController::check1`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::check1
+接口：检查当前用户是否为销售员 可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计
+
+- name: `app\admin\controller\AgentController::getLadder`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getLadder
+接口：获取当前销售员的阶级统计
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计(所有)
+
+- name: `app\admin\controller\AgentController::getLadderforall`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getLadderforall
+接口：获取当前销售员的阶级统计(所有)
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计(所有) -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩
+
+- name: `app\admin\controller\AgentController::getLaddersaleStatistics`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getLaddersaleStatistics
+接口：当前销售员时间周期获取业绩
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩；仅统计总金额
+
+- name: `app\admin\controller\AgentController::getLaddersaleStatisticsOnlyTotalAccount`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getLaddersaleStatisticsOnlyTotalAccount
+接口：当前销售员时间周期获取业绩；仅统计总金额
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩；仅统计总金额 -- 请设置auhtor注释
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取提成总额
+
+- name: `app\admin\controller\AgentController::getSum`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\AgentController::getSum
+接口：获取提成总额
+接口地址：请设置url注释 
+GET
+获取提成总额 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

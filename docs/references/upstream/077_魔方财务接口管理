@@ -1,0 +1,3061 @@
+# 魔方财务接口管理（app\admin\controller\ZjmfFinanceApiController）
+
+
+---
+
+## POST 添加魔方财务API
+
+- name: `app\admin\controller\ZjmfFinanceApiController::createApi`
+- url: `/admin/zjmf_finance_api`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::createApi
+接口：添加魔方财务API
+接口地址：/admin/zjmf_finance_api 
+POST
+添加魔方财务API -- huanghao
+添加魔方财务API
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+name
+字符串
+必填
+-
+-
+名称
+hostname
+字符串
+必填
+-
+-
+地址(IP或者域名)
+username
+字符串
+必填
+-
+-
+用户名
+password
+字符串
+必填
+-
+-
+密码
+des
+字符串
+必填
+-
+-
+备注
+type
+字符串
+必填
+-
+-
+接口类型：zjmf_api智简魔方，manual手动，v10
+contact_way
+字符串
+必填
+-
+-
+联系方式
+-
+字符串
+非必填
+-
+-
+自动回复开关
+-
+字符串
+非必填
+-
+-
+自动回复账号
+-
+tinyint
+非必填
+-
+-
+前台订购实时更新库存和商品,1开启默认,0关闭
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+name
+hostname
+username
+password
+des
+type
+contact_way
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## PUT 修改魔方财务API
+
+- name: `app\admin\controller\ZjmfFinanceApiController::modifyApi`
+- url: `/admin/zjmf_finance_api`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::modifyApi
+接口：修改魔方财务API
+接口地址：/admin/zjmf_finance_api 
+PUT
+修改魔方财务API -- huanghao
+修改魔方财务API
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+id
+name
+字符串
+必填
+-
+-
+名称
+hostname
+字符串
+必填
+-
+-
+接口地址(IP或者域名)
+username
+字符串
+必填
+-
+-
+用户名
+password
+字符串
+必填
+-
+-
+密码
+type
+字符串
+必填
+-
+-
+接口类型：zjmf_api智简魔方，manual手动
+contact_way
+字符串
+非必填
+-
+-
+联系方式
+-
+字符串
+非必填
+-
+-
+自动回复开关
+-
+字符串
+非必填
+-
+-
+自动回复账号
+-
+tinyint
+非必填
+-
+-
+前台订购实时更新库存和商品,1开启默认,0关闭
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+name
+hostname
+username
+password
+type
+contact_way
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 魔方财务API详情
+
+- name: `app\admin\controller\ZjmfFinanceApiController::detail`
+- url: `/admin/zjmf_finance_api/:id`
+- 返回字段: [' name:名称', ' hostname:接口地址', ' username:用户名', ' password:密码', ' status:连接状态', ' product_num:可售商品总数', ' create_time:创建时间戳']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::detail
+接口：魔方财务API详情
+接口地址：/admin/zjmf_finance_api/:id 
+GET
+魔方财务API详情 -- hh
+时间 2020-08-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "name":"名称",
+    "hostname":"接口地址",
+    "username":"用户名",
+    "password":"密码",
+    "status":"连接状态",
+    "product_num":"可售商品总数",
+    "create_time":"创建时间戳",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## DELETE 删除魔方财务API
+
+- name: `app\admin\controller\ZjmfFinanceApiController::deleteApi`
+- url: `/admin/zjmf_finance_api/:id`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::deleteApi
+接口：删除魔方财务API
+接口地址：/admin/zjmf_finance_api/:id 
+DELETE
+删除魔方财务API -- hh
+时间 2020-08-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 魔方财务API列表
+
+- name: `app\admin\controller\ZjmfFinanceApiController::index`
+- url: `/admin/zjmf_finance_api`
+- 返回字段: [' list:列表数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::index
+接口：魔方财务API列表
+接口地址：/admin/zjmf_finance_api 
+GET
+魔方财务API列表 -- hh
+时间 2020-08-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+1
+-
+页数
+limit
+整型
+非必填
+10
+-
+每页条数
+orderby
+字符串
+非必填
+id
+-
+排序(id,name,hostname,server_num,api_status)
+sort
+字符串
+非必填
+asc
+-
+排序方向(asc,desc)
+search
+字符串
+非必填
+-
+-
+搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//列表数据
+      "id":"ID",
+      "name":"名称",
+      "hostname":"接口地址",
+      "username":"用户名",
+      "password":"密码",
+      "status":"连接状态(0异常1正常)",
+      "product_num":"可售商品数量",
+      "set_product_num":"设置商品数量",
+      "active_host_num":"正常产品数量",
+      "host_num":"总产品数量",
+      "type_zh":"接口类型：zjmf_api智简魔方，manual手动",
+      "contact_way":"联系方式",
+      "autoreply_isopen":"自动回复开关",
+      "autoreply_account":"自动回复账号",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+orderby
+sort
+search
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 刷新魔方财务API状态
+
+- name: `app\admin\controller\ZjmfFinanceApiController::refreshStatus`
+- url: `/admin/zjmf_finance_api/:id/status`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::refreshStatus
+接口：刷新魔方财务API状态
+接口地址：/admin/zjmf_finance_api/:id/status 
+GET
+刷新魔方财务API状态 -- hh
+时间 2020-08-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET API概览
+
+- name: `app\admin\controller\ZjmfFinanceApiController::summary`
+- url: `/admin/zjmf_finance_api/summary`
+- 返回字段: [' client:基础数据@', 'form_api:最近7天每天的api请求次数', 'free_products:豁免产品@']
+- 客户参数: api_password:api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量 总量active_count:API产品数量 已激活api_count:昨日api请求次数ratio:日环比up:1上升，0下降lock_reason:锁定原因api_lock_time:锁定时间
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::summary
+接口：API概览
+接口地址：/admin/zjmf_finance_api/summary 
+GET
+API概览 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "client":[{//基础数据
+      "api_password":"api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量",
+      "active_count":"API产品数量",
+      "api_count":"昨日api请求次数ratio:日环比up:1上升，0下降lock_reason:锁定原因api_lock_time:锁定时间",
+    }]
+    "form_api":"最近7天每天的api请求次数",
+    "free_products":[{//豁免产品
+      "id":"name:名称ontrial:试用数量qty:最大购买数量",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 开启/关闭API功能
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiOpen`
+- url: `admin/zjmf_finance_api/open`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiOpen
+接口：开启/关闭API功能
+接口地址：admin/zjmf_finance_api/open 
+POST
+开启/关闭API功能 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+api_open
+整型
+必填
+-
+-
+1开启
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+api_open
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 重置秘钥
+
+- name: `app\admin\controller\ZjmfFinanceApiController::resetApiPwd`
+- url: `/admin/zjmf_finance_api/reset`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::resetApiPwd
+接口：重置秘钥
+接口地址：/admin/zjmf_finance_api/reset 
+POST
+重置秘钥 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST api锁定
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiToggle`
+- url: `/admin/zjmf_finance_api/toggle`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiToggle
+接口：api锁定
+接口地址：/admin/zjmf_finance_api/toggle 
+POST
+api锁定 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+api_open
+整型
+必填
+-
+-
+1开启,0关闭,2锁定
+lock_reason
+整型
+必填
+-
+-
+1开启,0关闭,2锁定
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+api_open
+lock_reason
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 新增,编辑豁免产品页面
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiFreePage`
+- url: `/admin/zjmf_finance_api/freepage`
+- 返回字段: ['groups:产品组@', 'free_product:豁免产品信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiFreePage
+接口：新增,编辑豁免产品页面
+接口地址：/admin/zjmf_finance_api/freepage 
+GET
+新增,编辑豁免产品页面 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+豁免产品ID(编辑时需要此参数)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "groups":[{//产品组
+      "products":"产品",
+    }]
+    "free_product":[{//豁免产品信息
+      "id":"ontrial:试用数量qty:最大购买数量",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 新增,编辑豁免产品
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiFreePost`
+- url: `/admin/zjmf_finance_api/freepage`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiFreePost
+接口：新增,编辑豁免产品
+接口地址：/admin/zjmf_finance_api/freepage 
+POST
+新增,编辑豁免产品 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+id
+整型
+非必填
+-
+-
+豁免产品ID(编辑时需要此参数)
+pids[]
+数组
+非必填
+-
+-
+产品ID
+ontrial
+整型
+非必填
+-
+-
+试用数量
+qty
+整型
+非必填
+-
+-
+最大购买数量
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+id
+pids[]
+ontrial
+qty
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## DELETE 删除豁免产品
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiFreeDelete`
+- url: `/admin/zjmf_finance_api/freepage`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiFreeDelete
+接口：删除豁免产品
+接口地址：/admin/zjmf_finance_api/freepage 
+DELETE
+删除豁免产品 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+豁免产品ID(编辑时需要此参数)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 商品列表
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiProducts`
+- url: `/admin/zjmf_finance_api/products`
+- 返回字段: ['products:列表@', ' product_count:产品 总数', ' local_qty:本地 库存 总', ' upstream_qty:上游 库存 总', ' host_total:数量 总', ' host_active:激活 总']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiProducts
+接口：商品列表
+接口地址：/admin/zjmf_finance_api/products 
+GET
+商品列表 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+API
+keyword
+mixed
+非必填
+-
+-
+关键字搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "products":[{//列表
+      "id":"name：产品名称gname:分类名称qty:本地",
+      "upstream_qty":"上游",
+      "host_count":"数量",
+      "host_active":"激活type_zh：类型billingcycle_zh:周期product_price：价格product_shopping_url：链接",
+    }]
+    "product_count":"产品 总数",
+    "local_qty":"本地 库存 总",
+    "upstream_qty":"上游 库存 总",
+    "host_total":"数量 总",
+    "host_active":"激活 总",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+keyword
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单列表
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiOrder`
+- url: `admin/zjmf_finance_api/order`
+- 返回字段: [' list:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiOrder
+接口：订单列表
+接口地址：admin/zjmf_finance_api/order 
+get
+订单列表 -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+uid
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+sale_id
+整型
+非必填
+-
+-
+1,
+zjmf_api_id
+整型
+非必填
+-
+-
+魔方api
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//列表
+      "id":"编号",
+      "uid":"用户id",
+      "create_time":"",
+      "username":"",
+      "payment":"付款方式",
+      "amount":"总计",
+      "pay_status":"付款状态",
+      "status":"状态",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+uid
+payment
+pay_status
+sale_id
+zjmf_api_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 订单提成
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiOrderCom`
+- url: `admin/zjmf_finance_api/order_commission`
+- 返回字段: [' rows:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiOrderCom
+接口：订单提成
+接口地址：admin/zjmf_finance_api/order_commission 
+post
+订单提成 -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+username
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//列表
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+username
+payment
+pay_status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品列表
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiHost`
+- url: `/admin/zjmf_finance_api/host`
+- 返回字段: ['products:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiHost
+接口：产品列表
+接口地址：/admin/zjmf_finance_api/host 
+GET
+产品列表 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+API
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+AESC,DESC
+keyword
+mix
+非必填
+-
+-
+关键字搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "products":[{//列表
+      "id":"name：产品名称dedicatedip:IPusername:用户名domain:主机名password:密码product_price:本地价格cost:成本profit:利润create_time：订购时间nextduedate:到期时间billingcycle:付款周期billingcycle_zhfirstpaymentamount:首付金额amount:续费金额promo_code:优惠码domainstatus:状态domainstatus_zh:状态，包括颜色notes:客户备注remark:管理员备注saler:销售type_zh:类型prefix:货币单位initiative_renew:是否自动续费assignedips:其他ipcompanyname:公司名",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+page
+limit
+order
+sort
+keyword
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 批量拉取产品信息的前台会员中心接口
+
+- name: `app\admin\controller\ZjmfFinanceApiController::upstreamHost`
+- url: `/admin/zjmf_finance_api/upstreamhost`
+- 返回字段: [' hosts:基础数据@', 'currency:货币单位']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::upstreamHost
+接口：批量拉取产品信息的前台会员中心接口
+接口地址：/admin/zjmf_finance_api/upstreamhost 
+POST
+批量拉取产品信息的前台会员中心接口 -- wyh
+时间 2021-06-23
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+接口ID
+hostid[]
+整型
+必填
+-
+-
+产品ID，数组
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "hosts":[{//基础数据
+      "domain":"主机dedicatedip:ipassignedips：附加ipcreate_time：购买时间nextduedate：到期时间billingcycle：周期billingcycle_zhfirstpaymentamount：首付金额amount：续费金额port：端口username：用户名password：密码initiative_renew：自动续费domainstatus：状态domainstatus_zh",
+    }]
+    "currency":"货币单位",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+hostid[]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET API概览
+
+- name: `app\admin\controller\ZjmfFinanceApiController::downstreamSummary`
+- url: `/admin/zjmf_finance_api/downstream_summary`
+- 返回字段: [' client:基础数据@', 'form_api:最近7天每天的api请求次数', 'free_products:豁免产品@']
+- 客户参数: api_password:api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量 总量active_count:API产品数量 已激活api_count:昨日api请求次数ratio:日环比up:1上升，0下降
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::downstreamSummary
+接口：API概览
+接口地址：/admin/zjmf_finance_api/downstream_summary 
+GET
+API概览 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+API
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "client":[{//基础数据
+      "api_password":"api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量",
+      "active_count":"API产品数量",
+      "api_count":"昨日api请求次数ratio:日环比up:1上升，0下降",
+    }]
+    "form_api":"最近7天每天的api请求次数",
+    "free_products":[{//豁免产品
+      "id":"name:名称ontrial:试用数量qty:最大购买数量",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET API日志
+
+- name: `app\admin\controller\ZjmfFinanceApiController::apiLog`
+- url: `/admin/zjmf_finance_api/logs`
+- 返回字段: [' logs:日志@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::apiLog
+接口：API日志
+接口地址：/admin/zjmf_finance_api/logs 
+GET
+API日志 -- wyh
+时间 2021-06-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+非必填
+1
+-
+客户ID，单个客户日志需要传
+page
+整型
+非必填
+1
+-
+页数
+limit
+整型
+非必填
+10
+-
+每页条数
+order
+字符串
+非必填
+id
+-
+排序(id,name,hostname,server_num,api_status)
+sort
+字符串
+非必填
+asc
+-
+排序方向(asc,desc)
+search_time
+整型
+非必填
+-
+-
+传入时间戳，返回当天日志
+search_desc
+字符串
+非必填
+-
+-
+通过描述查询
+search_ip
+字符串
+非必填
+-
+-
+ip地址查询
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "logs":[{//日志
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+page
+limit
+order
+sort
+search_time
+search_desc
+search_ip
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品添加页面
+
+- name: `app\admin\controller\ZjmfFinanceApiController::addPage`
+- url: `/admin/zjmf_finance_api/addpage`
+- 返回字段: ['groupdata:产品组数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::addPage
+接口：产品添加页面
+接口地址：/admin/zjmf_finance_api/addpage 
+GET
+产品添加页面 -- wyh
+接口说明:产品添加页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "groupdata":[{//产品组数据
+      "id":"组ID",
+      "name":"组名称",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 导入商品
+
+- name: `app\admin\controller\ZjmfFinanceApiController::inputProduct`
+- url: `/admin/zjmf_finance_api/inputproduct`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::inputProduct
+接口：导入商品
+接口地址：/admin/zjmf_finance_api/inputproduct 
+POST
+导入商品 -- wyh
+接口说明:导入商品
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+gid
+number
+必填
+-
+-
+组ID
+productnames[upstream_pid]
+字符串
+必填
+-
+-
+值为产品名称,键为上游产品ID(数组,这里就是上游商品的名称)
+upstream_price_value
+字符串
+非必填
+-
+-
+利润百分比
+ptype
+字符串
+非必填
+-
+-
+导航类型
+zjmf_finance_api_id
+整型
+必填
+-
+-
+魔方财务api
+type[upstream_pid]
+整型
+必填
+-
+-
+模块类型
+rate
+浮点型
+非必填
+-
+-
+汇率(上下游汇率不一样时,需要传此值)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+gid
+productnames[upstream_pid]
+upstream_price_value
+ptype
+zjmf_finance_api_id
+type[upstream_pid]
+rate
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 手动资源人工记录信息
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getManualHost`
+- url: `/admin/zjmf_finance_api/manualhost`
+- 返回字段: ['upper_manual:基础信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getManualHost
+接口：手动资源人工记录信息
+接口地址：/admin/zjmf_finance_api/manualhost 
+GET
+手动资源人工记录信息 -- wyh
+接口说明:手动资源人工记录信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid[]
+整型
+必填
+-
+-
+产品ID，数组
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "upper_manual":[{//基础信息
+      "id":"hid:regate:到期时间amount:金额billingcycle:周期dedicatedip:ipassignedips:分配ipcreate_time:开通时间",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid[]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 手动资源人工记录信息
+
+- name: `app\admin\controller\ZjmfFinanceApiController::postManualHost`
+- url: `/admin/zjmf_finance_api/manualhost`
+- 返回字段: ['upper_manual:基础信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::postManualHost
+接口：手动资源人工记录信息
+接口地址：/admin/zjmf_finance_api/manualhost 
+POST
+手动资源人工记录信息 -- wyh
+接口说明:手动资源人工记录信息(添加、编辑)
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+编辑时传
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "upper_manual":[{//基础信息
+      "id":"hid:regate:到期时间",
+      "amount":"金额billingcycle:周期dedicatedip:ipassignedips:分配ipcreate_time:开通时间",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 获取余额
+
+- name: `app\admin\controller\ZjmfFinanceApiController::upstreamCredit`
+- url: `/admin/zjmf_finance_api/upstreamcredit`
+- 返回字段: [' credit:余额', ' currency:货币属性']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::upstreamCredit
+接口：获取余额
+接口地址：/admin/zjmf_finance_api/upstreamcredit 
+GET
+获取余额 -- wyh
+时间 2021-07-19
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+接口ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "credit":"余额",
+    "currency":"货币属性",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 续费订单列表
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getRenew`
+- url: `admin/zjmf_finance_api/renew`
+- 返回字段: [' list:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getRenew
+接口：续费订单列表
+接口地址：admin/zjmf_finance_api/renew 
+get
+续费订单列表 -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+zjmf_api_id
+整型
+非必填
+-
+-
+智简魔方api
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+payment
+整型
+非必填
+-
+-
+支付方式
+status
+整型
+非必填
+-
+-
+支付状态
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//列表
+      "id":"编号",
+      "uid":"用户id",
+      "create_time":"",
+      "username":"",
+      "payment":"付款方式",
+      "amount":"总计",
+      "status":"状态",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+zjmf_api_id
+start_time
+end_time
+payment
+status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取销售员客户ids
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getAdminSale`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getAdminSale
+接口：获取销售员客户ids
+接口地址：请设置url注释 
+GET
+获取销售员客户ids -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员 不可以查看sale_id为空的
+
+- name: `app\admin\controller\ZjmfFinanceApiController::check`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::check
+接口：检查当前用户是否为销售员 不可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 不可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员  可以查看sale_id为空的
+
+- name: `app\admin\controller\ZjmfFinanceApiController::check1`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::check1
+接口：检查当前用户是否为销售员 可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getLadder`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getLadder
+接口：获取当前销售员的阶级统计
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计(所有)
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getLadderforall`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getLadderforall
+接口：获取当前销售员的阶级统计(所有)
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计(所有) -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getLaddersaleStatistics`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getLaddersaleStatistics
+接口：当前销售员时间周期获取业绩
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩；仅统计总金额
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getLaddersaleStatisticsOnlyTotalAccount`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getLaddersaleStatisticsOnlyTotalAccount
+接口：当前销售员时间周期获取业绩；仅统计总金额
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩；仅统计总金额 -- 请设置auhtor注释
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取提成总额
+
+- name: `app\admin\controller\ZjmfFinanceApiController::getSum`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ZjmfFinanceApiController::getSum
+接口：获取提成总额
+接口地址：请设置url注释 
+GET
+获取提成总额 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

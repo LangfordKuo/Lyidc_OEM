@@ -1,0 +1,3627 @@
+# 前台产品功能及接口（app\home\controller\HostController）
+
+
+---
+
+## GET 获取主机列表
+
+- name: `app\home\controller\HostController::getList`
+- url: `host/list`
+- 返回字段: ['list:主机列表数据@', 'page:当前页数', 'limit:每页条数', 'sum:总条数', 'max_page:总页数', 'orderby:排序字段', 'sort:排序方向', 'auth.traffic:流量图(on开启off关闭)', 'auth.kvm:kvm(on开启off关闭)', 'auth.ikvm:ikvm(on开启off关闭)', 'auth.bmc:重置bmc(on开启off关闭)', 'auth.reinstall:重装系统(on开启off关闭)', 'auth.reboot:重启(on开启off关闭)', 'auth.on:开机(on开启off关闭)', 'auth.off:关机(on开启off关闭)', 'auth.novnc:novnc(on开启off关闭)', 'auth.rescue:救援系统(on开启off关闭)', 'auth.crack_pass:重置密码(on开启off关闭)', 'area:区域信息@', 'domainstatus:产品状态']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getList
+接口：获取主机列表
+接口地址：host/list 
+GET
+获取主机列表 -- 萧十一郎
+接口说明:无
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+groupid
+字符串
+非必填
+other
+-
+分组id
+dcim_area
+字符串
+非必填
+other
+-
+区域搜索(传名称)
+domain_status
+字符串
+非必填
+other
+-
+按状态搜索(数组方式传参)
+orderby
+字符串
+非必填
+id
+-
+排序方式('id','domainstatus','productname','regdate','nextduedate','amount'）
+sort
+字符串
+非必填
+id
+DESC
+排序类型DESC/ASC
+show_type
+字符串
+非必填
+id
+DESC
+首页index，列表页list
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//主机列表数据
+      "id":"主机id",
+      "domainstatus":"机器状态(Pending待审核,Active已激活,Suspended暂停,Terminated已删除,Cancelled已取消,Fraud有欺诈,Completed已完成)",
+      "dedicatedip":"主ip",
+      "assignedips":"分配的IP",
+      "nextinvoicedate":"下次续约日期",
+      "regdate":"开通时间",
+      "nextduedate":"到期时间",
+      "notes":"备注",
+      "amount":"续费金额",
+      "billingcycle":"周期",
+      "productname":"产品名称",
+      "cycle_desc":"展示周期",
+      "price_desc":"展示价格",
+      "os":"操作系统",
+      "svg":"操作系统图标",
+      "area_code":"区域代码",
+      "area_name":"区域名称",
+    }]
+    "page":"当前页数",
+    "limit":"每页条数",
+    "sum":"总条数",
+    "max_page":"总页数",
+    "orderby":"排序字段",
+    "sort":"排序方向",
+    "auth.traffic":"流量图(on开启off关闭)",
+    "auth.kvm":"kvm(on开启off关闭)",
+    "auth.ikvm":"ikvm(on开启off关闭)",
+    "auth.bmc":"重置bmc(on开启off关闭)",
+    "auth.reinstall":"重装系统(on开启off关闭)",
+    "auth.reboot":"重启(on开启off关闭)",
+    "auth.on":"开机(on开启off关闭)",
+    "auth.off":"关机(on开启off关闭)",
+    "auth.novnc":"novnc(on开启off关闭)",
+    "auth.rescue":"救援系统(on开启off关闭)",
+    "auth.crack_pass":"重置密码(on开启off关闭)",
+    "area":[{//区域信息
+      "code":"区域代码",
+      "name":"区域名称",
+    }]
+    "domainstatus":"产品状态",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+groupid
+dcim_area
+domain_status
+orderby
+sort
+show_type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  POST 修改备注
+
+- name: `app\home\controller\HostController::postRemark`
+- url: `/host/remark`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postRemark
+接口：修改备注
+接口地址：/host/remark 
+ POST
+修改备注 -- huanghao
+description
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+hostID
+remark
+字符串
+必填
+-
+-
+备注信息
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+remark
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 添加/修改分类
+
+- name: `app\home\controller\HostController::postSaveCate`
+- url: `host/savecate`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postSaveCate
+接口：添加/修改分类
+接口地址：host/savecate 
+POST
+添加/修改分类 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+cate_id
+整型
+非必填
+-
+-
+分类id，不传递时为添加
+cate_name
+字符串
+必填
+-
+-
+分类名
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+cate_id
+cate_name
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## DELETE 删除分类
+
+- name: `app\home\controller\HostController::deleteCate`
+- url: `host/cate`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::deleteCate
+接口：删除分类
+接口地址：host/cate 
+DELETE
+删除分类 -- 萧十一郎
+接口说明:删除分类会将分类下的产品转移到默认分类
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+cate_id
+整型
+非必填
+-
+-
+分类id，不传递时为添加
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+cate_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 将主机转移到某个分类
+
+- name: `app\home\controller\HostController::postTransferCate`
+- url: `host/transfercate`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postTransferCate
+接口：将主机转移到某个分类
+接口地址：host/transfercate 
+POST
+将主机转移到某个分类 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+主机id
+cate_id
+整型
+必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+cate_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页数据 id:文件标题
+
+- name: `app\home\controller\HostController::getDetails`
+- url: `host/details`
+- 返回字段: ['host_data:基础数据@', 'config_options:可配置选项@', 'custom_field_data:自定义字段@', 'download_data:可下载数据@', 'module_button:模块按钮@', 'module_client_area:模块页面输出', 'hook_output:钩子在本页面的输出，数组，循环显示的html', 'dcim.flowpacket:当前产品可购买的流量包@', 'dcim.auth:服务器各种操作权限控制(on有权限off没权限)', 'dcim.area_code:区域代码', 'dcim.area_name:区域名称', 'dcim.os_group:操作系统分组@', 'dcim.os:操作系统数据@', ' flow_packet_use_list:流量包使用情况@', ' host_cancel: 取消请求数据,空对象']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getDetails
+接口：产品内页数据 id:文件标题
+接口地址：host/details 
+GET
+产品内页数据 id:文件标题 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host_data":[{//基础数据
+      "ordernum":"订单id",
+      "productid":"产品id",
+      "serverid":"服务器id",
+      "regdate":"产品开通时间",
+      "domain":"主机名",
+      "payment":"支付方式",
+      "firstpaymentamount":"首付金额",
+      "firstpaymentamount_desc":"首付金额",
+      "amount":"续费金额",
+      "amount_desc":"续费金额",
+      "billingcycle":"付款周期",
+      "billingcycle_desc":"付款周期",
+      "nextduedate":"到期时间",
+      "nextinvoicedate":"下次帐单时间",
+      "dedicatedip":"独立ip",
+      "assignedips":"附加ip",
+      "ip_num":"IP数量",
+      "domainstatus":"产品状态",
+      "domainstatus_desc":"产品状态",
+      "username":"服务器用户名",
+      "password":"服务器密码",
+      "suspendreason":"暂停原因",
+      "auto_terminate_end_cycle":"是否到期取消",
+      "auto_terminate_reason":"取消原因",
+      "productname":"产品名",
+      "groupname":"产品组名",
+      "bwusage":"当前使用流量",
+      "bwlimit":"当前使用流量上限(0表示不限)",
+      "os":"操作系统",
+      "port":"端口",
+      "remark":"备注",
+    }]
+    "config_options":[{//可配置选项
+      "name":"配置名",
+      "sub_name":"配置项值",
+    }]
+    "custom_field_data":[{//自定义字段
+      "fieldname":"字段名",
+      "value":"字段值",
+    }]
+    "download_data":[{//可下载数据
+      "id":"文件id",
+    }]
+    "module_button":[{//模块按钮
+      "type":"default:默认,custom:自定义",
+      "type":"func:函数名",
+      "type":"name:名称",
+    }]
+    "module_client_area":"模块页面输出",
+    "hook_output":"钩子在本页面的输出，数组，循环显示的html",
+    "dcim.flowpacket":[{//当前产品可购买的流量包
+      "id":"流量包ID",
+      "name":"流量包名称",
+      "price":"价格",
+      "sale_times":"销售次数",
+      "stock":"库存(0不限)",
+    }]
+    "dcim.auth":"服务器各种操作权限控制(on有权限off没权限)",
+    "dcim.area_code":"区域代码",
+    "dcim.area_name":"区域名称",
+    "dcim.os_group":[{//操作系统分组
+      "id":"分组ID",
+      "name":"分组名称",
+      "svg":"分组svg号",
+    }]
+    "dcim.os":[{//操作系统数据
+      "id":"操作系统ID",
+      "name":"操作系统名称",
+      "ostype":"操作系统类型(1windows0linux)",
+      "os_name":"操作系统真实名称(用来判断具体的版本和操作系统)",
+      "group_id":"所属分组ID",
+    }]
+    "flow_packet_use_list":[{//流量包使用情况
+      "name":"流量包名称",
+      "capacity":"流量包大小",
+      "price":"价格",
+      "pay_time":"支付时间",
+      "used":"已用流量",
+      "used":"已用流量",
+    }]
+    "host_cancel":" 取消请求数据,空对象",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页数据
+
+- name: `app\home\controller\HostController::getProduct`
+- url: `host/product`
+- 返回字段: ['host_data:基础数据@', 'config_options:可配置选项@', 'module_button:模块按钮@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getProduct
+接口：产品内页数据
+接口地址：host/product 
+GET
+产品内页数据 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host_data":[{//基础数据
+      "ordernum":"订单id",
+      "productid":"产品id",
+      "serverid":"服务器id",
+      "regdate":"产品开通时间",
+      "domain":"主机名",
+      "payment":"支付方式",
+      "firstpaymentamount":"首付金额",
+      "firstpaymentamount_desc":"首付金额",
+      "amount":"续费金额",
+      "amount_desc":"续费金额",
+      "billingcycle":"付款周期",
+      "billingcycle_desc":"付款周期",
+      "nextduedate":"到期时间",
+      "nextinvoicedate":"下次帐单时间",
+      "dedicatedip":"独立ip",
+      "assignedips":"附加ip",
+      "ip_num":"IP数量",
+      "domainstatus":"产品状态",
+      "domainstatus_desc":"产品状态",
+      "username":"服务器用户名",
+      "password":"服务器密码",
+      "suspendreason":"暂停原因",
+      "auto_terminate_end_cycle":"是否到期取消",
+      "auto_terminate_reason":"取消原因",
+      "productname":"产品名",
+      "groupname":"产品组名",
+      "bwusage":"当前使用流量",
+      "bwlimit":"当前使用流量上限(0表示不限)",
+      "os":"操作系统",
+      "port":"端口",
+      "remark":"备注",
+      "allow_upgrade_config":"是否输出“升级配置项”按钮：1是",
+      "allow_upgrade_product":"是否输出“升级产品”按钮：1是",
+      "show_traffic_usage":"是否显示用量图",
+    }]
+    "config_options":[{//可配置选项
+      "name":"配置名",
+      "sub_name":"配置项值",
+    }]
+    "module_button":[{//模块按钮
+      "type":"default:默认,custom:自定义",
+      "type":"func:函数名",
+      "type":"name:名称",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页下载数据
+
+- name: `app\home\controller\HostController::getDown`
+- url: `host/down`
+- 返回字段: ['download_data:基础数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getDown
+接口：产品内页下载数据
+接口地址：host/down 
+GET
+产品内页下载数据 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+productid
+整型
+必填
+-
+-
+产品id
+domainstatus
+整型
+必填
+-
+-
+主机状态
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "download_data":[{//基础数据
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+productid
+domainstatus
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页取消原因
+
+- name: `app\home\controller\HostController::getCancel`
+- url: `host/cancel`
+- 返回字段: ['download_data:基础数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getCancel
+接口：产品内页取消原因
+接口地址：host/cancel 
+GET
+产品内页取消原因 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+主机id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "download_data":[{//基础数据
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页系统
+
+- name: `app\home\controller\HostController::getCloudOs`
+- url: `host/cloudos`
+- 返回字段: [' cloud_os:云操作系统@', ' cloud_os_group:云操作系统分组@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getCloudOs
+接口：产品内页系统
+接口地址：host/cloudos 
+GET
+产品内页系统 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+productid
+整型
+必填
+-
+-
+产品id
+os_config_option_id
+整型
+必填
+-
+-
+操作系统id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "cloud_os":[{//云操作系统
+      "id":"操作系统ID",
+      "name":"名称",
+      "group":"分组id",
+    }]
+    "cloud_os_group":[{//云操作系统分组
+      "id":"分组id",
+      "name":"分组名称",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+productid
+os_config_option_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页图表
+
+- name: `app\home\controller\HostController::getChart`
+- url: `host/chart`
+- 返回字段: [':基础数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getChart
+接口：产品内页图表
+接口地址：host/chart 
+GET
+产品内页图表 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+主机id
+api_type
+整型
+必填
+-
+-
+api类型
+domainstatus
+整型
+必填
+-
+-
+主机状态
+type
+整型
+必填
+-
+-
+类型
+zjmf_api_id
+整型
+必填
+-
+-
+zjmf_api_id
+dcimid
+整型
+必填
+-
+-
+dcimid
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "":[{//基础数据
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+api_type
+domainstatus
+type
+zjmf_api_id
+dcimid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页moudle
+
+- name: `app\home\controller\HostController::getMoudle`
+- url: `host/moudle`
+- 返回字段: [':基础数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getMoudle
+接口：产品内页moudle
+接口地址：host/moudle 
+GET
+产品内页moudle -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+productid
+整型
+必填
+-
+-
+产品id
+host_id
+整型
+必填
+-
+-
+主机id
+api_type
+整型
+必填
+-
+-
+api类型
+domainstatus
+整型
+必填
+-
+-
+主机状态
+type
+整型
+必填
+-
+-
+类型
+zjmf_api_id
+整型
+必填
+-
+-
+zjmf_api_id
+dcimid
+整型
+必填
+-
+-
+dcimid
+bwlimit
+整型
+必填
+-
+-
+bwlimit
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "":[{//基础数据
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+productid
+host_id
+api_type
+domainstatus
+type
+zjmf_api_id
+dcimid
+bwlimit
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页流量包数据
+
+- name: `app\home\controller\HostController::getFlowpacket`
+- url: `host/flowpacket`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getFlowpacket
+接口：产品内页流量包数据
+接口地址：host/flowpacket 
+GET
+产品内页流量包数据 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+用户id
+host_id
+整型
+必填
+-
+-
+主机id
+productid
+整型
+必填
+-
+-
+产品id
+serverid
+整型
+必填
+-
+-
+服务器id
+api_type
+整型
+必填
+-
+-
+apitype
+upstream_price_type
+整型
+必填
+-
+-
+upstream_price_type
+zjmf_api_id
+整型
+必填
+-
+-
+zjmf_api_id
+dcimid
+整型
+必填
+-
+-
+dcimid
+upstream_price_value
+整型
+必填
+-
+-
+upstream_price_value
+type
+整型
+必填
+-
+-
+类型
+bwlimit
+整型
+必填
+-
+-
+bwlimit
+bwusage
+整型
+必填
+-
+-
+bwusage
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+host_id
+productid
+serverid
+api_type
+upstream_price_type
+zjmf_api_id
+dcimid
+upstream_price_value
+type
+bwlimit
+bwusage
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页数据 id:文件标题
+
+- name: `app\home\controller\HostController::getHeader`
+- url: `host/header`
+- 返回字段: ['host_data:基础数据@', 'config_options:可配置选项@', 'custom_field_data:自定义字段@', 'download_data:可下载数据@', 'module_button:模块按钮@', 'module_client_area:模块页面输出@', 'hook_output:钩子在本页面的输出，数组，循环显示的html', 'dcim.flowpacket:当前产品可购买的流量包@', 'dcim.auth:服务器各种操作权限控制(on有权限off没权限)', 'dcim.area_code:区域代码', 'dcim.area_name:区域名称', 'dcim.os_group:操作系统分组@', 'dcim.os:操作系统数据@', ' flow_packet_use_list:流量包使用情况@', ' cloud_os:云操作系统@', ' cloud_os_group:云操作系统分组@', ' system_config.company_name:系统公司名', ' dcimcloud.nat_acl:远程地址', ' dcimcloud.nat_web:建站解析', ' module_power_status:是否请求电源状态']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getHeader
+接口：产品内页数据 id:文件标题
+接口地址：host/header 
+GET
+产品内页数据 id:文件标题 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host_data":[{//基础数据
+      "ordernum":"订单id",
+      "productid":"产品id",
+      "serverid":"服务器id",
+      "regdate":"产品开通时间",
+      "domain":"主机名",
+      "payment":"支付方式",
+      "firstpaymentamount":"首付金额",
+      "firstpaymentamount_desc":"首付金额",
+      "amount":"续费金额",
+      "amount_desc":"续费金额",
+      "billingcycle":"付款周期",
+      "billingcycle_desc":"付款周期",
+      "nextduedate":"到期时间",
+      "nextinvoicedate":"下次帐单时间",
+      "dedicatedip":"独立ip",
+      "assignedips":"附加ip",
+      "ip_num":"IP数量",
+      "domainstatus":"产品状态",
+      "domainstatus_desc":"产品状态",
+      "username":"服务器用户名",
+      "password":"服务器密码",
+      "suspendreason":"暂停原因",
+      "auto_terminate_end_cycle":"是否到期取消",
+      "auto_terminate_reason":"取消原因",
+      "productname":"产品名",
+      "groupname":"产品组名",
+      "bwusage":"当前使用流量",
+      "bwlimit":"当前使用流量上限(0表示不限)",
+      "os":"操作系统",
+      "port":"端口",
+      "remark":"备注",
+      "allow_upgrade_config":"是否输出“升级配置项”按钮：1是",
+      "allow_upgrade_product":"是否输出“升级产品”按钮：1是",
+      "show_traffic_usage":"是否显示用量图",
+    }]
+    "config_options":[{//可配置选项
+      "name":"配置名",
+      "sub_name":"配置项值",
+    }]
+    "custom_field_data":[{//自定义字段
+      "fieldname":"字段名",
+      "value":"字段值",
+    }]
+    "download_data":[{//可下载数据
+      "id":"文件id",
+    }]
+    "module_button":[{//模块按钮
+      "type":"default:默认,custom:自定义",
+      "type":"func:函数名",
+      "type":"name:名称",
+    }]
+    "module_client_area":[{//模块页面输出
+      "key":"键值用于获取内容",
+      "name":"名称",
+    }]
+    "hook_output":"钩子在本页面的输出，数组，循环显示的html",
+    "dcim.flowpacket":[{//当前产品可购买的流量包
+      "id":"流量包ID",
+      "name":"流量包名称",
+      "price":"价格",
+      "sale_times":"销售次数",
+      "stock":"库存(0不限)",
+    }]
+    "dcim.auth":"服务器各种操作权限控制(on有权限off没权限)",
+    "dcim.area_code":"区域代码",
+    "dcim.area_name":"区域名称",
+    "dcim.os_group":[{//操作系统分组
+      "id":"分组ID",
+      "name":"分组名称",
+      "svg":"分组svg号",
+    }]
+    "dcim.os":[{//操作系统数据
+      "id":"操作系统ID",
+      "name":"操作系统名称",
+      "ostype":"操作系统类型(1windows0linux)",
+      "os_name":"操作系统真实名称(用来判断具体的版本和操作系统)",
+      "group_id":"所属分组ID",
+    }]
+    "flow_packet_use_list":[{//流量包使用情况
+      "name":"流量包名称",
+      "capacity":"流量包大小",
+      "price":"价格",
+      "pay_time":"支付时间",
+      "used":"已用流量",
+      "leave":"剩余流量",
+    }]
+    "cloud_os":[{//云操作系统
+      "id":"操作系统ID",
+      "name":"名称",
+      "group":"分组id",
+    }]
+    "cloud_os_group":[{//云操作系统分组
+      "id":"分组id",
+      "name":"分组名称",
+    }]
+    "system_config.company_name":"系统公司名",
+    "dcimcloud.nat_acl":"远程地址",
+    "dcimcloud.nat_web":"建站解析",
+    "module_power_status":"是否请求电源状态",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 产品转移根据邮箱或手机号获取用户信息
+
+- name: `app\home\controller\HostController::postNameToUser`
+- url: `host/nametouser`
+- 返回字段: ['id:用户id(调用转移时需要)', 'username:用户名(展示给客户确认)']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postNameToUser
+接口：产品转移根据邮箱或手机号获取用户信息
+接口地址：host/nametouser 
+POST
+产品转移根据邮箱或手机号获取用户信息 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+tranfer_name
+字符串
+必填
+-
+-
+查找到邮箱或者手机号
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "id":"用户id(调用转移时需要)",
+    "username":"用户名(展示给客户确认)",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+tranfer_name
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 提交转移请求
+
+- name: `app\home\controller\HostController::postTransfer`
+- url: `host/transfer`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postTransfer
+接口：提交转移请求
+接口地址：host/transfer 
+POST
+提交转移请求 -- 萧十一郎
+接口说明:提交转移请求
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+number
+必填
+-
+-
+主机id
+remarks
+字符串
+必填
+-
+-
+备注
+transfer_uid
+number
+必填
+-
+-
+接收人id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+remarks
+transfer_uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 取消产品转移(发起端)
+
+- name: `app\home\controller\HostController::postCancelTranfer`
+- url: `host/canceltranfer`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postCancelTranfer
+接口：取消产品转移(发起端)
+接口地址：host/canceltranfer 
+POST
+取消产品转移(发起端) -- 萧十一郎
+接口说明:用户取消转移
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+transfer_id
+number
+必填
+-
+-
+转移id(有请求时会显示到产品内页)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+transfer_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 接收产品转移(接收端)
+
+- name: `app\home\controller\HostController::postReceiveTranfer`
+- url: `host/teceivetranfer`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postReceiveTranfer
+接口：接收产品转移(接收端)
+接口地址：host/teceivetranfer 
+POST
+接收产品转移(接收端) -- 萧十一郎
+接口说明:接收产品转移
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+transfer_id
+number
+必填
+-
+-
+转移id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+transfer_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 拒绝产品转移(接收端)
+
+- name: `app\home\controller\HostController::postRefuseTranfer`
+- url: `host/refusetranfer`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postRefuseTranfer
+接口：拒绝产品转移(接收端)
+接口地址：host/refusetranfer 
+POST
+拒绝产品转移(接收端) -- 萧十一郎
+接口说明:拒绝产品转移
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+transfer_id
+number
+必填
+-
+-
+转移id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+transfer_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 产品续费--页面
+
+- name: `app\home\controller\HostController::getRenewPage`
+- url: `host/renewpage`
+- 返回字段: [' host:产品数据@', ' cycle:可用周期', ' accounts:充值记录@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getRenewPage
+接口：产品续费--页面
+接口地址：host/renewpage 
+get
+产品续费--页面 -- wyh
+接口说明: 产品续费--页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id,可传单个值hostid
+billingcycles
+number
+非必填
+-
+-
+周期
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host":[{//产品数据
+    }]
+    "cycle":"可用周期",
+    "accounts":[{//充值记录
+      "trans_id":"交易流水amount_in:金额pay_time:交易日期type:来源gateway:支付方式",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+billingcycles
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 产品续费--页面(模板调用)
+
+- name: `app\home\controller\HostController::getRenewPageView`
+- url: `host/renewpageview`
+- 返回字段: [' host:产品数据@', ' cycle:可用周期', ' accounts:充值记录@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getRenewPageView
+接口：产品续费--页面(模板调用)
+接口地址：host/renewpageview 
+get
+产品续费--页面(模板调用) -- wyh
+接口说明: 产品续费--页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host":[{//产品数据
+    }]
+    "cycle":"可用周期",
+    "accounts":[{//充值记录
+      "trans_id":"交易流水amount_in:金额pay_time:交易日期type:来源gateway:支付方式",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 产品续费--页面=--充值记录
+
+- name: `app\home\controller\HostController::getHostRecharge`
+- url: `host/hostrecharge`
+- 返回字段: ['trans_id:流水单号', 'amount_in:金额', 'pay_time:交易日期', 'type:来源', 'gateway:支付方式', 'amount_out:退款金额(取负数)', 'refund:当refund>0时,表示退款，展示amount_in == amout_out的数据,并取负数']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getHostRecharge
+接口：产品续费--页面=--充值记录
+接口地址：host/hostrecharge 
+get
+产品续费--页面=--充值记录 -- wyh
+接口说明: 产品续费--页面=--充值记录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+整型
+非必填
+-
+-
+产品ID
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "trans_id":"流水单号",
+    "amount_in":"金额",
+    "pay_time":"交易日期",
+    "type":"来源",
+    "gateway":"支付方式",
+    "amount_out":"退款金额(取负数)",
+    "refund":"当refund>0时,表示退款，展示amount_in == amout_out的数据,并取负数",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+page
+limit
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 产品续费
+
+- name: `app\home\controller\HostController::postRenew`
+- url: `host/renew`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postRenew
+接口：产品续费
+接口地址：host/renew 
+post
+产品续费 -- wyh
+接口说明: 产品续费
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id,可传单个值hostid
+billingcycles
+number
+非必填
+-
+-
+周期
+duration
+number
+非必填
+-
+-
+周期时间，秒
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+billingcycles
+duration
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 产品设置自动续费
+
+- name: `app\home\controller\HostController::postAutoRenew`
+- url: `host/autorenew`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postAutoRenew
+接口：产品设置自动续费
+接口地址：host/autorenew 
+post
+产品设置自动续费 -- wyh
+接口说明: 产品设置自动续费
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id,可传单个值hostid
+initiative_renew
+number
+非必填
+-
+-
+是否自动续费
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+initiative_renew
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 结算批量续费（页面）
+
+- name: `app\home\controller\HostController::postBatchRenewPage`
+- url: `host/batchrenewpage`
+- 返回字段: ['currency:货币信息', 'hosts:产品信息@', 'total:总价']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postBatchRenewPage
+接口：结算批量续费（页面）
+接口地址：host/batchrenewpage 
+POST
+结算批量续费（页面） -- wyh
+接口说明:返回状态码200,没有data.invoiceid:不需要跳转支付，跳转回产品列表页。存在data.invoiceid:跳转支付页面（获取网关支付页面数据 /start_pay）
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_ids
+数组
+必填
+-
+-
+批量续费的产品数组
+cycles[产品ID]
+数组
+非必填
+-
+-
+(可选参数,第一次不传,在续费页面修改周期时传递此值)批量续费的产品周期:cycles[38]
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "currency":"货币信息",
+    "hosts":[{//产品信息
+      "id":[{//产品IDname
+      }]
+    }]
+    "total":"总价",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_ids
+cycles[产品ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 结算批量续费（下单）
+
+- name: `app\home\controller\HostController::postBatchRenew`
+- url: `host/batchrenew`
+- 返回字段: ['invoiceid:(跳转到网关支付页面，可不携带支付方式)']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postBatchRenew
+接口：结算批量续费（下单）
+接口地址：host/batchrenew 
+POST
+结算批量续费（下单） -- wyh
+接口说明:返回状态码200,没有data.invoiceid:不需要跳转支付，跳转回产品列表页。存在data.invoiceid:跳转支付页面（获取网关支付页面数据 /start_pay）
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_ids
+数组
+必填
+-
+-
+批量续费的产品数组
+cycles[产品ID]
+数组
+必填
+-
+-
+相应周期数组
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "invoiceid":"(跳转到网关支付页面，可不携带支付方式)",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_ids
+cycles[产品ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 按小时/天的产品续费（支付本周期费用）
+
+- name: `app\home\controller\HostController::postHourDayRenew`
+- url: `host/hourdayrenew`
+- 返回字段: ['hostname_desc:产品描述', 'domainstatus:产品状态', 'expire_date:当前到期时间', 'cost:费用', 'cost_desc:费用', 'invoiceid:当传递settlement为1，结算时返回账单id，跳转到通用账单支付页面']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postHourDayRenew
+接口：按小时/天的产品续费（支付本周期费用）
+接口地址：host/hourdayrenew 
+POST
+按小时/天的产品续费（支付本周期费用） -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+number
+必填
+-
+-
+主机id
+settlement
+number
+非必填
+0
+-
+0/1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "hostname_desc":"产品描述",
+    "domainstatus":"产品状态",
+    "expire_date":"当前到期时间",
+    "cost":"费用",
+    "cost_desc":"费用",
+    "invoiceid":"当传递settlement为1，结算时返回账单id，跳转到通用账单支付页面",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+settlement
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 试用/小时/天 转包年包月
+
+- name: `app\home\controller\HostController::postCycleToMonYear`
+- url: `host/cycletomonyear`
+- 返回字段: ['hostname_desc:产品描述', 'domainstatus:产品状态', 'expire_date:当前到期时间', 'cycle_desc_data:支持的转换周期', 'cost:费用', 'cost_desc:费用', 'invoiceid:当传递settlement为1，结算时返回账单id，跳转到通用账单支付页面']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postCycleToMonYear
+接口：试用/小时/天 转包年包月
+接口地址：host/cycletomonyear 
+POST
+试用/小时/天 转包年包月 -- 萧十一郎
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+number
+必填
+-
+-
+主机id
+change_cycle
+字符串
+非必填
+-
+-
+相应周期数组
+settlement
+number
+非必填
+0
+-
+0/1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "hostname_desc":"产品描述",
+    "domainstatus":"产品状态",
+    "expire_date":"当前到期时间",
+    "cycle_desc_data":"支持的转换周期",
+    "cost":"费用",
+    "cost_desc":"费用",
+    "invoiceid":"当传递settlement为1，结算时返回账单id，跳转到通用账单支付页面",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+change_cycle
+settlement
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 请求取消页面
+
+- name: `app\home\controller\HostController::getCancelPage`
+- url: `host/cancelpage`
+- 返回字段: ['info:显示在页面上的提示信息', 'reason:默认两个原因,可选，可填', 'type:类型，Immediate(立即)，Endofbilling(等待账单周期结束)。写死在页面上']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getCancelPage
+接口：请求取消页面
+接口地址：host/cancelpage 
+GET
+请求取消页面 -- 萧十一郎
+接口说明:请求取消页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+申请取消的产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "info":"显示在页面上的提示信息",
+    "reason":"默认两个原因,可选，可填",
+    "type":"类型，Immediate(立即)，Endofbilling(等待账单周期结束)。写死在页面上",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 提交请求取消请求
+
+- name: `app\home\controller\HostController::postCancel`
+- url: `host/cancel`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postCancel
+接口：提交请求取消请求
+接口地址：host/cancel 
+POST
+提交请求取消请求 -- 萧十一郎
+接口说明:提交请求取消请求
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+申请取消的产品id
+type
+字符串
+必填
+-
+-
+Immediate(立即),Endofbilling(等待账单周期结束)
+reason
+字符串
+必填
+-
+-
+申请取消该产品的描述信息
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+type
+reason
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## DELETE 删除 产品取消请求
+
+- name: `app\home\controller\HostController::deleteCancel`
+- url: `host/cancel`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::deleteCancel
+接口：删除 产品取消请求
+接口地址：host/cancel 
+DELETE
+删除 产品取消请求 -- wyh
+接口说明:删除 产品取消请求
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  GET 获取用量信息
+
+- name: `app\home\controller\HostController::getTrafficUsage`
+- url: `host/trafficusage`
+- 返回字段: [' 0:流量数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getTrafficUsage
+接口：获取用量信息
+接口地址：host/trafficusage 
+ GET
+获取用量信息 -- huanghao
+获取用量信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+host
+start
+字符串
+非必填
+-
+-
+开始日期(YYYY-MM-DD)
+end
+字符串
+非必填
+-
+-
+结束日期(YYYY-MM-DD)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "0":[{//流量数据
+      "time":"横坐标值",
+      "value":"纵坐标值(单位Mbps)",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+start
+end
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  POST 二次验证页面
+
+- name: `app\home\controller\HostController::postSecondVerify`
+- url: `host/secondverifypage`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postSecondVerify
+接口：二次验证页面
+接口地址：host/secondverifypage 
+ POST
+二次验证页面 -- wyh
+二次验证页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+整型
+必填
+-
+-
+验证方式：email、phone等
+type
+整型
+必填
+-
+-
+验证方式：email、phone等
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  POST 关联下游ID
+
+- name: `app\home\controller\HostController::postSetDownStream`
+- url: `host/setdownstream`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::postSetDownStream
+接口：关联下游ID
+接口地址：host/setdownstream 
+ POST
+关联下游ID -- hh
+时间 2020-09-30关联下游ID
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品内页数据 id:文件标题
+
+- name: `app\home\controller\HostController::getDedicatedServer`
+- url: `host/dedicatedserver`
+- 返回字段: ['host_data:基础数据@', 'config_options:可配置选项@', 'custom_field_data:自定义字段@', 'download_data:可下载数据@', 'module_button:模块按钮@', 'module_client_area:模块页面输出@', 'hook_output:钩子在本页面的输出，数组，循环显示的html', 'dcim.flowpacket:当前产品可购买的流量包@', 'dcim.auth:服务器各种操作权限控制(on有权限off没权限)', 'dcim.area_code:区域代码', 'dcim.area_name:区域名称', 'dcim.os_group:操作系统分组@', 'dcim.os:操作系统数据@', ' flow_packet_use_list:流量包使用情况@', ' cloud_os:云操作系统@', ' cloud_os_group:云操作系统分组@', ' system_config.company_name:系统公司名', ' dcimcloud.nat_acl:远程地址', ' dcimcloud.nat_web:建站解析', ' module_power_status:是否请求电源状态']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::getDedicatedServer
+接口：产品内页数据 id:文件标题
+接口地址：host/dedicatedserver 
+GET
+产品内页数据 id:文件标题 -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+host_id
+整型
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host_data":[{//基础数据
+      "ordernum":"订单id",
+      "productid":"产品id",
+      "serverid":"服务器id",
+      "regdate":"产品开通时间",
+      "domain":"主机名",
+      "payment":"支付方式",
+      "firstpaymentamount":"首付金额",
+      "firstpaymentamount_desc":"首付金额",
+      "amount":"续费金额",
+      "amount_desc":"续费金额",
+      "billingcycle":"付款周期",
+      "billingcycle_desc":"付款周期",
+      "nextduedate":"到期时间",
+      "nextinvoicedate":"下次帐单时间",
+      "dedicatedip":"独立ip",
+      "assignedips":"附加ip",
+      "ip_num":"IP数量",
+      "domainstatus":"产品状态",
+      "domainstatus_desc":"产品状态",
+      "username":"服务器用户名",
+      "password":"服务器密码",
+      "suspendreason":"暂停原因",
+      "auto_terminate_end_cycle":"是否到期取消",
+      "auto_terminate_reason":"取消原因",
+      "productname":"产品名",
+      "groupname":"产品组名",
+      "bwusage":"当前使用流量",
+      "bwlimit":"当前使用流量上限(0表示不限)",
+      "os":"操作系统",
+      "port":"端口",
+      "remark":"备注",
+      "allow_upgrade_config":"是否输出“升级配置项”按钮：1是",
+      "allow_upgrade_product":"是否输出“升级产品”按钮：1是",
+      "show_traffic_usage":"是否显示用量图",
+    }]
+    "config_options":[{//可配置选项
+      "name":"配置名",
+      "sub_name":"配置项值",
+    }]
+    "custom_field_data":[{//自定义字段
+      "fieldname":"字段名",
+      "value":"字段值",
+    }]
+    "download_data":[{//可下载数据
+      "id":"文件id",
+    }]
+    "module_button":[{//模块按钮
+      "type":"default:默认,custom:自定义",
+      "type":"func:函数名",
+      "type":"name:名称",
+    }]
+    "module_client_area":[{//模块页面输出
+      "key":"键值用于获取内容",
+      "name":"名称",
+    }]
+    "hook_output":"钩子在本页面的输出，数组，循环显示的html",
+    "dcim.flowpacket":[{//当前产品可购买的流量包
+      "id":"流量包ID",
+      "name":"流量包名称",
+      "price":"价格",
+      "sale_times":"销售次数",
+      "stock":"库存(0不限)",
+    }]
+    "dcim.auth":"服务器各种操作权限控制(on有权限off没权限)",
+    "dcim.area_code":"区域代码",
+    "dcim.area_name":"区域名称",
+    "dcim.os_group":[{//操作系统分组
+      "id":"分组ID",
+      "name":"分组名称",
+      "svg":"分组svg号",
+    }]
+    "dcim.os":[{//操作系统数据
+      "id":"操作系统ID",
+      "name":"操作系统名称",
+      "ostype":"操作系统类型(1windows0linux)",
+      "os_name":"操作系统真实名称(用来判断具体的版本和操作系统)",
+      "group_id":"所属分组ID",
+    }]
+    "flow_packet_use_list":[{//流量包使用情况
+      "name":"流量包名称",
+      "capacity":"流量包大小",
+      "price":"价格",
+      "pay_time":"支付时间",
+      "used":"已用流量",
+      "leave":"剩余流量",
+    }]
+    "cloud_os":[{//云操作系统
+      "id":"操作系统ID",
+      "name":"名称",
+      "group":"分组id",
+    }]
+    "cloud_os_group":[{//云操作系统分组
+      "id":"分组id",
+      "name":"分组名称",
+    }]
+    "system_config.company_name":"系统公司名",
+    "dcimcloud.nat_acl":"远程地址",
+    "dcimcloud.nat_web":"建站解析",
+    "module_power_status":"是否请求电源状态",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+host_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户目录
+
+- name: `app\home\controller\HostController::index`
+- url: `/navindex`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::index
+接口：用户目录
+接口地址：/navindex 
+GET
+用户目录 -- lgd
+接口说明:用户目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户可添加目录
+
+- name: `app\home\controller\HostController::addindexPage`
+- url: `/addindex_page`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::addindexPage
+接口：用户可添加目录
+接口地址：/addindex_page 
+GET
+用户可添加目录 -- lgd
+接口说明:用户可添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户添加目录
+
+- name: `app\home\controller\HostController::addindexPost`
+- url: `/addindex_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::addindexPost
+接口：用户添加目录
+接口地址：/addindex_post 
+Post
+用户添加目录 -- lgd
+接口说明:用户添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户目录删除
+
+- name: `app\home\controller\HostController::addindexDel`
+- url: `/addindex_del`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\HostController::addindexDel
+接口：用户目录删除
+接口地址：/addindex_del 
+Post
+用户目录删除 -- lgd
+接口说明:删除
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

@@ -1,0 +1,821 @@
+# 前台service module及接口（app\home\controller\ProvisionController）
+
+
+---
+
+##      POST 执行模块默认方法
+
+- name: `app\home\controller\ProvisionController::execute`
+- url: `        /provision/default`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::execute
+接口：执行模块默认方法
+接口地址： /provision/default 
+ POST
+执行模块默认方法 -- hh
+执行开机,关机,重启,重装系统
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+int|array
+必填
+-
+-
+hostid
+func
+字符串
+必填
+-
+-
+执行的方法
+os
+整型
+必填
+-
+-
+重装系统的操作系统id
+code
+整型
+必填
+-
+-
+验证码
+is_api
+整型
+非必填
+-
+-
+1表示是api接口请求,0否(此参数是为了二次验证增加)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+func
+os
+code
+is_api
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  GET 获取自定义内容
+
+- name: `app\home\controller\ProvisionController::getClientAreaContent`
+- url: `/provision/custom/content`
+- 返回字段: [' html内容']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::getClientAreaContent
+接口：获取自定义内容
+接口地址：/provision/custom/content 
+ GET
+获取自定义内容 -- hh
+时间 2020-07-01
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+hostid
+key
+字符串
+必填
+-
+-
+module_client_area里面的key
+jwt
+字符串
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "html内容":"",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+key
+jwt
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  POST 获取自定义内容
+
+- name: `app\home\controller\ProvisionController::postClientAreaContent`
+- url: `/zjmf_api/provision/custom/content`
+- 返回字段: [' html:html内容']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::postClientAreaContent
+接口：获取自定义内容
+接口地址：/zjmf_api/provision/custom/content 
+ POST
+获取自定义内容 -- hh
+时间 2020-08-06
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+hostid
+key
+字符串
+必填
+-
+-
+module_client_area里面的key
+api_url
+字符串
+必填
+-
+-
+替换原来模板内的接口地址
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "html":"html内容",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+key
+api_url
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  POST 执行自定义模块方块
+
+- name: `app\home\controller\ProvisionController::customFunc`
+- url: `/provision/custom/:id`
+- 返回字段: [' [type] [description]']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::customFunc
+接口：执行自定义模块方块
+接口地址：/provision/custom/:id 
+ POST
+执行自定义模块方块 -- hh
+时间 2020-07-02
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+func
+字符串
+必填
+-
+-
+执行的方法
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "[type] [description]":"",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+func
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  GET 获取模块图表数据
+
+- name: `app\home\controller\ProvisionController::getChartData`
+- url: `/provision/chart/:id`
+- 返回字段: [' unit:单位', ' chart_type:line线性图', ' list:图表数据@', ' label:对应list鼠标over显示内容']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::getChartData
+接口：获取模块图表数据
+接口地址：/provision/chart/:id 
+ GET
+获取模块图表数据 -- hh
+时间 2020-07-06
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+字符串
+必填
+-
+-
+module_chart里面的type
+select
+字符串
+非必填
+-
+-
+module_chart里面的select的value
+start
+整型
+非必填
+-
+-
+开始毫秒时间戳
+end
+整型
+非必填
+-
+-
+结束毫秒时间戳
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "unit":"单位",
+    "chart_type":"line线性图",
+    "list":[{//图表数据
+      "time":"时间",
+    }]
+    "label":"对应list鼠标over显示内容",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+select
+start
+end
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##      POST 执行模块自定义按钮方法
+
+- name: `app\home\controller\ProvisionController::execCustomButton`
+- url: `        /provision/button`
+- 返回字段: ['']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::execCustomButton
+接口：执行模块自定义按钮方法
+接口地址： /provision/button 
+ POST
+执行模块自定义按钮方法 -- huanghao
+执行模块自定义按钮方法
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+服务id
+func
+字符串
+必填
+-
+-
+自定义方法名称
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "":"",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+func
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户目录
+
+- name: `app\home\controller\ProvisionController::index`
+- url: `/navindex`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::index
+接口：用户目录
+接口地址：/navindex 
+GET
+用户目录 -- lgd
+接口说明:用户目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户可添加目录
+
+- name: `app\home\controller\ProvisionController::addindexPage`
+- url: `/addindex_page`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::addindexPage
+接口：用户可添加目录
+接口地址：/addindex_page 
+GET
+用户可添加目录 -- lgd
+接口说明:用户可添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户添加目录
+
+- name: `app\home\controller\ProvisionController::addindexPost`
+- url: `/addindex_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::addindexPost
+接口：用户添加目录
+接口地址：/addindex_post 
+Post
+用户添加目录 -- lgd
+接口说明:用户添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户目录删除
+
+- name: `app\home\controller\ProvisionController::addindexDel`
+- url: `/addindex_del`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ProvisionController::addindexDel
+接口：用户目录删除
+接口地址：/addindex_del 
+Post
+用户目录删除 -- lgd
+接口说明:删除
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

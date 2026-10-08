@@ -1,0 +1,898 @@
+# 产品/服务列表页（app\admin\controller\HostController）
+
+
+---
+
+## GET 产品/服务列表页数据接口，带搜索
+
+- name: `app\admin\controller\HostController::getList`
+- url: `/admin/host/list`
+- 返回字段: ['base:基础数据(搜索区)@', 'list:数据列表@', 'pagination:分页相关数据@', 'search:搜索参数@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getList
+接口：产品/服务列表页数据接口，带搜索
+接口地址：/admin/host/list 
+GET
+产品/服务列表页数据接口，带搜索 -- 萧十一郎
+接口说明:后台用户产品服务内页
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+number
+非必填
+1
+-
+页码
+pagecount
+number
+非必填
+-
+-
+每页显示条数
+order
+字符串
+非必填
+id
+-
+排序字段(id,uid,productid,billingcycle,payment,nextduedate,dedicatedip,username,productname)
+sort
+字符串
+非必填
+ASC
+-
+排序方式
+product_type
+字符串
+非必填
+-
+-
+产品类型(搜索字段)
+uid
+整型
+非必填
+-
+-
+用户名(搜索字段)
+name
+字符串
+非必填
+-
+-
+产品名(搜索字段)
+server
+number
+非必填
+-
+-
+服务器id(搜索字段)
+product
+number
+非必填
+-
+-
+产品id(搜索字段)
+payment
+字符串
+非必填
+-
+-
+支付方式(搜索字段)
+billingcycle
+字符串
+非必填
+-
+-
+付款周期(搜索字段)
+domainstatus
+字符串
+非必填
+-
+-
+主机状态(搜索字段)
+domain
+字符串
+非必填
+-
+-
+主机名(搜索字段)
+ip
+字符串
+非必填
+-
+-
+ip(搜索字段)
+nextduedate
+整型
+非必填
+-
+-
+到期时间
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "base":[{//基础数据(搜索区)
+      "billingcycle":"周期",
+      "gateway_list":"支付方式",
+      "product_list":[{//产品列表
+        "id":"分组id",
+        "groupname":"分组名称",
+        "clild":[{//产品数组
+          "id":"产品id",
+          "productname":"产品名称",
+        }]
+      }]
+      "product_type":"产品类型",
+      "server_list":"服务器列表",
+      "domainstatus":"服务器状态",
+    }]
+    "list":[{//数据列表
+      "id":"主机id",
+      "dedicatedip":"独立ip",
+      "billingcycle":"周期",
+      "dedicatedip":"主ip地址",
+      "assignedips":"附加ip地址",
+      "nextduedate":"到期时间",
+      "payment":"付款方式",
+      "productid":"产品id",
+      "productname":"产品名",
+      "productname":"状态'Pending','Active','Suspended','Terminated','Cancelled','Fraud','Completed'",
+      "uid":"用户id",
+      "amount":"价格",
+      "regdate":"开通时间",
+      "dedicatedip":"ip地址",
+      "type":"产品类型(shared",
+      "username":"用户名",
+      "sale_name":"显示销售",
+    }]
+    "pagination":[{//分页相关数据
+      "count":"总数量",
+      "total_page":"总页码",
+      "pagecount":"每页数量",
+      "page":"当前页码",
+      "orderby":"排序字段",
+      "sorting":"排序方式",
+    }]
+    "search":[{//搜索参数
+      "billingcycle":"周期",
+      "domainstatus":"主机状态",
+      "payment":"支付方式",
+      "product":"产品id",
+      "product_type":"产品类型",
+      "server":"服务器id",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+pagecount
+order
+sort
+product_type
+uid
+name
+server
+product
+payment
+billingcycle
+domainstatus
+domain
+ip
+nextduedate
+start_time
+end_time
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 获取时间类型
+
+- name: `app\admin\controller\HostController::getTimetype`
+- url: `/admin/host/get_timetype`
+- 返回字段: ['data:基础数据(搜索区)@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getTimetype
+接口：获取时间类型
+接口地址：/admin/host/get_timetype 
+GET
+获取时间类型 -- lgd
+接口说明: 获取时间类型
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//基础数据(搜索区)
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 获取用户信息
+
+- name: `app\admin\controller\HostController::userInfo`
+- url: `/admin/host/userInfo`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::userInfo
+接口：获取用户信息
+接口地址：/admin/host/userInfo 
+post
+获取用户信息 -- xue
+接口说明: 获取用户信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取销售员客户ids
+
+- name: `app\admin\controller\HostController::getAdminSale`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getAdminSale
+接口：获取销售员客户ids
+接口地址：请设置url注释 
+GET
+获取销售员客户ids -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员 不可以查看sale_id为空的
+
+- name: `app\admin\controller\HostController::check`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::check
+接口：检查当前用户是否为销售员 不可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 不可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员  可以查看sale_id为空的
+
+- name: `app\admin\controller\HostController::check1`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::check1
+接口：检查当前用户是否为销售员 可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计
+
+- name: `app\admin\controller\HostController::getLadder`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getLadder
+接口：获取当前销售员的阶级统计
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计(所有)
+
+- name: `app\admin\controller\HostController::getLadderforall`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getLadderforall
+接口：获取当前销售员的阶级统计(所有)
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计(所有) -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩
+
+- name: `app\admin\controller\HostController::getLaddersaleStatistics`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getLaddersaleStatistics
+接口：当前销售员时间周期获取业绩
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩；仅统计总金额
+
+- name: `app\admin\controller\HostController::getLaddersaleStatisticsOnlyTotalAccount`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getLaddersaleStatisticsOnlyTotalAccount
+接口：当前销售员时间周期获取业绩；仅统计总金额
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩；仅统计总金额 -- 请设置auhtor注释
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取提成总额
+
+- name: `app\admin\controller\HostController::getSum`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\HostController::getSum
+接口：获取提成总额
+接口地址：请设置url注释 
+GET
+获取提成总额 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

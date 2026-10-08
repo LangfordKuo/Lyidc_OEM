@@ -1,0 +1,4137 @@
+# 后台产品模块（app\admin\controller\ProductController）
+
+
+---
+
+## GET 产品服务列表页面
+
+- name: `app\admin\controller\ProductController::getProuductlistPage`
+- url: `/admin/product_list_page`
+- 返回字段: [' id:产品组ID', ' name:产品组名称', ' headline:产品组标题', ' tagline:产品组标语', ' order_frm_tpl:该产品组的购买模板', ' disabled_gateways:隐藏的网关，以逗号分隔', ' hidden:是否隐藏', ' order:排序', ' create_time:创建时间', ' update_time:修改时间', ' products:产品信息@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::getProuductlistPage
+接口：产品服务列表页面
+接口地址：/admin/product_list_page 
+GET
+产品服务列表页面 -- 萧十一郎
+接口说明:产品服务列表页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+keywords
+整型
+非必填
+-
+-
+keywords
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "id":"产品组ID",
+    "name":"产品组名称",
+    "headline":"产品组标题",
+    "tagline":"产品组标语",
+    "order_frm_tpl":"该产品组的购买模板",
+    "disabled_gateways":"隐藏的网关，以逗号分隔",
+    "hidden":"是否隐藏",
+    "order":"排序",
+    "create_time":"创建时间",
+    "update_time":"修改时间",
+    "products":[{//产品信息
+      "id":"产品ID",
+      "gid":"产品组ID",
+      "type":"产品类型",
+      "pay_type":"产品周期",
+      "qty":"库存",
+      "auto_setup":"自动开通：order，下单后；payment：支付后；on：手动审核",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+keywords
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 一级分组排序修改
+
+- name: `app\admin\controller\ProductController::updateFirstGroupsort`
+- url: `/admin/update_firstgroupsort`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::updateFirstGroupsort
+接口：一级分组排序修改
+接口地址：/admin/update_firstgroupsort 
+POST
+一级分组排序修改 -- xj
+接口说明:一级分组排序修改
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+gid
+整型
+非必填
+-
+-
+组ID
+pre_gid
+整型
+非必填
+-
+-
+移动后前一个gid
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+gid
+pre_gid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 产品分组排序修改
+
+- name: `app\admin\controller\ProductController::updateGroupsort`
+- url: `/admin/update_groupsort`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::updateGroupsort
+接口：产品分组排序修改
+接口地址：/admin/update_groupsort 
+POST
+产品分组排序修改 -- xj
+接口说明:产品分组排序修改
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid
+整型
+非必填
+-
+-
+产品组ID
+gid
+整型
+非必填
+-
+-
+一级组ID
+pre_pid
+整型
+非必填
+-
+-
+移动后前一个产品组ID
+current_gid
+整型
+非必填
+-
+-
+当前一级组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid
+gid
+pre_pid
+current_gid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 产品排序修改
+
+- name: `app\admin\controller\ProductController::updateProductsort`
+- url: `/admin/update_productsort`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::updateProductsort
+接口：产品排序修改
+接口地址：/admin/update_productsort 
+POST
+产品排序修改 -- wyh
+接口说明:产品排序修改
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid
+整型
+非必填
+-
+-
+产品ID
+gid
+整型
+非必填
+-
+-
+组ID
+pre_pid
+整型
+非必填
+-
+-
+移动后前一个产品ID
+current_gid
+整型
+非必填
+-
+-
+当前产品组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid
+gid
+pre_pid
+current_gid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品分组添加页
+
+- name: `app\admin\controller\ProductController::editGroupPage`
+- url: `/admin/edit_product_group_page`
+- 返回字段: ['activeGatewayArr:网关数据@', 'allgateways:已选择网关@', 'firstGroups:一级分组数据@', 'default_page:系统默认']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editGroupPage
+接口：产品分组添加页
+接口地址：/admin/edit_product_group_page 
+GET
+产品分组添加页 -- 萧十一郎
+接口说明:产品分组添加页，传入id时会获取该组数据
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+非必填
+-
+-
+传递时会获取该组数据
+type
+number
+必填
+-
+-
+产品组分类1=通用2=裸金属3=魔方云
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "activeGatewayArr":[{//网关数据
+    }]
+    "allgateways":[{//已选择网关
+    }]
+    "firstGroups":[{//一级分组数据
+    }]
+    "default_page":"系统默认",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 保存产品分组信息
+
+- name: `app\admin\controller\ProductController::saveProductGroup`
+- url: `/admin/save_product_group`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::saveProductGroup
+接口：保存产品分组信息
+接口地址：/admin/save_product_group 
+POST
+保存产品分组信息 -- 萧十一郎
+接口说明:保存产品分组信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+非必填
+-
+-
+组ID，存在时修改，不存在时添加
+name
+字符串
+必填
+-
+-
+组名称
+headline
+字符串
+非必填
+-
+-
+产品组标题
+tagline
+字符串
+非必填
+-
+-
+产品组标语
+order_frm_tpl
+字符串
+必填
+-
+-
+订购表格模板：选默认，传返回的default_page的值
+gateways
+数组
+必填
+-
+-
+可用的付款接口（数组）
+hidden
+字符串
+必填
+0
+-
+隐藏，on
+type
+整型
+必填
+0
+-
+产品组分类1=通用产品2=裸金属
+gid
+整型
+必填
+0
+-
+一级分组ID
+tpl_type
+字符串
+必填
+0
+-
+模板类型:default默认，custom自定义
+is_upstream
+字符串
+非必填
+0
+-
+是否上游资源
+zjfm_api_id
+字符串
+非必填
+0
+-
+接口id
+is_resource
+字符串
+非必填
+0
+-
+是否资源池分组
+customfields
+数组
+非必填
+0
+-
+是否资源池分组(name,value的对象组成的数组)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+name
+headline
+tagline
+order_frm_tpl
+gateways
+hidden
+type
+gid
+tpl_type
+is_upstream
+zjfm_api_id
+is_resource
+customfields
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 验证产品分组别名
+
+- name: `app\admin\controller\ProductController::checkAlias`
+- url: `/admin/ check_product_as`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::checkAlias
+接口：验证产品分组别名
+接口地址：/admin/ check_product_as 
+post
+验证产品分组别名 -- xue
+接口说明:验证产品分组别名
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+alias
+字符串
+必填
+-
+-
+别名
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+alias
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 一级分组添加页
+
+- name: `app\admin\controller\ProductController::editFirstGroupPage`
+- url: `/admin/edit_product_first_group_page`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editFirstGroupPage
+接口：一级分组添加页
+接口地址：/admin/edit_product_first_group_page 
+GET
+一级分组添加页 -- xj
+接口说明:一级分组添加页，传入id时会获取该组数据
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+非必填
+-
+-
+传递时会获取该组数据
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 保存一级分组信息
+
+- name: `app\admin\controller\ProductController::saveProductFirstGroup`
+- url: `/admin/save_product_first_group`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::saveProductFirstGroup
+接口：保存一级分组信息
+接口地址：/admin/save_product_first_group 
+POST
+保存一级分组信息 -- xj
+接口说明:保存一级分组信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+非必填
+-
+-
+组ID，存在时修改，不存在时添加
+name
+字符串
+必填
+-
+-
+组名称
+hidden
+字符串
+必填
+0
+-
+隐藏，on
+is_upstream
+字符串
+非必填
+0
+-
+是否上游资源
+zjmf_api_id
+字符串
+非必填
+0
+-
+接口id
+is_resource
+整型
+非必填
+0
+-
+是否资源池分组
+customfields
+数组
+非必填
+0
+-
+是否资源池分组(name,value的对象组成的数组)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+name
+hidden
+is_upstream
+zjmf_api_id
+is_resource
+customfields
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 删除产品
+
+- name: `app\admin\controller\ProductController::delete`
+- url: `/admin/del_product/:id`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::delete
+接口：删除产品
+接口地址：/admin/del_product/:id 
+GET
+删除产品 -- 萧十一郎
+接口说明:产品组列表执行删除产品操作
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+必填
+-
+-
+产品ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 删除产品组
+
+- name: `app\admin\controller\ProductController::deleteGroup`
+- url: `/admin/del_product_group/:id`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::deleteGroup
+接口：删除产品组
+接口地址：/admin/del_product_group/:id 
+GET
+删除产品组 -- 萧十一郎
+接口说明:产品组列表执行删除产品组操作
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+必填
+-
+-
+产品组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 删除一级组
+
+- name: `app\admin\controller\ProductController::deleteFirstGroup`
+- url: `/admin/del_product_first_group`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::deleteFirstGroup
+接口：删除一级组
+接口地址：/admin/del_product_first_group 
+GET
+删除一级组 -- xj
+接口说明:产品组列表执行删除一级组操作
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+必填
+-
+-
+一级组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 复制产品页面
+
+- name: `app\admin\controller\ProductController::duplicatePage`
+- url: `/admin/product_duplicate_page`
+- 返回字段: ['0:存在的产品数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::duplicatePage
+接口：复制产品页面
+接口地址：/admin/product_duplicate_page 
+GET
+复制产品页面 -- 萧十一郎
+接口说明:复制产品页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "0":[{//存在的产品数据
+      "id":"产品id",
+      "name_desc":"产品描述名",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 复制产品
+
+- name: `app\admin\controller\ProductController::duplicate`
+- url: `/admin/product_duplicate`
+- 返回字段: ['pid:复制的产品ID']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::duplicate
+接口：复制产品
+接口地址：/admin/product_duplicate 
+GET
+复制产品 -- 萧十一郎
+接口说明:复制产品
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+-
+-
+必填
+-
+-
+原产品id
+newproductname
+-
+必填
+-
+-
+新产品名称
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "pid":"复制的产品ID",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+newproductname
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品添加页面
+
+- name: `app\admin\controller\ProductController::addPage`
+- url: `/admin/add_product_page`
+- 返回字段: ['groupdata:产品组数据@', 'type:产品类型']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::addPage
+接口：产品添加页面
+接口地址：/admin/add_product_page 
+GET
+产品添加页面 -- 萧十一郎
+接口说明:产品添加页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+number
+必填
+-
+-
+产品组分类1=通用2=裸金属3=魔方云
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "groupdata":[{//产品组数据
+      "id":"组ID",
+      "name":"组名称",
+    }]
+    "type":"产品类型",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 创建产品
+
+- name: `app\admin\controller\ProductController::create`
+- url: `/admin/create_product`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::create
+接口：创建产品
+接口地址：/admin/create_product 
+POST
+创建产品 -- 萧十一郎
+接口说明:创建产品
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+-
+必填
+-
+-
+产品类型(hostingaccount，reselleraccount，server，other,
+gid
+number
+必填
+-
+-
+组ID
+productname
+字符串
+必填
+-
+-
+产品名称
+upstream_price_value
+字符串
+非必填
+-
+-
+利润百分比
+ptype
+字符串
+非必填
+-
+-
+导航类型
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+gid
+productname
+upstream_price_value
+ptype
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 获取上游产品
+
+- name: `app\admin\controller\ProductController::getUpstreamProducts`
+- url: `/admin/get_upstream_products`
+- 返回字段: [' upstream_currency:上游货币 USD', ' currency:本地货币 CNY', ' rate:建议汇率']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::getUpstreamProducts
+接口：获取上游产品
+接口地址：/admin/get_upstream_products 
+GET
+获取上游产品 -- wyh
+接口说明:获取上游产品
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+字符串
+必填
+0
+desc:接口id
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "upstream_currency":"上游货币 USD",
+    "currency":"本地货币 CNY",
+    "rate":"建议汇率",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 同步上游产品信息 TODO 基础信息同步,上游产品信息变更 无法 定位具体某个字段改变,所以只要满足同步条件,就会覆盖产品的所有信息(包括之前用户自己修改的)
+
+- name: `app\admin\controller\ProductController::syncProductInfo`
+- url: `/admin/product/sync_product_info`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::syncProductInfo
+接口：同步上游产品信息 TODO 基础信息同步,上游产品信息变更 无法 定位具体某个字段改变,所以只要满足同步条件,就会覆盖产品的所有信息(包括之前用户自己修改的)
+接口地址：/admin/product/sync_product_info 
+POST
+同步上游产品信息 TODO 基础信息同步,上游产品信息变更 无法 定位具体某个字段改变,所以只要满足同步条件,就会覆盖产品的所有信息(包括之前用户自己修改的) -- wyh
+接口说明:同步上游产品信息
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid
+整型
+必填
+-
+-
+产品ID
+upstream_pid
+整型
+必填
+-
+-
+上游产品ID
+zjmf_finance_api_id
+整型
+必填
+-
+-
+魔方财务api
+api_type
+整型
+必填
+-
+-
+接口类型::zjmf_api(魔方财务api),manual(手动)，normal(通用),resource(资源池)
+rate
+浮点型
+非必填
+-
+-
+汇率
+upstream_price_type
+浮点型
+非必填
+-
+-
+价格方案
+upstream_price_value
+浮点型
+非必填
+-
+-
+百分比
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid
+upstream_pid
+zjmf_finance_api_id
+api_type
+rate
+upstream_price_type
+upstream_price_value
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品编辑页面
+
+- name: `app\admin\controller\ProductController::editPage`
+- url: `/admin/edit_product_page/:id`
+- 返回字段: ['  product:产品数据@', ' welcomeemail:开通邮件列表', 'product_paytype:付款类型', ' pricing:价格数组@', 'currencies:当前系统设置的货币@', 'product_pay_type:支持的付款类型方式@', ' autoterminateemail:删除邮件列表', 'server_group:服务器组数据@', 'customfields_type:自定义数据类型@（text，link，password，dropdown，tickbox，textarea）', 'customfields:自定义字段数据@', 'config_links:选中(分配)的选项组@', 'config_groups:可配置选项组数据（基础数据）@', 'all_product_data:用于可升级选项的基础数据@', 'upgrade_product_ids:选中的升级产品id，一维数组', ' upgradeemail:升级邮件列表()', 'custom_brokerage:自定义佣金（percentage：百分比，fixed：固定数额，none：无）默认根据推广设置。为空', ' download_files:关联的下载数组@', ' hierarchy_cats:下载文件的分层数据@', ' api_type:接口类型']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editPage
+接口：产品编辑页面
+接口地址：/admin/edit_product_page/:id 
+GET
+产品编辑页面 -- 萧十一郎
+接口说明:产品编辑页面数据获取
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+number
+必填
+-
+-
+产品组分类1=通用2=裸金属3=魔方云
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "product":[{//产品数据
+      "id":"产品ID",
+      "type":"产品类型",
+      "gid":"产品组ID",
+      "name":"产品名称",
+      "description":"产品描述:支持",
+      "hidden":"产品是否隐藏(0默认,1)",
+      "welcome_email":"开通邮件模板ID",
+      "stock_control":"库存控制（0不开启默认，1开启）",
+      "qty":"库存",
+      "tax":"是否缴税(0默认不，1是)",
+      "pay_method":"支付方式（预付费prepayment/后付费postpaid）",
+      "order":"排序",
+      "retired":"下架（选中复选框从管理区产品下拉菜单中隐藏（不适用于已用于此产品的服务））",
+      "is_featured":"特性（在支持的订单上更加突出的显示此产品）",
+      "allow_qty":"",
+      "auto_terminate_email":"",
+      "server_group":"服务器组ID",
+      "auto_setup":"购买后动作设置(无：手动开通，on：手动审核通过后自动开通，payment：当收到客户首付款时自动开通，order：当客户下单之后（未付款）立即自动开通)",
+      "config_options_upgrade":"是否升级可配置选项",
+      "upgrade_email":"升级邮件ID",
+      "24":"",
+      "affiliateonetime":"推介计划：1：一次性支付（默认为循环支付）",
+      "affiliate_pay_type":"自定义佣金设置",
+      "affiliate_pay_amount":"金额/百分比",
+    }]
+    "welcomeemail":"开通邮件列表",
+    "product_paytype":"付款类型",
+    "pricing":[{//价格数组
+      "currency":"货币ID",
+      "osetupfee":"周期一次性初装费",
+      "hsetupfee":"周期小时初装费",
+      "dsetupfee":"周期天初装费",
+      "ontrialfee":"试用初装费",
+      "msetupfee":"月初装费",
+      "qsetupfee":"季初装费",
+      "ssetupfee":"半年初装费",
+      "asetupfee":"年初装费",
+      "bsetupfee":"两年初装费",
+      "tsetupfee":"三年初装费",
+      "foursetupfee":"四年初装费",
+      "fivesetupfee":"五年初装费",
+      "sixsetupfee":"六年初装费",
+      "sevensetupfee":"七年初装费",
+      "eightsetupfee":"八年初装费",
+      "ninesetupfee":"九年初装费",
+      "tensetupfee":"十年初装费",
+      "onetime":"一次性费用",
+      "hour":"每小时费用",
+      "day":"每天费用",
+      "ontrial":"试用费用",
+      "monthly":"每月费用",
+      "quarterly":"每季度费用",
+      "semiannually":"每半年费用",
+      "annually":"每一年费用",
+      "biennially":"每两年费用",
+      "triennially":"每三年费用",
+      "fourly":"每四年费用",
+      "fively":"每五年费用",
+      "sixly":"每六年费用",
+      "sevenly":"每七年费用",
+      "eightly":"每八年费用",
+      "ninely":"每九年费用",
+      "tenly":"每十年费用",
+    }]
+    "currencies":[{//当前系统设置的货币
+      "id":"货币ID",
+      "code":"货币标识",
+    }]
+    "product_pay_type":[{//支持的付款类型方式
+      "pay_type":"free,onetime,recurring",
+      "pay_hour_status":"按小时计费",
+      "pay_hour_cycle":"按小时计费的付费周期",
+      "pay_day_status":"按天计费",
+      "pay_day_cycle":"按天计费付费周期",
+      "pay_ontrial_status":"按小时计费",
+      "pay_ontrial_cycle":"按天计费付费周期",
+      "pay_ontrial_num":"试用数量：客户购买此产品周期为试用时的最大购买数量",
+      "pay_ontrial_condition":[{//试用条件
+        "realname":"是否需要实名认证",
+        "wechat":"是否需要微信绑定",
+        "phone":"是否需要手机绑定",
+        "email":"是否需要邮箱绑定",
+      }]
+    }]
+    "autoterminateemail":"删除邮件列表",
+    "server_group":[{//服务器组数据
+      "id":"组id",
+      "name":"组名称",
+      "type":"组模块类型",
+    }]
+    "customfields_type":[{//自定义数据类型（text，link，password，dropdown，tickbox，textarea）
+    }]
+    "customfields":[{//自定义字段数据
+      "id":"自定义字段id",
+      "fieldname":"自定义字段标题",
+      "fieldtype":"自定义字段类型",
+      "description":"自定义字段描述",
+      "fieldoptions":"自定义字段选项，为dropdown时使用",
+      "regexpr":"验证数据",
+      "adminonly":"是否管理员可见",
+      "required":"是否必填",
+      "showorder":"是否在订单上显示",
+      "showinvoice":"是否在账单上显示",
+      "sortorder":"排序字段",
+      "showdetail":"是否在产品内页显示",
+    }]
+    "config_links":[{//选中(分配)的选项组
+      "gid":"组id",
+    }]
+    "config_groups":[{//可配置选项组数据（基础数据）
+      "id":"配置组id",
+      "name_desc":"展示描述信息",
+    }]
+    "all_product_data":[{//用于可升级选项的基础数据
+      "id":"产品id",
+      "name_desc":"产品展示名称",
+    }]
+    "upgrade_product_ids":"选中的升级产品id，一维数组",
+    "upgradeemail":"升级邮件列表()",
+    "custom_brokerage":"自定义佣金（percentage：百分比，fixed：固定数额，none：无）默认根据推广设置。为空",
+    "download_files":[{//关联的下载数组
+      "id":"文件id",
+      "title":"显示文件名",
+    }]
+    "hierarchy_cats":[{//下载文件的分层数据
+      "id":"分类id",
+      "name":"分类名称",
+      "files":[{//存在的可用文件
+        "id":"文件id",
+        "title":"文件名",
+      }]
+      "child":[{//子分类
+        "id":"分类id",
+        "name":"分类名称",
+        "files":"存在的可用文件",
+      }]
+    }]
+    "api_type":"接口类型",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 保存产品信息
+
+- name: `app\admin\controller\ProductController::edit`
+- url: `/admin/edit_product`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::edit
+接口：保存产品信息
+接口地址：/admin/edit_product 
+POST
+保存产品信息 -- 萧十一郎
+保存产品基础信息数据和购买周期升降级等设置
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+产品ID
+afpid
+整型
+必填
+-
+-
+产品推荐配置ID
+type
+字符串
+必填
+1
+-
+服务器类型：server,reselleraccount,hostingaccount,other
+gid
+整型
+必填
+-
+-
+组ID
+name
+字符串
+必填
+-
+-
+产品名称
+groupid
+字符串
+非必填
+-
+-
+显示分类
+description
+字符串
+非必填
+-
+-
+产品描述信息
+welcome_email
+整型
+非必填
+-
+-
+产品开通邮件
+hidden
+整型
+非必填
+null
+-
+是否隐藏产品
+retired
+整型
+非必填
+null
+-
+是否下架产品
+is_featured
+整型
+非必填
+null
+-
+是否突出显示
+stock_control
+字符串
+非必填
+-
+-
+是否控制库存，库存控制(1:启用)默认0
+qty
+整型
+非必填
+-
+-
+产品库存
+allow_qty
+字符串
+非必填
+-
+-
+选中复选框，如果客户在购买时，订购产品超过1个时，则允许客户自行指定（不需要单独配置）。
+prorata_billing
+整型
+非必填
+-
+-
+自定义结算日期(1:启用)，字段弃用
+prorata_date
+整型
+非必填
+-
+-
+结算日期(输入您希望从每月的几号开始结算费用)，字段弃用
+prorata_charge_next_month
+整型
+非必填
+-
+-
+下月结算(输入从每月几号后订购的产品，将安排在下个月的账单中一起收费)，字段弃用
+clientscount
+整型
+非必填
+-
+-
+clientscount单个客户购买此产品的数量
+pay_type
+字符串
+非必填
+-
+-
+免费free，一次onetime，周期recurring（此字段与按小时和按天和试用必须有一个需要选中）
+pay_hour_status
+字符串
+非必填
+-
+-
+是否支持按小时计费，on
+pay_hour_cycle
+整型
+必填
+-
+-
+按小时计费的结算周期，小时
+pay_day_status
+字符串
+非必填
+-
+-
+是否支持按天计费，on
+pay_day_cycle
+整型
+非必填
+-
+-
+按天计费的周期
+pay_ontrial_status
+字符串
+非必填
+-
+-
+是否支持试用，on
+pay_ontrial_cycle
+整型
+非必填
+-
+-
+试用的时间，按小时为单位
+pay_ontrial_condition
+数组
+非必填
+-
+-
+试用的条件:
+pay_ontrial_num
+数组
+非必填
+-
+-
+试用数量
+pay_ontrial_cycle_type
+数组
+非必填
+-
+-
+试用时长单位
+pay_method
+字符串
+必填
+prepayment
+-
+预付费/后付费
+server_type
+字符串
+非必填
+-
+-
+产品模块名
+server_group
+整型
+非必填
+-
+-
+产品服务器组ID
+packageconfigoption[1]-[24]
+数组
+非必填
+-
+-
+产品配置数据
+auto_setup
+字符串
+非必填
+-
+-
+无：手动开通，on：手动审核通过后自动开通，payment：当收到客户首付款时自动开通，order：当客户下单之后（未付款）立即自动开通
+recurring_cycles
+整型
+非必填
+-
+-
+循环周期限制(弃用)
+auto_terminate_days
+整型
+非必填
+-
+-
+自动删除/固定周期（弃用）
+auto_terminate_email
+整型
+非必填
+-
+-
+产品删除邮件配置
+config_options_upgrade
+整型
+非必填
+-
+-
+产品是否允许升级可配置选项
+upgradeemail
+整型
+非必填
+-
+-
+升级邮件配置
+addfieldname
+字符串
+非必填
+-
+-
+添加的字段名称
+addfieldtype
+字符串
+非必填
+dropdown
+-
+添加的字段类型
+addcustomfielddesc
+字符串
+非必填
+-
+-
+添加的字段描述
+addfieldoptions
+字符串
+非必填
+-
+-
+添加字段的选项
+addregexpr
+字符串
+非必填
+-
+-
+该字段的正则匹配
+addadminonly
+字符串
+非必填
+-
+-
+选中为仅管理员可见
+addrequired
+字符串
+非必填
+-
+-
+该字段必填，值为on时
+addshoworder
+字符串
+非必填
+-
+-
+在订单上显示，值为on时
+addshowinvoice
+字符串
+非必填
+-
+-
+在账单上显示，值为on时
+addsortorder
+整型
+非必填
+-
+-
+排序数值
+addshowdetail
+整型
+非必填
+-
+-
+在产品内页显示，值为on时
+customfieldname
+数组
+非必填
+-
+-
+修改的字段名称
+customfieldtype
+数组
+非必填
+dropdown
+-
+修改的字段类型
+customfielddesc
+数组
+非必填
+-
+-
+修改的字段描述
+customfieldoptions
+数组
+非必填
+-
+-
+修改的字段的选项
+customfieldregexpr
+数组
+非必填
+-
+-
+修改的字段的正则匹配
+customadminonly
+数组
+非必填
+-
+-
+修改选中为仅管理员可见
+customrequired
+数组
+非必填
+-
+-
+修改该字段必填，值为on时
+customshoworder
+数组
+非必填
+-
+-
+修改在订单上显示，值为on时
+customshowinvoice
+数组
+非必填
+-
+-
+修改在账单上显示，值为on时
+customshowdetail
+数组
+非必填
+-
+-
+修改在产品内页显示，值为on时
+customsortorder
+数组
+非必填
+-
+-
+修改排序数值
+configoptionlinks
+数组
+非必填
+-
+-
+关联的可配置选项，一维数组，值为int型
+upgradepackages
+数组
+非必填
+-
+-
+可升级更改产品的数组，一维数组，值为int型
+currency
+数组
+非必填
+-
+-
+价格配置currency[货币id][周期/初装],如果用户没有输入需要传递-1.00
+currency[1][onetime]
+浮点型
+必填
+-
+-
+1为货币id，一次性价格
+currency[1][hour]
+浮点型
+必填
+-
+-
+小时价格
+currency[1][day]
+浮点型
+必填
+-
+-
+按天价格
+currency[1][ontrial]
+浮点型
+必填
+-
+-
+试用小时价格
+currency[1][monthly]
+浮点型
+必填
+-
+-
+月付价格
+currency[1][quarterly]
+浮点型
+必填
+-
+-
+季付价格
+currency[1][semiannually]
+浮点型
+必填
+-
+-
+半年付价格
+currency[1][annually]
+浮点型
+必填
+-
+-
+年付价格
+currency[1][biennially]
+浮点型
+必填
+-
+-
+两年
+currency[1][triennially]
+浮点型
+必填
+-
+-
+三年
+currency[1][fourly]
+浮点型
+必填
+-
+-
+四年
+currency[1][fively]
+浮点型
+必填
+-
+-
+五年
+currency[1][sixly]
+浮点型
+必填
+-
+-
+六年
+currency[1][sevenly]
+浮点型
+必填
+-
+-
+七年
+currency[1][eightly]
+浮点型
+必填
+-
+-
+八年
+currency[1][ninely]
+浮点型
+必填
+-
+-
+九年
+currency[1][tenly]
+浮点型
+必填
+-
+-
+十年
+currency[1][onetime]
+浮点型
+必填
+-
+-
+1为货币id，一次性初装价格
+currency[1][hsetupfee]
+浮点型
+必填
+-
+-
+小时初装价格
+currency[1][dsetupfee]
+浮点型
+必填
+-
+-
+天初装价格
+currency[1][ontrialfee]
+浮点型
+必填
+-
+-
+试用小时初装价格
+currency[1][msetupfee]
+浮点型
+必填
+-
+-
+月付初装价格
+currency[1][qsetupfee]
+浮点型
+必填
+-
+-
+季付初装价格
+currency[1][ssetupfee]
+浮点型
+必填
+-
+-
+半年付初装价格
+currency[1][asetupfee]
+浮点型
+必填
+-
+-
+年付初装价格
+currency[1][bsetupfee]
+浮点型
+必填
+-
+-
+两年初装价格
+currency[1][tsetupfee]
+浮点型
+必填
+-
+-
+三年初装价格
+currency[1][foursetupfee]
+浮点型
+必填
+-
+-
+四年初装价格
+currency[1][fivesetupfee]
+浮点型
+必填
+-
+-
+五年初装价格
+currency[1][sixsetupfee]
+浮点型
+必填
+-
+-
+六年初装价格
+currency[1][sevensetupfee]
+浮点型
+必填
+-
+-
+七年初装价格
+currency[1][eightsetupfee]
+浮点型
+必填
+-
+-
+八年初装价格
+currency[1][ninesetupfee]
+浮点型
+必填
+-
+-
+九年初装价格
+currency[1][tensetupfee]
+浮点型
+必填
+-
+-
+十年初装价格
+affiliate_pay_type
+字符串
+必填
+0
+-
+默认,百分比,percentage,固定数额,fixed,无佣金,none
+affiliate_pay_amount
+字符串
+必填
+0.00
+-
+推介支付金额
+affiliateonetime
+字符串
+非必填
+0
+-
+一次性支付（默认为循环支付）,选中为1
+host_show
+字符串
+非必填
+0
+-
+主机名显示
+host_modify
+字符串
+非必填
+0
+-
+主机名修改
+host_prefix
+字符串
+非必填
+0
+-
+主机名前缀
+host_rule_upper
+字符串
+非必填
+0
+-
+主机名大写
+host_rule_lower
+字符串
+非必填
+0
+-
+主机名小写
+host_rule_num
+字符串
+非必填
+0
+-
+主机名数字
+host_rule_len_num
+字符串
+非必填
+0
+-
+主机名长度
+password_show
+字符串
+非必填
+0
+-
+密码显示
+password_modify
+字符串
+非必填
+0
+-
+密码修改
+password_rule_len_num
+字符串
+非必填
+0
+-
+密码长度
+password_rule_upper
+字符串
+非必填
+0
+-
+密码大写
+password_rule_lower
+字符串
+非必填
+0
+-
+密码小写
+password_rule_num
+字符串
+非必填
+0
+-
+密码数字
+password_rule_special
+字符串
+非必填
+0
+-
+密码特殊字符
+is_truename
+整型
+非必填
+0
+-
+是否开启实名
+is_truename
+整型
+非必填
+0
+-
+是否开启绑定手机
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+afpid
+type
+gid
+name
+groupid
+description
+welcome_email
+hidden
+retired
+is_featured
+stock_control
+qty
+allow_qty
+prorata_billing
+prorata_date
+prorata_charge_next_month
+clientscount
+pay_type
+pay_hour_status
+pay_hour_cycle
+pay_day_status
+pay_day_cycle
+pay_ontrial_status
+pay_ontrial_cycle
+pay_ontrial_condition
+pay_ontrial_num
+pay_ontrial_cycle_type
+pay_method
+server_type
+server_group
+packageconfigoption[1]-[24]
+auto_setup
+recurring_cycles
+auto_terminate_days
+auto_terminate_email
+config_options_upgrade
+upgradeemail
+addfieldname
+addfieldtype
+addcustomfielddesc
+addfieldoptions
+addregexpr
+addadminonly
+addrequired
+addshoworder
+addshowinvoice
+addsortorder
+addshowdetail
+customfieldname
+customfieldtype
+customfielddesc
+customfieldoptions
+customfieldregexpr
+customadminonly
+customrequired
+customshoworder
+customshowinvoice
+customshowdetail
+customsortorder
+configoptionlinks
+upgradepackages
+currency
+currency[1][onetime]
+currency[1][hour]
+currency[1][day]
+currency[1][ontrial]
+currency[1][monthly]
+currency[1][quarterly]
+currency[1][semiannually]
+currency[1][annually]
+currency[1][biennially]
+currency[1][triennially]
+currency[1][fourly]
+currency[1][fively]
+currency[1][sixly]
+currency[1][sevenly]
+currency[1][eightly]
+currency[1][ninely]
+currency[1][tenly]
+currency[1][onetime]
+currency[1][hsetupfee]
+currency[1][dsetupfee]
+currency[1][ontrialfee]
+currency[1][msetupfee]
+currency[1][qsetupfee]
+currency[1][ssetupfee]
+currency[1][asetupfee]
+currency[1][bsetupfee]
+currency[1][tsetupfee]
+currency[1][foursetupfee]
+currency[1][fivesetupfee]
+currency[1][sixsetupfee]
+currency[1][sevensetupfee]
+currency[1][eightsetupfee]
+currency[1][ninesetupfee]
+currency[1][tensetupfee]
+affiliate_pay_type
+affiliate_pay_amount
+affiliateonetime
+host_show
+host_modify
+host_prefix
+host_rule_upper
+host_rule_lower
+host_rule_num
+host_rule_len_num
+password_show
+password_modify
+password_rule_len_num
+password_rule_upper
+password_rule_lower
+password_rule_num
+password_rule_special
+is_truename
+is_truename
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 保存产品库存
+
+- name: `app\admin\controller\ProductController::editStock`
+- url: `/admin/edit_stock`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editStock
+接口：保存产品库存
+接口地址：/admin/edit_stock 
+POST
+保存产品库存 -- 萧十一郎
+保存产品基础信息数据和购买周期升降级等设置
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+产品ID
+qty
+整型
+必填
+-
+-
+产品库存
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+qty
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 获取上游产品成本价
+
+- name: `app\admin\controller\ProductController::getUpstreamPrice`
+- url: `/admin/product/get_upstream_price`
+- 返回字段: ['flag:折扣@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::getUpstreamPrice
+接口：获取上游产品成本价
+接口地址：/admin/product/get_upstream_price 
+GET
+获取上游产品成本价 -- wyh
+接口说明:获取上游产品成本价
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid
+整型
+非必填
+-
+-
+产品ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "flag":[{//折扣
+      "bates":"折扣type:1百分比、2固定金额",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 选择类型
+
+- name: `app\admin\controller\ProductController::selectType`
+- url: `/admin/product/select_type`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::selectType
+接口：选择类型
+接口地址：/admin/product/select_type 
+POST
+选择类型 -- 萧十一郎
+接口说明:选择类型
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+type
+整型
+非必填
+-
+-
+type
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 删除自定义字段
+
+- name: `app\admin\controller\ProductController::delCustomField`
+- url: `/admin/product_del_custom`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::delCustomField
+接口：删除自定义字段
+接口地址：/admin/product_del_custom 
+POST
+删除自定义字段 -- 萧十一郎
+接口说明:删除自定义字段
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+自定义字段id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 关联相关下载
+
+- name: `app\admin\controller\ProductController::managedownloads`
+- url: `/admin/product_manage_downloads`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::managedownloads
+接口：关联相关下载
+接口地址：/admin/product_manage_downloads 
+POST
+关联相关下载 -- 萧十一郎
+接口说明:产品编辑页面关联相关下载
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+产品ID
+adddl
+整型
+非必填
+-
+-
+添加关联ID
+remdl
+整型
+非必填
+-
+-
+删除关联ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+adddl
+remdl
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 返回可用文件列表
+
+- name: `app\admin\controller\ProductController::selectcates`
+- url: `/admin/product_selectcates`
+- 返回字段: ['cate_data:分类数据@', 'downloads:downloads下载@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::selectcates
+接口：返回可用文件列表
+接口地址：/admin/product_selectcates 
+GET
+返回可用文件列表 -- lgd
+接口说明:返回可用文件列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+productid
+整型
+非必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "cate_data":[{//分类数据
+      "id":"分类idname:分类名称description:分类描述file_count:该分类下共有多少个可下载文件",
+    }]
+    "downloads":[{//downloads下载
+      "id":"文件id",
+      "title":"文件id",
+      "description":"文件描述",
+      "downloads":"下载数",
+      "down_link":"下载链接",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+productid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 返回文件下载列表
+
+- name: `app\admin\controller\ProductController::downloadcates`
+- url: `/admin/product_downloadcates`
+- 返回字段: ['cate_data:分类数据@', 'downloads:downloads下载@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::downloadcates
+接口：返回文件下载列表
+接口地址：/admin/product_downloadcates 
+GET
+返回文件下载列表 -- lgd
+接口说明:返回文件下载列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+productid
+整型
+非必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "cate_data":[{//分类数据
+      "id":"分类idname:分类名称description:分类描述file_count:该分类下共有多少个可下载文件",
+    }]
+    "downloads":[{//downloads下载
+      "id":"文件id",
+      "title":"文件id",
+      "description":"文件描述",
+      "downloads":"下载数",
+      "down_link":"下载链接",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+productid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 添加分类
+
+- name: `app\admin\controller\ProductController::addDownloadcats`
+- url: `/admin/product_downloadcats`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::addDownloadcats
+接口：添加分类
+接口地址：/admin/product_downloadcats 
+POST
+添加分类 -- 萧十一郎
+接口说明:为下载添加分类
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+catid
+整型
+非必填
+-
+-
+父ID
+title
+字符串
+非必填
+-
+-
+标题，名称
+description
+整型
+非必填
+-
+-
+该下载分组的描述
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+catid
+title
+description
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 添加文件,同时关联到产品中
+
+- name: `app\admin\controller\ProductController::addDownloadFlie`
+- url: `/admin/product_add_downloadflie`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::addDownloadFlie
+接口：添加文件,同时关联到产品中
+接口地址：/admin/product_add_downloadflie 
+POST
+添加文件,同时关联到产品中 -- 萧十一郎
+接口说明:添加文件,同时关联到产品中
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uploadfile
+file
+必填
+-
+-
+上传的文件(单个文件)
+id
+整型
+必填
+-
+-
+产品ID
+catid
+整型
+必填
+-
+-
+分类id，不能为0，不能将文件添加到顶级分类
+title
+整型
+必填
+-
+-
+文件标题/名称
+description
+整型
+非必填
+-
+-
+文件描述信息
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uploadfile
+id
+catid
+title
+description
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 产品分组列表页
+
+- name: `app\admin\controller\ProductController::groupList`
+- url: `/admin/product/productgroup`
+- 返回字段: ['total:列表总数', 'list:列表表数据@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::groupList
+接口：产品分组列表页
+接口地址：/admin/product/productgroup 
+GET
+产品分组列表页 -- 请设置auhtor注释
+接口说明:产品分组列表页(含搜索)
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+必填
+1
+-
+第几页
+limit
+整型
+必填
+10
+-
+每页多少条
+order
+字符串
+必填
+10
+-
+排序字段
+sort
+整型
+必填
+10
+-
+AESC,DESC
+group_name
+字符串
+非必填
+1
+-
+按分组名搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "total":"列表总数",
+    "list":[{//列表表数据
+      "group_name":"分组名",
+      "pids":"产品组列表",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+group_name
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 添加分组页面
+
+- name: `app\admin\controller\ProductController::addProductgroupPage`
+- url: `/admin/product/add_productgrouppage`
+- 返回字段: ['group:产品组@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::addProductgroupPage
+接口：添加分组页面
+接口地址：/admin/product/add_productgrouppage 
+GET
+添加分组页面 -- lgd
+接口说明:添加分组页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "group":[{//产品组
+      "id":"组id",
+      "name":"组名",
+      "product":[{//产品
+        "id":"产品id",
+        "type":"类型",
+        "gid":"组id",
+        "name":"产品名",
+        "description":"描述",
+        "pay_method":"付款类型",
+        "tax":"税",
+      }]
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 添加分组
+
+- name: `app\admin\controller\ProductController::addProductgroup`
+- url: `/admin/product/add_productgroup`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::addProductgroup
+接口：添加分组
+接口地址：/admin/product/add_productgroup 
+POST
+添加分组 -- 刘国栋
+接口说明:添加分组
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+group_name
+字符串
+必填
+1
+-
+分组名称
+pids
+浮点型
+必填
+1
+-
+产品集(1,2,3)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+group_name
+pids
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 编辑分组页面
+
+- name: `app\admin\controller\ProductController::editProductgroupPage`
+- url: `/admin/product/edit_productgrouppage`
+- 返回字段: ['group:产品组@', 'spg:分组@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editProductgroupPage
+接口：编辑分组页面
+接口地址：/admin/product/edit_productgrouppage 
+get
+编辑分组页面 -- lgd
+接口说明:编辑分组页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+分组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "group":[{//产品组
+      "id":"组id",
+      "name":"组名",
+      "product":[{//产品
+        "id":"产品id",
+        "type":"类型",
+        "gid":"组id",
+        "name":"产品名",
+        "description":"描述",
+        "pay_method":"付款类型",
+        "tax":"税",
+      }]
+    }]
+    "spg":[{//分组
+      "id":"组id",
+      "groupname":"组名",
+      "pids":[{//产品集(1,2,3)
+      }]
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 编辑分组
+
+- name: `app\admin\controller\ProductController::editProductgroup`
+- url: `/admin/product/edit_productgroup`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editProductgroup
+接口：编辑分组
+接口地址：/admin/product/edit_productgroup 
+post
+编辑分组 -- lgd
+接口说明:编辑分组
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+分组ID
+group_name
+字符串
+必填
+1
+-
+分组名称
+pids
+数组
+必填
+1
+-
+产品集(1,2,3)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+group_name
+pids
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 删除分组
+
+- name: `app\admin\controller\ProductController::delProductgroup`
+- url: `/admin/product/del_productgroup`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::delProductgroup
+接口：删除分组
+接口地址：/admin/product/del_productgroup 
+get
+删除分组 -- lgd
+接口说明:删除分组
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+必填
+-
+-
+分组ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 折扣列表
+
+- name: `app\admin\controller\ProductController::zklistPage`
+- url: `/admin/product/zklist_page`
+- 返回字段: ['data:产品用户组@', ' child:产品组项@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::zklistPage
+接口：折扣列表
+接口地址：/admin/product/zklist_page 
+GET
+折扣列表 -- lgd
+接口说明:折扣列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//产品用户组
+      "id":"用户组ID",
+      "group_name":"用户分组名称",
+    }]
+    "child":[{//产品组项
+      "group_name":"产品分组名称",
+      "type":"1折扣2固定金额3优惠",
+      "bates":"数值",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 编辑客户产品分组的金额
+
+- name: `app\admin\controller\ProductController::editUserProductgroup`
+- url: `/admin/product/edit_userproductgroup`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ProductController::editUserProductgroup
+接口：编辑客户产品分组的金额
+接口地址：/admin/product/edit_userproductgroup 
+post
+编辑客户产品分组的金额 -- lgd
+接口说明:编辑客户产品分组的金额
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分组ID
+type
+整型
+必填
+1
+-
+类型1折扣2固定金额
+bates
+浮点型
+必填
+1
+-
+数值
+products
+整型
+必填
+1
+-
+产品组id
+user
+整型
+必填
+1
+-
+客户组id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+type
+bates
+products
+user
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

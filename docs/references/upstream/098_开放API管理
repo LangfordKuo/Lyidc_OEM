@@ -1,0 +1,620 @@
+# 前台API管理（app\home\controller\ZjmfFinanceApiController）
+
+
+---
+
+## POST 重置秘钥
+
+- name: `app\home\controller\ZjmfFinanceApiController::resetApiPwd`
+- url: `/zjmf_finance_api/reset`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::resetApiPwd
+接口：重置秘钥
+接口地址：/zjmf_finance_api/reset 
+POST
+重置秘钥 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 开启/关闭API功能
+
+- name: `app\home\controller\ZjmfFinanceApiController::apiOpen`
+- url: `/zjmf_finance_api/open`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::apiOpen
+接口：开启/关闭API功能
+接口地址：/zjmf_finance_api/open 
+POST
+开启/关闭API功能 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+api_open
+整型
+必填
+-
+-
+1开启
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+api_open
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET API概览
+
+- name: `app\home\controller\ZjmfFinanceApiController::summary`
+- url: `/zjmf_finance_api/summary`
+- 返回字段: [' client:基础数据@', 'form_api:最近7天每天的api请求次数', 'free_products:豁免产品@']
+- 客户参数: api_password:api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量 总量active_count:API产品数量 已激活api_count:昨日api请求次数ratio:日环比up:1上升，0下降lock_reason:锁定原因api_lock_time:锁定时间
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::summary
+接口：API概览
+接口地址：/zjmf_finance_api/summary 
+GET
+API概览 -- wyh
+时间 2021-05-27
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "client":[{//基础数据
+      "api_password":"api密钥api_create_time:开通时间agent_count:代理商品数量host_count:API产品数量",
+      "active_count":"API产品数量",
+      "api_count":"昨日api请求次数ratio:日环比up:1上升，0下降lock_reason:锁定原因api_lock_time:锁定时间",
+    }]
+    "form_api":"最近7天每天的api请求次数",
+    "free_products":[{//豁免产品
+      "id":"name:名称ontrial:试用数量qty:最大购买数量",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET API日志
+
+- name: `app\home\controller\ZjmfFinanceApiController::apiLog`
+- url: `/zjmf_finance_api/logs`
+- 返回字段: [' logs:日志@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::apiLog
+接口：API日志
+接口地址：/zjmf_finance_api/logs 
+GET
+API日志 -- wyh
+时间 2021-06-03
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+非必填
+1
+-
+客户ID，单个客户日志需要传
+page
+整型
+非必填
+1
+-
+页数
+limit
+整型
+非必填
+10
+-
+每页条数
+order
+字符串
+非必填
+id
+-
+排序(id,name,hostname,server_num,api_status)
+sort
+字符串
+非必填
+asc
+-
+排序方向(asc,desc)
+keyword
+整型
+非必填
+-
+-
+关键字查询
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "logs":[{//日志
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+page
+limit
+order
+sort
+keyword
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户目录
+
+- name: `app\home\controller\ZjmfFinanceApiController::index`
+- url: `/navindex`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::index
+接口：用户目录
+接口地址：/navindex 
+GET
+用户目录 -- lgd
+接口说明:用户目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户可添加目录
+
+- name: `app\home\controller\ZjmfFinanceApiController::addindexPage`
+- url: `/addindex_page`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::addindexPage
+接口：用户可添加目录
+接口地址：/addindex_page 
+GET
+用户可添加目录 -- lgd
+接口说明:用户可添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户添加目录
+
+- name: `app\home\controller\ZjmfFinanceApiController::addindexPost`
+- url: `/addindex_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::addindexPost
+接口：用户添加目录
+接口地址：/addindex_post 
+Post
+用户添加目录 -- lgd
+接口说明:用户添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户目录删除
+
+- name: `app\home\controller\ZjmfFinanceApiController::addindexDel`
+- url: `/addindex_del`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\ZjmfFinanceApiController::addindexDel
+接口：用户目录删除
+接口地址：/addindex_del 
+Post
+用户目录删除 -- lgd
+接口说明:删除
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

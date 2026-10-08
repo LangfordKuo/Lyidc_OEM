@@ -1,0 +1,2568 @@
+# 后台订单管理（app\admin\controller\OrderController）
+
+
+---
+
+## get 搜索页面
+
+- name: `app\admin\controller\OrderController::searchPage`
+- url: `admin/order/search_page`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::searchPage
+接口：搜索页面
+接口地址：admin/order/search_page 
+get
+搜索页面 -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+非必填
+1
+-
+可选参数,用户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单列表
+
+- name: `app\admin\controller\OrderController::index`
+- url: `admin/order/search`
+- 返回字段: [' list:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::index
+接口：订单列表
+接口地址：admin/order/search 
+get
+订单列表 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+uid
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+sale_id
+整型
+非必填
+-
+-
+1,
+product_name
+字符串
+非必填
+-
+-
+按产品名称搜索,精确搜索
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//列表
+      "id":"编号",
+      "uid":"用户id",
+      "create_time":"",
+      "username":"",
+      "payment":"付款方式",
+      "amount":"总计",
+      "pay_status":"付款状态",
+      "status":"状态",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+uid
+payment
+pay_status
+sale_id
+product_name
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单列表
+
+- name: `app\admin\controller\OrderController::index11`
+- url: `admin/order/search`
+- 返回字段: [' list:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::index11
+接口：订单列表
+接口地址：admin/order/search 
+get
+订单列表 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+uid
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+sale_id
+整型
+非必填
+-
+-
+1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "list":[{//列表
+      "id":"编号",
+      "uid":"用户id",
+      "create_time":"",
+      "username":"",
+      "payment":"付款方式",
+      "amount":"总计",
+      "pay_status":"付款状态",
+      "status":"状态",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+uid
+payment
+pay_status
+sale_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 订单提成
+
+- name: `app\admin\controller\OrderController::indexPost`
+- url: `admin/order/order_commission`
+- 返回字段: [' rows:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::indexPost
+接口：订单提成
+接口地址：admin/order/order_commission 
+post
+订单提成 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+username
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//列表
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+username
+payment
+pay_status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 总提成
+
+- name: `app\admin\controller\OrderController::indexSale`
+- url: `admin/order/saleorder`
+- 返回字段: [' rows:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::indexSale
+接口：总提成
+接口地址：admin/order/saleorder 
+get
+总提成 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+page
+整型
+非必填
+-
+-
+页码
+limit
+整型
+非必填
+-
+-
+长度
+order
+字符串
+非必填
+-
+-
+排序字段
+sort
+字符串
+非必填
+-
+-
+排序规则(asc/desc)
+status
+字符串
+非必填
+-
+-
+状态(Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈)
+ordernum
+整型
+非必填
+-
+-
+订单号
+start_time
+整型
+非必填
+-
+-
+开始时间
+end_time
+整型
+非必填
+-
+-
+结束时间
+amount
+整型
+非必填
+-
+-
+金额
+username
+整型
+非必填
+-
+-
+用户
+payment
+整型
+非必填
+-
+-
+支付方式
+pay_status
+整型
+非必填
+-
+-
+1,
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//列表
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+page
+limit
+order
+sort
+status
+ordernum
+start_time
+end_time
+amount
+username
+payment
+pay_status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 订单提成
+
+- name: `app\admin\controller\OrderController::indexPostone`
+- url: `admin/order/searchpost`
+- 返回字段: [' rows:列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::indexPostone
+接口：订单提成
+接口地址：admin/order/searchpost 
+post
+订单提成 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+invoiceid
+整型
+非必填
+-
+-
+账单id
+prefix
+整型
+非必填
+-
+-
+前缀
+suffix
+整型
+非必填
+-
+-
+后缀
+sale_id
+整型
+非必填
+-
+-
+销售id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "rows":[{//列表
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+invoiceid
+prefix
+suffix
+sale_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单审核
+
+- name: `app\admin\controller\OrderController::check`
+- url: `admin/order/check`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::check
+接口：订单审核
+接口地址：admin/order/check 
+get
+订单审核 -- wyh
+接口说明:订单审核，单个或批量审核
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+ids
+整型
+非必填
+1
+-
+订单ID：ids或者ids[]
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+ids
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 取消订单
+
+- name: `app\admin\controller\OrderController::cancel`
+- url: `admin/order/cancel`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::cancel
+接口：取消订单
+接口地址：admin/order/cancel 
+get
+取消订单 -- wyh
+接口说明:取消订单，单个或批量审核
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+ids
+整型
+非必填
+1
+-
+订单ID：ids或者ids[]
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+ids
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## delete 删除订单(可批量)
+
+- name: `app\admin\controller\OrderController::delete`
+- url: `/admin/orders/delete`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::delete
+接口：删除订单(可批量)
+接口地址：/admin/orders/delete 
+delete
+删除订单(可批量) -- wyh
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+-
+整型
+非必填
+-
+-
+订单ID：ids或者ids[]
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 获取创建订单的基本展示数据
+
+- name: `app\admin\controller\OrderController::createPage`
+- url: `/admin/order/create_page`
+- 返回字段: ['users:用户组@', 'payment:支付方式', 'promo_code: 优惠码', 'group:产品组@', 'cycle:可选周期(free免费.onetime一次性,hour小时,day天,ontrial试用...']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::createPage
+接口：获取创建订单的基本展示数据
+接口地址：/admin/order/create_page 
+get
+获取创建订单的基本展示数据 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+1
+-
+用户ID
+pid
+整型
+必填
+1
+-
+产品ID
+flag
+整型
+必填
+1
+-
+获取周期
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "users":[{//用户组
+      "id":"用户id",
+      "name":"用户名",
+    }]
+    "payment":"支付方式",
+    "promo_code":" 优惠码",
+    "group":[{//产品组
+      "id":"组id",
+      "name":"组名",
+      "product":[{//产品
+        "id":"产品id",
+        "type":"类型",
+        "gid":"组id",
+        "name":"产品名",
+        "description":"描述",
+        "pay_method":"付款类型",
+        "tax":"税",
+      }]
+    }]
+    "cycle":"可选周期(free免费.onetime一次性,hour小时,day天,ontrial试用...",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+pid
+flag
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 选择配置页面
+
+- name: `app\admin\controller\OrderController::setConfig`
+- url: `/admin/orders/set_config`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::setConfig
+接口：选择配置页面
+接口地址：/admin/orders/set_config 
+get
+选择配置页面 -- wyh
+接口说明:选择配置页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid
+整型
+必填
+1
+-
+产品ID
+billingcycle
+整型
+必填
+1
+-
+所选周期
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid
+billingcycle
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 多产品--异步请求计算总价
+
+- name: `app\admin\controller\OrderController::getMultiTotal`
+- url: `/admin/get_total`
+- 返回字段: ['currency:货币信息', 'credit:客户余额', 'products:产品信息@', 'subtotal:小计', 'discount:优惠折扣', 'total:总计']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getMultiTotal
+接口：多产品--异步请求计算总价
+接口地址：/admin/get_total 
+POST
+多产品--异步请求计算总价 -- wyh
+接口说明:多产品--异步请求计算总价
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+pid[]
+字符串
+必填
+-
+-
+产品id（数组）所有参数必传,值可以为空
+billingcycle[]
+字符串
+非必填
+1
+-
+周期名称(比如：day、one
+configoption[0][配置项ID]
+字符串
+非必填
+1
+-
+配置子项ID(或者数量)后端根据配置项ID的类型判断是子项ID还是数量！
+price_override[]
+整型
+非必填
+1
+-
+内部价格(首付价格)
+price_override_renew[]
+整型
+非必填
+1
+-
+内部价格(续费价格)
+qty[]
+整型
+非必填
+1
+-
+产品数量
+uid
+整型
+非必填
+-
+-
+用户id
+customfield[0][自定义字段ID]
+整型
+非必填
+-
+-
+值
+code
+整型
+非必填
+-
+-
+优惠码（非必传参数,选了传code字符串）
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "currency":"货币信息",
+    "credit":"客户余额",
+    "products":[{//产品信息
+      "name":"名称",
+      "billingcycle":"周期",
+      "product_setup_fee":"产品初装费",
+      "product_price":"产品价格",
+      "product_price_total_recurring":"循环周期价格",
+      "child":[{//配置项+子项+价格
+        "option_name":"配置项名称",
+        "suboption_name":"子项名称",
+        "suboption_setup_fee":"子项初装费",
+        "suboption_price":"子项价格",
+        "suboption_price_total":"子项总价",
+        "qty":"数量(拉条的数量，前端需要判断是否有此值)",
+      }]
+    }]
+    "subtotal":"小计",
+    "discount":"优惠折扣",
+    "total":"总计",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+pid[]
+billingcycle[]
+configoption[0][配置项ID]
+price_override[]
+price_override_renew[]
+qty[]
+uid
+customfield[0][自定义字段ID]
+code
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 获取用户
+
+- name: `app\admin\controller\OrderController::getClients`
+- url: `/admin/order/getclients`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getClients
+接口：获取用户
+接口地址：/admin/order/getclients 
+get
+获取用户 -- lgd
+接口说明:获取用户
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+username
+整型
+非必填
+-
+-
+用户名
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+username
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 提交订单
+
+- name: `app\admin\controller\OrderController::save`
+- url: `admin/order/create`
+- 返回字段: ['.status:']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::save
+接口：提交订单
+接口地址：admin/order/create 
+post
+提交订单 -- 上官
+接口说明:前端json格式传递数据
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+用户id
+payment
+字符串
+必填
+-
+-
+支付方式
+promo_code
+字符串
+非必填
+-
+-
+优惠码
+status
+字符串
+非必填
+-
+-
+订单状态
+adminorderconf
+字符串
+非必填
+-
+-
+确认订单
+admingenerateinvoice
+字符串
+非必填
+-
+-
+生成账单
+adminsendinvoice
+字符串
+非必填
+-
+-
+发送邮件
+use_credit
+整型
+非必填
+-
+-
+使用余额(1or0)
+ops{}
+字符串
+必填
+-
+-
+产品配置
+pid
+字符串
+必填
+-
+-
+产品ID
+billingcycle
+字符串
+必填
+-
+-
+付款周期
+qty
+整型
+非必填
+-
+-
+产品数量
+interior_price
+整型
+非必填
+-
+-
+内部价格(首付价格)
+interior_price_renew
+整型
+非必填
+-
+-
+内部价格(续费价格)
+configoptions
+整型
+非必填
+-
+-
+配置项+子项ID或数量的json对象
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    ".status":"",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+payment
+promo_code
+status
+adminorderconf
+admingenerateinvoice
+adminsendinvoice
+use_credit
+ops{}
+pid
+billingcycle
+qty
+interior_price
+interior_price_renew
+configoptions
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 订单详情
+
+- name: `app\admin\controller\OrderController::read`
+- url: `/admin/orders/:id`
+- 返回字段: ['.username:用户名', '.ip:用户ip', '.country:国家', '.id:订单id', '.uid:用户id', ".status:订单状态('订单状态：Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈')", '.create_time:时间', '.amount:金额', '.promo_code:优惠码', '.payment:支付方式', '.invoice_id:账单id 为0表示’无账单‘', 'server:订单项目@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::read
+接口：订单详情
+接口地址：/admin/orders/:id 
+get
+订单详情 -- 上官🔪
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+订单id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    ".username":"用户名",
+    ".ip":"用户ip",
+    ".country":"国家",
+    ".id":"订单id",
+    ".uid":"用户id",
+    ".status":"订单状态('订单状态：Pending待审核，Active已激活，Completed已完成,Suspend已暂停,Terminated被删除,Cancelled被取消,Fraud有欺诈')",
+    ".create_time":"时间",
+    ".amount":"金额",
+    ".promo_code":"优惠码",
+    ".payment":"支付方式",
+    ".invoice_id":"账单id 为0表示’无账单‘",
+    "server":[{//订单项目
+      "id":"host_id",
+      "name":"产品名",
+      "billingcycle":"周期",
+      "amount":"金额",
+      "username":"用户名",
+      "welcome_email":"发送产品开通邮件",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 添加备注
+
+- name: `app\admin\controller\OrderController::notes`
+- url: `/admin/orders/notes`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::notes
+接口：添加备注
+接口地址：/admin/orders/notes 
+post
+添加备注 -- 上官🔪
+接口说明:添加备注
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+订单ID
+notes
+字符串
+非必填
+-
+-
+备注
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+notes
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 审核通过
+
+- name: `app\admin\controller\OrderController::active`
+- url: `/admin/orders/active`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::active
+接口：审核通过
+接口地址：/admin/orders/active 
+post
+审核通过 -- 上官🔪
+接口说明: 审核通过
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+订单ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 修改订单状态
+
+- name: `app\admin\controller\OrderController::changeStatus`
+- url: `/admin/orders/change_status`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::changeStatus
+接口：修改订单状态
+接口地址：/admin/orders/change_status 
+post
+修改订单状态 -- wyh
+接口说明: 修改订单状态
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+订单ID
+status
+整型
+非必填
+-
+-
+产品状态
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+status
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##      GET 创建定制优惠码页面
+
+- name: `app\admin\controller\OrderController::customPromoPage`
+- url: `        admin/order/promo_code_page`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::customPromoPage
+接口：创建定制优惠码页面
+接口地址： admin/order/promo_code_page 
+ GET
+创建定制优惠码页面 -- wyh
+创建定制优惠码页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##      POST 创建定制优惠码
+
+- name: `app\admin\controller\OrderController::customPromo`
+- url: `        admin/order/save_promo_code`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::customPromo
+接口：创建定制优惠码
+接口地址： admin/order/save_promo_code 
+ POST
+创建定制优惠码 -- wyh
+编辑优惠码
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+code
+字符串
+必填
+-
+-
+优惠码
+type
+字符串
+非必填
+-
+-
+percent百分比,fixed固定金额,override置换价格,free免费安装
+recurring
+整型
+非必填
+-
+-
+是否循环优惠
+recurfor
+整型
+非必填
+-
+-
+循环优惠重复执行次数
+value
+浮点型
+非必填
+-
+-
+价值
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+code
+type
+recurring
+recurfor
+value
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取销售员客户ids
+
+- name: `app\admin\controller\OrderController::getAdminSale`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getAdminSale
+接口：获取销售员客户ids
+接口地址：请设置url注释 
+GET
+获取销售员客户ids -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员  可以查看sale_id为空的
+
+- name: `app\admin\controller\OrderController::check1`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::check1
+接口：检查当前用户是否为销售员 可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计
+
+- name: `app\admin\controller\OrderController::getLadder`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getLadder
+接口：获取当前销售员的阶级统计
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计(所有)
+
+- name: `app\admin\controller\OrderController::getLadderforall`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getLadderforall
+接口：获取当前销售员的阶级统计(所有)
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计(所有) -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩
+
+- name: `app\admin\controller\OrderController::getLaddersaleStatistics`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getLaddersaleStatistics
+接口：当前销售员时间周期获取业绩
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩；仅统计总金额
+
+- name: `app\admin\controller\OrderController::getLaddersaleStatisticsOnlyTotalAccount`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getLaddersaleStatisticsOnlyTotalAccount
+接口：当前销售员时间周期获取业绩；仅统计总金额
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩；仅统计总金额 -- 请设置auhtor注释
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取提成总额
+
+- name: `app\admin\controller\OrderController::getSum`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\OrderController::getSum
+接口：获取提成总额
+接口地址：请设置url注释 
+GET
+获取提成总额 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

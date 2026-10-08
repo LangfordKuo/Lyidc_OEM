@@ -1,0 +1,2206 @@
+# 后台产品页面（app\admin\controller\ClientsServicesController）
+
+
+---
+
+## GET 后台用户产品服务内页
+
+- name: `app\admin\controller\ClientsServicesController::index`
+- url: `/admin/clients_services`
+- 返回字段: ['uid:用户id', 'host_data:主机数据', 'hostid:主机id', 'host_list:用户购买主机列表@', 'product_list:可切换的产品/服务@', 'server_list:服务器列表@', 'products:产品信息@', 'promo_data:可选优惠码@', ' module_button:模块按钮输出@', 'module_admin_area:后台模块输出标签@', ' custom_field:产品自定义字段数组@', 'custom_field_value:字段的值(字段id=>字段值)', 'domain_status_list:状态列表', 'gateways_list:可用支付网关列表@', 'dcim.group:服务器分组信息@', ' dcim.os:操作系统@', 'dcim.auth.create:开通(on显示off不显示)', 'dcim.auth.suspend:暂停(on显示off不显示)', 'dcim.auth.unsuspend:解除暂停(on显示off不显示)', 'dcim.auth.terminate:删除(on显示off不显示)', 'dcim.auth.on:开机(on显示off不显示)', 'dcim.auth.off:关机(on显示off不显示)', 'dcim.auth.reboot:重启(on显示off不显示)', 'dcim.auth.bmc:重置bmc(on显示off不显示)', 'dcim.auth.kvm:kvm(on显示off不显示)', 'dcim.auth.ikvm:ikvm(on显示off不显示)', 'dcim.auth.vnc:vnc(on显示off不显示)', 'dcim.auth.reinstall:重装系统(on显示off不显示)', 'dcim.auth.rescue:救援系统(on显示off不显示)', 'dcim.auth.crack_pass:重置密码(on显示off不显示)', 'dcim.url:DCIM详情链接', 'dcim.server_group:服务器分组ID', 'module_upgrade:是否输出升降级', 'zjmf_api.id:接口ID', 'zjmf_api.name:接口名称', 'module_power_status:是否请求电源状态']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::index
+接口：后台用户产品服务内页
+接口地址：/admin/clients_services 
+GET
+后台用户产品服务内页 -- 萧十一郎
+接口说明:后台用户产品服务内页
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+number
+非必填
+-
+-
+用户id
+hostselect
+number
+非必填
+-
+-
+产品id
+productid
+number
+非必填
+-
+-
+产品/服务id(此参数可不传)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "uid":"用户id",
+    "host_data":"主机数据",
+    "hostid":"主机id",
+    "host_list":[{//用户购买主机列表
+      "id":"主机id",
+      "name":"主机名",
+    }]
+    "product_list":[{//可切换的产品/服务
+      "id":"产品组id",
+      "groupname":"组名称",
+      "list":[{//产品组下产品列表
+        "id":"产品id",
+        "gid":"产品组id",
+        "name":"产品名称",
+      }]
+    }]
+    "server_list":[{//服务器列表
+      "id":"服务器idid:服务器id",
+    }]
+    "products":[{//产品信息
+      "id":"产品ID",
+      "gid":"产品组ID",
+      "type":"产品类型",
+      "pay_type":"产品周期",
+      "qty":"库存",
+      "auto_setup":"自动开通：order，下单后；payment：支付后；on：手动审核",
+    }]
+    "promo_data":[{//可选优惠码
+    }]
+    "module_button":[{//模块按钮输出
+      "type":"默认(default),自定义(custom)",
+      "func":"方法名",
+      "name":"方法名",
+    }]
+    "module_admin_area":[{//后台模块输出标签
+      "name":"标签名",
+      "content":"展示内容",
+    }]
+    "custom_field":[{//产品自定义字段数组
+      "id":"字段id",
+      "fieldname":"字段名",
+      "fieldtype":"字段类型",
+      "fieldoptions":"字段可选项",
+      "dropdown_option":"字段下拉项(当type为dropdown时生效)",
+      "regexpr":"正则判定（存在需要判定用户输入）",
+    }]
+    "custom_field_value":"字段的值(字段id=>字段值)",
+    "domain_status_list":"状态列表",
+    "gateways_list":[{//可用支付网关列表
+      "name":"网关名",
+      "title":"标题",
+    }]
+    "dcim.group":[{//服务器分组信息
+      "id":"分组ID",
+      "name":"分组名称",
+      "svg":"分组svg",
+    }]
+    "dcim.os":[{//操作系统
+      "id":"操作系统ID",
+      "name":"操作系统名称",
+      "os_name":"操作系统文件名称",
+      "ostype":"操作系统类型(1windows0linux)",
+      "port":"默认重装端口号",
+    }]
+    "dcim.auth.create":"开通(on显示off不显示)",
+    "dcim.auth.suspend":"暂停(on显示off不显示)",
+    "dcim.auth.unsuspend":"解除暂停(on显示off不显示)",
+    "dcim.auth.terminate":"删除(on显示off不显示)",
+    "dcim.auth.on":"开机(on显示off不显示)",
+    "dcim.auth.off":"关机(on显示off不显示)",
+    "dcim.auth.reboot":"重启(on显示off不显示)",
+    "dcim.auth.bmc":"重置bmc(on显示off不显示)",
+    "dcim.auth.kvm":"kvm(on显示off不显示)",
+    "dcim.auth.ikvm":"ikvm(on显示off不显示)",
+    "dcim.auth.vnc":"vnc(on显示off不显示)",
+    "dcim.auth.reinstall":"重装系统(on显示off不显示)",
+    "dcim.auth.rescue":"救援系统(on显示off不显示)",
+    "dcim.auth.crack_pass":"重置密码(on显示off不显示)",
+    "dcim.url":"DCIM详情链接",
+    "dcim.server_group":"服务器分组ID",
+    "module_upgrade":"是否输出升降级",
+    "zjmf_api.id":"接口ID",
+    "zjmf_api.name":"接口名称",
+    "module_power_status":"是否请求电源状态",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+hostselect
+productid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 产品内页层级联动
+
+- name: `app\admin\controller\ClientsServicesController::adminGetLinkAgeList`
+- url: `/admin/adminGetLinkAgeList`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::adminGetLinkAgeList
+接口：产品内页层级联动
+接口地址：/admin/adminGetLinkAgeList 
+get
+产品内页层级联动 -- xue
+接口说明: 产品内页层级联动
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户id
+pid
+整型
+必填
+-
+-
+产品id
+cid
+整型
+必填
+-
+-
+层级联动最顶级配置项id
+sub_id
+整型
+非必填
+-
+-
+当前选项id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+pid
+cid
+sub_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 获取产品列表
+
+- name: `app\admin\controller\ClientsServicesController::getProductList`
+- url: `/admin/clients_services/get_product_list`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getProductList
+接口：获取产品列表
+接口地址：/admin/clients_services/get_product_list 
+get
+获取产品列表 -- wyh
+接口说明: 获取产品列表
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 保存用户产品
+
+- name: `app\admin\controller\ClientsServicesController::postInfo`
+- url: `/admin/clients_services/info`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::postInfo
+接口：保存用户产品
+接口地址：/admin/clients_services/info 
+POST
+保存用户产品 -- 萧十一郎
+接口说明:保存用户产品
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id
+productid
+number
+必填
+-
+-
+产品id(不更改产品时和之前产品一样)
+regdate
+number
+必填
+-
+-
+时间戳，开通时间
+firstpaymentamount
+浮点型
+非必填
+0.00
+-
+首付金额
+serverid
+number
+非必填
+-
+-
+服务器--传id
+domain
+number
+非必填
+-
+-
+主机名
+amount
+浮点型
+非必填
+0.00
+-
+续费金额
+nextduedate
+整型
+必填
+-
+-
+下次到期时间(不修改时两字段相同)
+termination_date
+整型
+非必填
+-
+-
+终止时间
+username
+字符串
+非必填
+-
+-
+用户名
+password
+字符串
+非必填
+-
+-
+密码
+billingcycle
+字符串
+必填
+-
+-
+周期
+payment
+字符串
+必填
+-
+-
+支付方式
+domainstatus
+字符串
+必填
+-
+-
+主机状态(Pending,Active,Completed,Suspended,Terminated,Cancelled,Fraud)
+promoid
+number
+非必填
+-
+-
+优惠码id
+dedicatedip
+字符串
+非必填
+-
+-
+独立ip地址
+assignedips
+字符串
+非必填
+-
+-
+分配的ip地址
+overideautosuspend
+整型
+非必填
+-
+-
+修改暂停时间(1,0)
+overidesuspenduntil
+整型
+非必填
+-
+-
+暂停时间戳
+auto_terminate_end_cycle
+整型
+非必填
+-
+-
+到期后自动删除
+auto_terminate_reason
+字符串
+非必填
+-
+-
+到期自动删除原因
+notes
+字符串
+非必填
+-
+-
+管理员备注
+configoption
+数组
+非必填
+-
+-
+可配置选项数组eg.configoption[12]
+custom
+数组
+非必填
+-
+-
+自定义字段eg.custom[16]
+auto_recalcre_curring_price
+-
+非必填
+-
+-
+重新计算价格选项框，1|0
+other
+-
+非必填
+-
+-
+其他模块标签输出的input框数据
+dcimid
+整型
+非必填
+-
+-
+关联ID(产品为魔方云,dcim,代理产品可修改)
+initiative_renew
+整型
+非必填
+-
+-
+是否自动续费
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+productid
+regdate
+firstpaymentamount
+serverid
+domain
+amount
+nextduedate
+termination_date
+username
+password
+billingcycle
+payment
+domainstatus
+promoid
+dedicatedip
+assignedips
+overideautosuspend
+overidesuspenduntil
+auto_terminate_end_cycle
+auto_terminate_reason
+notes
+configoption
+custom
+auto_recalcre_curring_price
+other
+dcimid
+initiative_renew
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 转移产品和服务
+
+- name: `app\admin\controller\ClientsServicesController::postTransfer`
+- url: `/admin/clients_services/transfer`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::postTransfer
+接口：转移产品和服务
+接口地址：/admin/clients_services/transfer 
+POST
+转移产品和服务 -- wyh
+接口说明:转移产品和服务
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+transfer_uid
+number
+必填
+-
+-
+接收用户id
+hostid
+number
+必填
+-
+-
+产品id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+transfer_uid
+hostid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## DELETE 删除产品和服务
+
+- name: `app\admin\controller\ClientsServicesController::deleteHost`
+- url: `/admin/clients_services/host`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::deleteHost
+接口：删除产品和服务
+接口地址：/admin/clients_services/host 
+DELETE
+删除产品和服务 -- 萧十一郎
+接口说明:删除产品和服务
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid[]
+number|array
+必填
+-
+-
+主机id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid[]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 产品续费
+
+- name: `app\admin\controller\ClientsServicesController::hostRenew`
+- url: `/admin/clients_services/host_renew`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::hostRenew
+接口：产品续费
+接口地址：/admin/clients_services/host_renew 
+get
+产品续费 -- wyh
+接口说明: 产品续费
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id,可传单个值hostid
+billingcycles
+number
+非必填
+-
+-
+周期，可选参数
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+billingcycles
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 结算批量续费（页面）
+
+- name: `app\admin\controller\ClientsServicesController::postBatchRenewPage`
+- url: `/admin/clients_services/host_batch_renew_page`
+- 返回字段: ['currency:货币信息', 'hosts:产品信息@', 'total:总价', 'credit:余额']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::postBatchRenewPage
+接口：结算批量续费（页面）
+接口地址：/admin/clients_services/host_batch_renew_page 
+POST
+结算批量续费（页面） -- wyh
+接口说明:返回状态码200,没有data.invoiceid:不需要跳转支付，跳转回产品列表页。存在data.invoiceid:跳转支付页面（获取网关支付页面数据 /start_pay）
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+数组
+必填
+-
+-
+客户ID
+host_ids
+数组
+必填
+-
+-
+批量续费的产品数组
+cycles[产品ID]
+数组
+非必填
+-
+-
+(可选参数,第一次不传,在续费页面修改周期时传递此值)批量续费的产品周期:cycles[38]
+amount[产品ID]
+数组
+必填
+-
+-
+产品金额（管理员可自定义）
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "currency":"货币信息",
+    "hosts":[{//产品信息
+      "id":[{//产品IDname
+      }]
+    }]
+    "total":"总价",
+    "credit":"余额",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+host_ids
+cycles[产品ID]
+amount[产品ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 结算批量续费
+
+- name: `app\admin\controller\ClientsServicesController::postBatchRenew`
+- url: `/admin/clients_services/host_batch_renew`
+- 返回字段: ['invoiceid:(调用标记已支付admin/invoice/paid)']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::postBatchRenew
+接口：结算批量续费
+接口地址：/admin/clients_services/host_batch_renew 
+POST
+结算批量续费 -- wyh
+接口说明:结算批量续费
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+uid
+整型
+必填
+-
+-
+客户ID
+host_ids
+数组
+必填
+-
+-
+批量续费的产品数组
+cycles[产品ID]
+数组
+必填
+-
+-
+相应周期数组
+amount[产品ID]
+数组
+必填
+-
+-
+产品金额（管理员可自定义）
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "invoiceid":"(调用标记已支付admin/invoice/paid)",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+uid
+host_ids
+cycles[产品ID]
+amount[产品ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 向账单使用余额 页面
+
+- name: `app\admin\controller\ClientsServicesController::getApplyCreditPage`
+- url: `/admin/clients_services/apply_credit_page`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getApplyCreditPage
+接口：向账单使用余额 页面
+接口地址：/admin/clients_services/apply_credit_page 
+POST
+向账单使用余额 页面 -- wyh
+接口说明:向账单使用余额 页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+invoiceid
+number
+必填
+-
+-
+账单id
+uid
+浮点型
+必填
+-
+-
+客户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+invoiceid
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 向账单使用余额
+
+- name: `app\admin\controller\ClientsServicesController::applyCredit`
+- url: `/admin/clients_services/apply_credit`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::applyCredit
+接口：向账单使用余额
+接口地址：/admin/clients_services/apply_credit 
+POST
+向账单使用余额 -- wyh
+接口说明:添加后需要重刷账单
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+invoiceid
+number
+必填
+-
+-
+账单id
+uid
+浮点型
+必填
+-
+-
+客户ID
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+invoiceid
+uid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## get 暂停产品页面
+
+- name: `app\admin\controller\ClientsServicesController::suspendPage`
+- url: `/admin/clients_services/host_suspend`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::suspendPage
+接口：暂停产品页面
+接口地址：/admin/clients_services/host_suspend 
+get
+暂停产品页面 -- wyh
+接口说明: 暂停产品页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hostid
+number
+必填
+-
+-
+主机id,可传单个值hostid
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hostid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 暂停产品(仅改变数据库数据,不做模块动作20211213改)
+
+- name: `app\admin\controller\ClientsServicesController::suspend`
+- url: `/admin/clients_services/host_suspend`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::suspend
+接口：暂停产品(仅改变数据库数据,不做模块动作20211213改)
+接口地址：/admin/clients_services/host_suspend 
+post
+暂停产品(仅改变数据库数据,不做模块动作20211213改) -- wyh
+接口说明: 暂停产品(仅改变数据库数据,不做模块动作20211213改)
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+number
+必填
+-
+-
+主机id
+reason
+字符串
+必填
+-
+-
+原因
+reason_type
+字符串
+必填
+-
+-
+类型
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+reason
+reason_type
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 搜索用户
+
+- name: `app\admin\controller\ClientsServicesController::postSearchClient`
+- url: `/admin/clients_services/searchclient`
+- 返回字段: ['client_list:客户列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::postSearchClient
+接口：搜索用户
+接口地址：/admin/clients_services/searchclient 
+POST
+搜索用户 -- 萧十一郎
+接口说明:搜索用户
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+client_id
+字符串
+非必填
+-
+-
+搜索关键字(id，email，username)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "client_list":[{//客户列表
+      "id":"",
+      "email":"邮箱",
+      "username":"用户名",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+client_id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## post 升降级可配置项
+
+- name: `app\admin\controller\ClientsServicesController::upgradeConfig`
+- url: `/admin/clients_services/upgrade_config`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::upgradeConfig
+接口：升降级可配置项
+接口地址：/admin/clients_services/upgrade_config 
+post
+升降级可配置项 -- wyh
+接口说明: 升降级可配置项
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+configoption[配置项ID]
+字符串
+必填
+1
+-
+所选择的子项ID,拉条传数量(当所有配置项都无变化时,不请求接口)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+configoption[配置项ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 退款页面
+
+- name: `app\admin\controller\ClientsServicesController::getRefundPage`
+- url: `/admin/clients_services/refund_page`
+- 返回字段: [' invoices:账单@', ' currency:货币', ' refund_method:退款方案', ' refund_type:退款类型', ' refund_amount:可退款金额']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getRefundPage
+接口：退款页面
+接口地址：/admin/clients_services/refund_page 
+GET
+退款页面 -- wyh
+接口说明: 退款页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+整型
+必填
+-
+-
+主机id(产品ID)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "invoices":[{//账单
+      "id":"",
+      "subtotal":"金额",
+      "type":"类型",
+      "type_zh":"类型",
+    }]
+    "currency":"货币",
+    "refund_method":"退款方案",
+    "refund_type":"退款类型",
+    "refund_amount":"可退款金额",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 退款
+
+- name: `app\admin\controller\ClientsServicesController::refund`
+- url: `/admin/clients_services/refund`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::refund
+接口：退款
+接口地址：/admin/clients_services/refund 
+POST
+退款 -- wyh
+接口说明: 退款
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+整型
+必填
+-
+-
+主机id(产品ID)
+refund_method
+字符串
+必填
+-
+-
+退款方案:'day'=>'按天计算','full'=>'全额退款','custom'=>'自定义'
+refund_type
+字符串
+必填
+-
+-
+退款类型:'addascredit'=>'退款至余额','only'=>'仅标记退款'
+amount
+字符串
+非必填
+-
+-
+退款金额(仅自定义传此参数)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+refund_method
+refund_type
+amount
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取销售员客户ids
+
+- name: `app\admin\controller\ClientsServicesController::getAdminSale`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getAdminSale
+接口：获取销售员客户ids
+接口地址：请设置url注释 
+GET
+获取销售员客户ids -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员 不可以查看sale_id为空的
+
+- name: `app\admin\controller\ClientsServicesController::check`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::check
+接口：检查当前用户是否为销售员 不可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 不可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  检查当前用户是否为销售员  可以查看sale_id为空的
+
+- name: `app\admin\controller\ClientsServicesController::check1`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::check1
+接口：检查当前用户是否为销售员 可以查看sale_id为空的
+接口地址：请设置url注释 
+GET
+检查当前用户是否为销售员 可以查看sale_id为空的 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计
+
+- name: `app\admin\controller\ClientsServicesController::getLadder`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getLadder
+接口：获取当前销售员的阶级统计
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取当前销售员的阶级统计(所有)
+
+- name: `app\admin\controller\ClientsServicesController::getLadderforall`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getLadderforall
+接口：获取当前销售员的阶级统计(所有)
+接口地址：请设置url注释 
+GET
+获取当前销售员的阶级统计(所有) -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩
+
+- name: `app\admin\controller\ClientsServicesController::getLaddersaleStatistics`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getLaddersaleStatistics
+接口：当前销售员时间周期获取业绩
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  当前销售员时间周期获取业绩；仅统计总金额
+
+- name: `app\admin\controller\ClientsServicesController::getLaddersaleStatisticsOnlyTotalAccount`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getLaddersaleStatisticsOnlyTotalAccount
+接口：当前销售员时间周期获取业绩；仅统计总金额
+接口地址：请设置url注释 
+GET
+当前销售员时间周期获取业绩；仅统计总金额 -- 请设置auhtor注释
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+##  获取提成总额
+
+- name: `app\admin\controller\ClientsServicesController::getSum`
+- url: ``
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\admin\controller\ClientsServicesController::getSum
+接口：获取提成总额
+接口地址：请设置url注释 
+GET
+获取提成总额 -- 刘国栋
+接口说明:
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级

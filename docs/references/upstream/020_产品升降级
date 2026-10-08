@@ -1,0 +1,1300 @@
+# 产品升降级（app\home\controller\UpgradeController）
+
+
+---
+
+## GET 升降级产品可配置项页面
+
+- name: `app\home\controller\UpgradeController::index`
+- url: `/upgrade/index/:hid`
+- 返回字段: ['  host:原产品信息@', '  options:配置项信息,所有配置项@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::index
+接口：升降级产品可配置项页面
+接口地址：/upgrade/index/:hid 
+GET
+升降级产品可配置项页面 -- wyh
+接口说明:升降级产品可配置项页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+currencyid
+number
+非必填
+-
+-
+货币ID（可选）
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "host":[{//原产品信息
+      "oid":"可配置项ID",
+      "option_name":"可配置项名称",
+      "option_type":"类型",
+      "qty":"(类型为4时，qty为数量)",
+      "suboption_name":"子项名称",
+      "subid":"子项ID",
+      "fee":"配置子项价格",
+      "setupfee":"配置子项初装费",
+    }]
+    "options":[{//配置项信息,所有配置项
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+currencyid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品可配置项页面提交(包括使用优惠码)
+
+- name: `app\home\controller\UpgradeController::upgradeConfigPost`
+- url: `/upgrade/upgrade_config_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::upgradeConfigPost
+接口：升降级产品可配置项页面提交(包括使用优惠码)
+接口地址：/upgrade/upgrade_config_post 
+POST
+升降级产品可配置项页面提交(包括使用优惠码) -- wyh
+接口说明:升降级产品可配置项页面提交
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+currencyid
+number
+非必填
+-
+-
+货币ID（可选）
+pormo_code
+number
+非必填
+-
+-
+-
+configoption[配置项ID]
+字符串
+必填
+1
+-
+所选择的子项ID,拉条传数量(当所有配置项都无变化时,不请求接口)
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+currencyid
+pormo_code
+configoption[配置项ID]
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 升降级产品可配置项页面
+
+- name: `app\home\controller\UpgradeController::getUpgradeConfigPage`
+- url: `/upgrade/upgrade_config_page`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::getUpgradeConfigPage
+接口：升降级产品可配置项页面
+接口地址：/upgrade/upgrade_config_page 
+GET
+升降级产品可配置项页面 -- wyh
+接口说明:升降级产品可配置项
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品可配置项--应用优惠码
+
+- name: `app\home\controller\UpgradeController::addPromoCodeToConfig`
+- url: `/upgrade/add_promo_code`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::addPromoCodeToConfig
+接口：升降级产品可配置项--应用优惠码
+接口地址：/upgrade/add_promo_code 
+POST
+升降级产品可配置项--应用优惠码 -- wyh
+接口说明:升降级产品可配置项--应用优惠码
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+pormo_code
+number
+非必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+pormo_code
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品可配置项--移除优惠码
+
+- name: `app\home\controller\UpgradeController::removePromoCodeFromConfig`
+- url: `/upgrade/remove_promo_code`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::removePromoCodeFromConfig
+接口：升降级产品可配置项--移除优惠码
+接口地址：/upgrade/remove_promo_code 
+POST
+升降级产品可配置项--移除优惠码 -- wyh
+接口说明:升降级产品可配置项--移除优惠码
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品可配置项--结算
+
+- name: `app\home\controller\UpgradeController::checkoutConfigUpgrade`
+- url: `/upgrade/checkout_config_upgrade`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::checkoutConfigUpgrade
+接口：升降级产品可配置项--结算
+接口地址：/upgrade/checkout_config_upgrade 
+POST
+升降级产品可配置项--结算 -- wyh
+接口说明:升降级产品可配置项--结算
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 升降级产品页面
+
+- name: `app\home\controller\UpgradeController::upgradeProduct`
+- url: `/upgrade/upgrade_product/:hid`
+- 返回字段: [' currency:使用货币信息', ' old_host:当前产品@', ' host:可升级的产品选项@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::upgradeProduct
+接口：升降级产品页面
+接口地址：/upgrade/upgrade_product/:hid 
+GET
+升降级产品页面 -- wyh
+接口说明:升降级产品页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+currencyid
+number
+非必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "currency":"使用货币信息",
+    "old_host":[{//当前产品
+      "host":"产品组+产品名",
+      "domain":"域名",
+      "description":"描述",
+      "pid":"产品ID",
+    }]
+    "host":[{//可升级的产品选项
+      "pid":"产品ID",
+      "host":"产品组+产品名",
+      "description":"描述",
+      "cycle":[{//可选周期项
+        "price":"产品价格",
+        "setup_fee":"初装费",
+        "billingcycle":"周期",
+        "billingcycle_zh":"中文周期",
+      }]
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+currencyid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品页面提交(包括使用优惠码的情况)
+
+- name: `app\home\controller\UpgradeController::v10HostProductUpgradePrice`
+- url: `/v10/host/:id/product_upgrade/price`
+- 返回字段: [' old_host:原产品信息@', ' des:描述', ' amount:差价', ' discount:优惠', ' amount_total:支付金额', ' payment:支付方式', ' hid:原产品ID', ' pid:产品ID', ' billingcycle:周期']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::v10HostProductUpgradePrice
+接口：升降级产品页面提交(包括使用优惠码的情况)
+接口地址：/v10/host/:id/product_upgrade/price 
+POST
+升降级产品页面提交(包括使用优惠码的情况) -- wyh
+接口说明:升降级产品页面提交
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+pid
+number
+必填
+-
+-
+-
+billingcycle
+number
+必填
+-
+-
+-
+currencyid
+number
+非必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "old_host":[{//原产品信息
+      "host":"产品组+产品名",
+      "domain":"域名",
+    }]
+    "des":"描述",
+    "amount":"差价",
+    "discount":"优惠",
+    "amount_total":"支付金额",
+    "payment":"支付方式",
+    "hid":"原产品ID",
+    "pid":"产品ID",
+    "billingcycle":"周期",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+pid
+billingcycle
+currencyid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST Product upgrade selection
+
+- name: `app\home\controller\UpgradeController::upgradeProductPost`
+- url: `/upgrade/upgrade_product_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::upgradeProductPost
+接口：Product upgrade selection
+接口地址：/upgrade/upgrade_product_post 
+POST
+Product upgrade selection -- 请设置auhtor注释
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 升降级产品页面
+
+- name: `app\home\controller\UpgradeController::getUpgradeProductPage`
+- url: `/upgrade/upgrade_product_page`
+- 返回字段: [' old_host:原产品信息@', 'des:新产品描述', 'amount:小计', 'discount:折扣', 'amount_total:总计', 'currency:货币', 'promo_code:优惠码', 'billingcycle:周期', 'billingcycle_zh:周期中文']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::getUpgradeProductPage
+接口：升降级产品页面
+接口地址：/upgrade/upgrade_product_page 
+GET
+升降级产品页面 -- wyh
+接口说明:升降级产品页面
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "old_host":[{//原产品信息
+      "id":"原产品IDhost:产品名称domain:产品主机",
+    }]
+    "des":"新产品描述",
+    "amount":"小计",
+    "discount":"折扣",
+    "amount_total":"总计",
+    "currency":"货币",
+    "promo_code":"优惠码",
+    "billingcycle":"周期",
+    "billingcycle_zh":"周期中文",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品--应用优惠码
+
+- name: `app\home\controller\UpgradeController::addPromoToProduct`
+- url: `/upgrade/add_promo_code_product`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::addPromoToProduct
+接口：升降级产品--应用优惠码
+接口地址：/upgrade/add_promo_code_product 
+POST
+升降级产品--应用优惠码 -- wyh
+接口说明:升降级产品--应用优惠码
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+pormo_code
+number
+非必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+pormo_code
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品--移除优惠码
+
+- name: `app\home\controller\UpgradeController::RemovePromoFromProduct`
+- url: `/upgrade/remove_promo_code_product`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::RemovePromoFromProduct
+接口：升降级产品--移除优惠码
+接口地址：/upgrade/remove_promo_code_product 
+POST
+升降级产品--移除优惠码 -- wyh
+接口说明:升降级产品--移除优惠码
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## POST 升降级产品结算
+
+- name: `app\home\controller\UpgradeController::checkoutProductUpgrade`
+- url: `/upgrade/checkout_upgrade_product`
+- 返回字段: [' old_host:原产品信息@', ' des:描述', ' amount:差价', ' discount:优惠', ' amount_total:支付金额', ' payment:支付方式', ' order_id:订单ID', ' invoice_id:账单ID']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::checkoutProductUpgrade
+接口：升降级产品结算
+接口地址：/upgrade/checkout_upgrade_product 
+POST
+升降级产品结算 -- wyh
+接口说明:升降级产品结算
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+hid
+number
+必填
+-
+-
+-
+payment
+number
+必填
+-
+-
+-
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "old_host":[{//原产品信息
+      "host":"产品组+产品名",
+      "domain":"域名",
+    }]
+    "des":"描述",
+    "amount":"差价",
+    "discount":"优惠",
+    "amount_total":"支付金额",
+    "payment":"支付方式",
+    "order_id":"订单ID",
+    "invoice_id":"账单ID",
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+hid
+payment
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## GET 用户可添加目录
+
+- name: `app\home\controller\UpgradeController::addindexPage`
+- url: `/addindex_page`
+- 返回字段: [' data:导航列表@']
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::addindexPage
+接口：用户可添加目录
+接口地址：/addindex_page 
+GET
+用户可添加目录 -- lgd
+接口说明:用户可添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+    "data":[{//导航列表
+      "id":"产品分类ID",
+      "groupname":"产品分类name",
+      "fa_icon":"图标",
+    }]
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户添加目录
+
+- name: `app\home\controller\UpgradeController::addindexPost`
+- url: `/addindex_post`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::addindexPost
+接口：用户添加目录
+接口地址：/addindex_post 
+Post
+用户添加目录 -- lgd
+接口说明:用户添加目录
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
+
+
+---
+
+## Post 用户目录删除
+
+- name: `app\home\controller\UpgradeController::addindexDel`
+- url: `/addindex_del`
+- 返回字段: []
+- 客户参数: 
+
+### 文档正文
+
+APi接口文档
+文档地址：http://w2.test.idcsmart.com/doc?name=app\home\controller\UpgradeController::addindexDel
+接口：用户目录删除
+接口地址：/addindex_del 
+Post
+用户目录删除 -- lgd
+接口说明:删除
+接口信息
+在线测试
+接口参数
+参数名字
+类型
+是否必须
+默认值
+其他
+说明
+id
+整型
+非必填
+-
+-
+分类id
+返回结果
+{
+  "status":200/201/203/204/400/401/406,
+  "msg":提示信息,
+  "data":{
+  }
+}
+接口参数
+接口地址
+发送测试
+提交方式
+GET
+POST
+PUT
+DELETE
+Cookie
+ 增加参数
+id
+返回结果
+自定义解析数据
+缩进量:
+1
+2
+3
+4
+5
+6
+引号
+全选
+展开
+叠起
+2级
+3级
+4级
+5级
+6级
+7级
+8级
