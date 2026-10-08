@@ -32,6 +32,9 @@ const (
 	// CodePaymentGateway 支付渠道调用失败（渠道不可达、渠道拒绝下单、响应异常）。
 	// 渠道返回的提示文案已脱敏，不含商户密钥（契约 12.2）。
 	CodePaymentGateway = 50002
+	// CodeUpstreamFailed 上游（IDC 面板）调用失败：实例操作/续费回读等场景，
+	// message 为已脱敏的上游原因（不含密码与密钥），契约 15.6。
+	CodeUpstreamFailed = 50003
 
 	// CodeNotInstalled 系统尚未完成安装：除安装页、安装 API 与健康检查外的请求一律拒绝
 	// （浏览器页面请求改为 302 跳转到 /install），见契约 13.1。
@@ -55,6 +58,7 @@ var messages = map[int]string{
 	CodeInternalError:    "服务器内部错误",
 	CodeDatabaseError:    "数据库错误",
 	CodePaymentGateway:   "支付渠道调用失败",
+	CodeUpstreamFailed:   "上游调用失败",
 	CodeNotInstalled:     "系统尚未安装",
 	CodeInstallClosed:    "系统已安装，安装向导已关闭",
 	CodeDBConnectFailed:  "数据库连接失败",

@@ -4,18 +4,30 @@ import "time"
 
 // 实例状态取值（instances.status）。
 //
-// 阶段 5a 只产生 active（交付成功）；suspended / cancelled / terminated
-// 由阶段 5b（暂停、终止申请、到期处理）维护。
+// 阶段 5a 只产生 active（交付成功）；阶段 5b 起 suspended 由管理端暂停与
+// 到期扫描写入；cancelled / terminated 由阶段 5c（终止流程）维护。
 const (
-	// InstanceStatusActive 正常（已交付）。
+	// InstanceStatusActive 正常（已交付；可执行电源/重装/改密等操作）。
 	InstanceStatusActive = "active"
-	// InstanceStatusSuspended 已暂停（阶段 5b 预留）。
+	// InstanceStatusSuspended 已暂停（管理端手动暂停或到期未续费自动暂停；不可执行会员端操作）。
 	InstanceStatusSuspended = "suspended"
-	// InstanceStatusCancelled 已申请终止（阶段 5b 预留）。
+	// InstanceStatusCancelled 已申请终止（阶段 5c 预留）。
 	InstanceStatusCancelled = "cancelled"
-	// InstanceStatusTerminated 已终止（阶段 5b 预留）。
+	// InstanceStatusTerminated 已终止（阶段 5c 预留）。
 	InstanceStatusTerminated = "terminated"
 )
+
+// IsInstanceOperable 判断实例是否处于可执行会员端操作（电源/重装/改密）的状态。
+// 定稿矩阵（契约 15.2）：仅 active 可操作；suspended / cancelled / terminated 一律拒绝。
+func IsInstanceOperable(status string) bool {
+	return status == InstanceStatusActive
+}
+
+// IsInstanceRenewable 判断实例是否可发起续费（契约 15.4）：
+// active（正常续费）与 suspended（欠费暂停后补缴续费，成功后续费交付会尝试恢复）。
+func IsInstanceRenewable(status string) bool {
+	return status == InstanceStatusActive || status == InstanceStatusSuspended
+}
 
 // IsValidInstanceStatus 判断实例状态是否在 instances.status 枚举内。
 func IsValidInstanceStatus(status string) bool {

@@ -70,10 +70,12 @@ type orderView struct {
 	FinalAmount    string            `json:"final_amount"`
 	CouponCode     string            `json:"coupon_code"`
 	Status         string            `json:"status"`
+	Type           string            `json:"type"`
 	PayChannel     string            `json:"pay_channel"`
 	ChannelTradeNo string            `json:"channel_trade_no"`
 	PayTime        *string           `json:"pay_time"`
 	HostID         *int              `json:"host_id"`
+	InstanceID     *uint64           `json:"instance_id"`
 	ProvisionError string            `json:"provision_error"`
 	DeliveredAt    *string           `json:"delivered_at"`
 	CreatedAt      string            `json:"created_at"`
@@ -550,10 +552,12 @@ func newOrderView(order *model.Order, logger *slog.Logger) orderView {
 		FinalAmount:    string(order.FinalAmount),
 		CouponCode:     order.CouponCode,
 		Status:         order.Status,
+		Type:           order.Type,
 		PayChannel:     order.PayChannel,
 		ChannelTradeNo: order.ChannelTradeNo,
 		PayTime:        formatTimePtr(order.PayTime),
 		HostID:         order.HostID,
+		InstanceID:     order.InstanceID,
 		ProvisionError: order.ProvisionError,
 		DeliveredAt:    formatTimePtr(order.DeliveredAt),
 		CreatedAt:      formatTime(order.CreatedAt),

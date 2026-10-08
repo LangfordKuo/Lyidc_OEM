@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 )
@@ -129,6 +130,88 @@ func (s *Store) CompleteDelivery(ctx context.Context, orderID uint64, in Instanc
 		}
 
 		hostID := in.HostID
+		if err := tx.Model(&model.Order{}).Where("id = ?", current.ID).Updates(map[string]any{
+			"status":          model.OrderStatusActive,
+			"host_id":         hostID,
+			"delivered_at":    now,
+			"provision_error": "",
+			"updated_at":      now,
+		}).Error; err != nil {
+			return err
+		}
+
+		current.Status = model.OrderStatusActive
+		current.HostID = &hostID
+		current.DeliveredAt = &now
+		current.ProvisionError = ""
+		current.UpdatedAt = now
+		order = current
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
+// RenewDeliveryInput 是续费交付成功时的落库输入（阶段 5b）。
+type RenewDeliveryInput struct {
+	// InstanceID 是续费对应的实例（orders.instance_id）。
+	InstanceID uint64
+	// Sync 是续费后回读到的上游同步字段（调用方已合并旧值，未回读到时保留原值）。
+	Sync InstanceSyncInput
+	// Status 是续费落库时一并写入的实例状态（通常 active；上游恢复失败时保持 suspended）。
+	Status string
+}
+
+// CompleteRenewDelivery 续费交付成功落库：单事务内锁订单 → 锁实例 → 更新实例
+// （到期时间/上游同步字段/状态）→ 订单置 active（写 host_id / delivered_at、清空 provision_error）。
+//
+// 订单不处于 provisioning、或订单/实例不匹配时返回 ErrStateConflict 且不写任何数据
+// （宁可留痕人工核对，也不静默覆盖）。
+func (s *Store) CompleteRenewDelivery(ctx context.Context, orderID uint64, in RenewDeliveryInput) (*model.Order, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var order *model.Order
+	err = db.Transaction(func(tx *gorm.DB) error {
+		current, err := lockOrder(tx, "id = ?", orderID)
+		if err != nil {
+			return err
+		}
+		if current.Status != model.OrderStatusProvisioning {
+			order = current
+			return ErrStateConflict
+		}
+		if current.InstanceID == nil || *current.InstanceID != in.InstanceID {
+			order = current
+			return ErrStateConflict
+		}
+
+		var instance model.Instance
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", in.InstanceID).Take(&instance).Error; err != nil {
+			return notFoundIfNeeded(err)
+		}
+
+		now := time.Now().UTC()
+		if err := tx.Model(&model.Instance{}).Where("id = ?", instance.ID).Updates(map[string]any{
+			"next_due_date":   in.Sync.NextDueDate,
+			"upstream_status": in.Sync.UpstreamStatus,
+			"dedicated_ip":    in.Sync.DedicatedIP,
+			"assigned_ips":    in.Sync.AssignedIPs,
+			"port":            in.Sync.Port,
+			"username":        in.Sync.Username,
+			"password":        in.Sync.Password,
+			"status":          in.Status,
+			"updated_at":      now,
+		}).Error; err != nil {
+			return err
+		}
+
+		hostID := instance.HostID
 		if err := tx.Model(&model.Order{}).Where("id = ?", current.ID).Updates(map[string]any{
 			"status":          model.OrderStatusActive,
 			"host_id":         hostID,

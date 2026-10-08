@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
@@ -16,12 +17,15 @@ import (
 // msgInstanceMissing 是实例不存在/非本人时的统一提示（对外 404）。
 const msgInstanceMissing = "实例不存在"
 
-// instanceHandler 处理实例接口：会员端本人实例列表/详情，管理端实例列表。
+// instanceHandler 处理实例接口：会员端本人实例列表/详情/操作/续费/操作记录，
+// 管理端实例列表/暂停/恢复/同步/操作记录（阶段 5a 列表详情 + 阶段 5b 操作）。
 //
 // 敏感字段可见性（契约 14.4）：列表一律不含主机账号/密码/端口（会员端与管理端相同）；
 // 详情接口仅**会员本人**可见 username / password / port / assigned_ips。
+// 实例操作（阶段 5b）统一经 instanceops.Service：状态校验、上游调用与审计都在服务层完成。
 type instanceHandler struct {
 	store  *store.Store
+	ops    *instanceops.Service
 	logger *slog.Logger
 }
 

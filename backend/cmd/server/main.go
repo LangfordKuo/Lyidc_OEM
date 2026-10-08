@@ -73,6 +73,8 @@ func main() {
 				Ping:   db.PingFunc(gdb),
 				DB:     gdb,
 				JWT:    jwt,
+				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
+				EnableDueScan: true,
 			})
 		},
 	})

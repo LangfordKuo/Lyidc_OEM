@@ -139,6 +139,8 @@ func (s *Service) Trigger(orderID uint64) {
 //   - 交付执行失败：已置 failed 的订单 + ErrProvisionFailed（原因已写入 provision_error）。
 //
 // allowFailed 为 true 时 failed 订单可再次认领（管理员重试）；自动触发一律传 false。
+//
+// 按订单类型分流（阶段 5b）：new → 上游开通（5a 骨架）；renew → 上游续费（renew.go）。
 func (s *Service) Deliver(ctx context.Context, orderID uint64, allowFailed bool) (*model.Order, error) {
 	claimed, order, err := s.store.BeginDelivery(ctx, orderID, allowFailed)
 	if err != nil {
@@ -148,6 +150,14 @@ func (s *Service) Deliver(ctx context.Context, orderID uint64, allowFailed bool)
 		return order, ErrNotClaimable
 	}
 
+	if order.Type == model.OrderTypeRenew {
+		return s.deliverRenew(ctx, order)
+	}
+	return s.deliverNew(ctx, order)
+}
+
+// deliverNew 执行一次新购开通交付（阶段 5a 骨架：上游开通 → 回读 → 落库）。
+func (s *Service) deliverNew(ctx context.Context, order *model.Order) (*model.Order, error) {
 	s.logger.Info("开始交付订单", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", order.MemberID, "product_id", order.ProductID, "cycle", order.Cycle)
 
@@ -165,6 +175,7 @@ func (s *Service) Deliver(ctx context.Context, orderID uint64, allowFailed bool)
 		}
 		s.logger.Info("订单交付完成", "order_id", updated.ID, "trade_no", updated.TradeNo,
 			"host_id", instance.HostID, "product_id", instance.ProductID)
+		s.auditCreate(ctx, updated, instance.HostID, true, "开通成功，主机已交付")
 		return updated, nil
 	}
 
@@ -173,21 +184,30 @@ func (s *Service) Deliver(ctx context.Context, orderID uint64, allowFailed bool)
 		return nil, failErr
 	}
 	s.logger.Error("订单交付失败", "error", err, "order_id", order.ID, "trade_no", order.TradeNo)
+	s.auditCreate(ctx, failed, 0, false, "开通失败："+err.Error())
 	return failed, fmt.Errorf("%w: %v", ErrProvisionFailed, err)
+}
+
+// auditCreate 写开通审计：成功时用订单已落库的 host_id 反查实例；失败时尚无实例，
+// 用 host_id=0（不存在）跳过——失败留痕落在订单 provision_error 上（契约 15.3 边界）。
+func (s *Service) auditCreate(ctx context.Context, order *model.Order, hostID int, ok bool, message string) {
+	if order == nil || !ok || hostID <= 0 {
+		return
+	}
+	instance, err := s.store.InstanceByHostID(ctx, hostID)
+	if err != nil {
+		s.logger.Warn("开通审计写入前查询实例失败", "error", err, "order_id", order.ID, "host_id", hostID)
+		return
+	}
+	s.audit(ctx, instance.ID, model.ActionCreate, model.InstanceOpSuccess, message)
 }
 
 // provision 执行上游开通并回读主机信息，返回实例落库字段。
 // 返回的错误均已脱敏（不含密码等敏感字段）。
 func (s *Service) provision(ctx context.Context, order *model.Order) (*store.InstanceInput, error) {
-	client, enabled, err := s.upstream.Current(ctx)
+	client, err := s.client(ctx)
 	if err != nil {
-		if errors.Is(err, upstream.ErrNotConfigured) {
-			return nil, errors.New("上游未配置或未启用（请管理员在后台设置中填写并启用）")
-		}
-		return nil, fmt.Errorf("读取上游设置失败：%v", err)
-	}
-	if !enabled {
-		return nil, errors.New("上游未配置或未启用（请管理员在后台设置中填写并启用）")
+		return nil, err
 	}
 
 	product, err := s.store.ProductByID(ctx, order.ProductID)

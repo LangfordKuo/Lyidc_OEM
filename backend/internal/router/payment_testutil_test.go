@@ -212,8 +212,10 @@ func seedEpaySetting(t *testing.T, gdb *gorm.DB, gatewayURL, notifyURL string) {
 var seededProductPIDs atomic.Int64
 
 // seedOrderProduct 写库创建一个已上架商品：固定价 monthly 100.00 / annual 200.00，
-// 含一个会员可见可配置项（配置项 id=11，可见取值 id=111/112、隐藏取值 id=113；
-// upstream_id 为 101 / 201-203——真实数据恒为 0，仅作透传展示，不参与下单与交付口径）。
+// 含两个会员可见可配置项——区域（配置项 id=11，可见取值 id=111/112、隐藏取值 id=113）与
+// 操作系统（配置项 id=12，取值 id=121=CentOS-7.9 / 122=Debian-12；阶段 5b 重装列表按该项取
+// `os_config_option_id`）；upstream_id 为 0 或展示值——真实数据恒为 0，仅作透传展示，
+// 不参与下单与交付口径（契约 14.5）。
 func seedOrderProduct(t *testing.T, gdb *gorm.DB, status string) *model.Product {
 	t.Helper()
 
@@ -230,7 +232,11 @@ func seedOrderProduct(t *testing.T, gdb *gorm.DB, status string) *model.Product 
 			`"option_type":1,"upstream_id":101,"hidden":0,"sub":[` +
 			`{"id":111,"config_id":11,"option_name":"香港","upstream_id":201,"hidden":0,"pricings":[]},` +
 			`{"id":112,"config_id":11,"option_name":"美国","upstream_id":202,"hidden":0,"pricings":[]},` +
-			`{"id":113,"config_id":11,"option_name":"隐藏机房","upstream_id":203,"hidden":1,"pricings":[]}]}]}],` +
+			`{"id":113,"config_id":11,"option_name":"隐藏机房","upstream_id":203,"hidden":1,"pricings":[]}]}]},` +
+			`{"id":2,"name":"系统","options":[{"id":12,"gid":2,"option_name":"os|操作系统",` +
+			`"option_type":5,"upstream_id":0,"hidden":0,"sub":[` +
+			`{"id":121,"config_id":12,"option_name":"CentOS-7.9","upstream_id":0,"hidden":0,"pricings":[]},` +
+			`{"id":122,"config_id":12,"option_name":"Debian-12","upstream_id":0,"hidden":0,"pricings":[]}]}]}],` +
 			`"customfields":[]}`,
 		UpstreamPricesJSON: `{"code":"CNY","prices":{"monthly":"90.00","annual":"180.00"}}`,
 		PricingJSON:        `{"mode":"fixed","fixed":{"monthly":"100.00","annual":"200.00"}}`,

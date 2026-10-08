@@ -13,8 +13,10 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/scheduler"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
@@ -53,6 +55,10 @@ type Options struct {
 	UpstreamTimeout time.Duration
 	// Delivery 是订单交付器；nil 时构造默认实现（自动交付异步执行、管理员重试用当前上游设置）。
 	Delivery DeliveryTrigger
+	// EnableDueScan 为 true 时构造并启动「到期暂停扫描」后台任务（阶段 5b，契约 15.5）：
+	// 启动延迟 DefaultInitialDelay 后首次扫描，之后每 DefaultInterval 扫描一次。
+	// 生产装配（cmd/server）传 true；集成测试默认 false（扫描逻辑由 scheduler.Scanner 单元/集成测试覆盖）。
+	EnableDueScan bool
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -84,9 +90,23 @@ func New(opts Options) *gin.Engine {
 		upstreamProvider = newUpstreamProvider(settingsReader, opts.Logger)
 	}
 	// 阶段 5a：支付成功后的自动交付（异步 goroutine，不阻塞回调响应，契约 14.3）。
+	// 阶段 5b：同一交付器按订单 type 分流新购（开通）/续费（RenewHost）。
 	deliveries := opts.Delivery
 	if deliveries == nil {
 		deliveries = delivery.New(st, upstreamProvider, delivery.Options{Async: true, Logger: opts.Logger})
+	}
+	// 阶段 5b：实例操作（电源/重装/改密/暂停/恢复/同步），审计写 instance_operation_logs。
+	instanceOperator := instanceops.New(st, upstreamProvider, instanceops.Options{Logger: opts.Logger})
+
+	// 阶段 5b：到期暂停扫描（应用内后台任务；生产由 main 显式开启，契约 15.5）。
+	if opts.EnableDueScan {
+		scanner := scheduler.New(st, upstreamProvider, scheduler.Options{
+			InitialDelay: scheduler.DefaultInitialDelay,
+			Logger:       opts.Logger,
+		})
+		scanner.Start()
+		opts.Logger.Info("到期暂停扫描已启动",
+			"initial_delay", scheduler.DefaultInitialDelay, "interval", scheduler.DefaultInterval)
 	}
 
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
@@ -102,7 +122,7 @@ func New(opts Options) *gin.Engine {
 	paymentCallbacks := &paymentHandler{
 		store: st, payments: payments, reader: settingsReader, deliveries: deliveries, logger: opts.Logger,
 	}
-	instances := &instanceHandler{store: st, logger: opts.Logger}
+	instances := &instanceHandler{store: st, ops: instanceOperator, logger: opts.Logger}
 	adminSettings := &settingsHandler{store: st, reader: settingsReader, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
@@ -147,6 +167,15 @@ func New(opts Options) *gin.Engine {
 			// 实例（阶段 5a）：仅本人；列表不含敏感字段，详情含主机账号密码（含敏感字段仅本人可见）。
 			memberAPI.GET("/instances", instances.listMyInstances)
 			memberAPI.GET("/instances/:id", instances.getMyInstance)
+
+			// 实例操作与续费（阶段 5b）：仅本人实例；电源/重装/改密仅 active，续费 active/suspended，
+			// 操作记录含全部历史（成功与失败，message 已脱敏）。
+			memberAPI.POST("/instances/:id/power", instances.powerInstance)
+			memberAPI.POST("/instances/:id/reinstall", instances.reinstallInstance)
+			memberAPI.GET("/instances/:id/reinstall-options", instances.reinstallOptions)
+			memberAPI.POST("/instances/:id/reset-password", instances.resetPasswordInstance)
+			memberAPI.POST("/instances/:id/renew", instances.renewInstance)
+			memberAPI.GET("/instances/:id/logs", instances.listMyInstanceLogs)
 
 			memberAPI.POST("/recharges", finance.createRecharge)
 			memberAPI.GET("/recharges", finance.listRecharges)
@@ -197,6 +226,15 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/instances", instances.listAdminInstances)
 			adminGroup.POST("/orders/:id/retry-delivery",
 				requireAdminRole(model.RoleAdmin), orders.retryDelivery)
+
+			// 实例操作（阶段 5b）：suspend / unsuspend 影响服务状态，仅 admin 角色；
+			// sync 为只读回读 + 状态收敛，所有角色可调用（对齐既有角色矩阵，契约 15.2）。
+			adminGroup.POST("/instances/:id/suspend",
+				requireAdminRole(model.RoleAdmin), instances.adminSuspendInstance)
+			adminGroup.POST("/instances/:id/unsuspend",
+				requireAdminRole(model.RoleAdmin), instances.adminUnsuspendInstance)
+			adminGroup.POST("/instances/:id/sync", instances.adminSyncInstance)
+			adminGroup.GET("/instances/:id/logs", instances.listAdminInstanceLogs)
 
 			// 商品与计费（阶段 3a）：所有角色可查看；导入/改定价/上下架/改分组要求 admin 或 finance。
 			adminGroup.GET("/products", products.listProducts)

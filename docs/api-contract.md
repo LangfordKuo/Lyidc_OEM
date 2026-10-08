@@ -1752,8 +1752,10 @@ form 参数：
 | `amount` / `discount_amount` / `final_amount` | string | 原价 / 优惠码折扣额 / 应付金额（定点小数字符串，`final = amount − discount`） |
 | `coupon_id` / `coupon_code` | int \| null / string | 所用优惠码快照（未用码：NULL / 空串） |
 | `status` | string | `pending` / `paid` / `provisioning` / `active` / `failed` / `cancelled`（阶段 5a 扩为 6 态，完整状态机见 14.1） |
+| `type` | string | `new`（新购，默认）/ `renew`（续费；阶段 5b 迁移 0008 新增） |
 | `pay_channel` / `channel_trade_no` / `pay_time` | string / string / string \| null | 支付渠道（`epay` / `balance`）、渠道单号、支付时间（UTC） |
-| `host_id` | int \| null | 上游主机 ID（阶段 5a 交付成功后写入；未交付为 `null`） |
+| `host_id` | int \| null | 上游主机 ID（阶段 5a 交付成功后写入；未交付为 `null`；续费单交付成功后同填实例主机 ID） |
+| `instance_id` | int \| null | 续费单对应的实例（阶段 5b 迁移 0008 新增；`new` 单为 `null`） |
 | `provision_error` | string | 最近一次交付失败原因（脱敏，最多 500 字符；成功时清空，空串表示无错误） |
 | `delivered_at` | string \| null | 交付完成时间（UTC；未交付为 `null`） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -1761,6 +1763,8 @@ form 参数：
 状态机（阶段 5a 扩为 6 态，流转规则与幂等锚点见 14.1）：`pending → paid`（在线支付回调 / 余额支付）、
 `pending → cancelled`（本人取消）、`paid → provisioning → active / failed`（自动交付）、
 `failed → provisioning`（管理员重试）。**没有** `paid → refunded`，**没有**自动超时关闭（12.10）。
+阶段 5b 起交付分支按订单 `type` 分流：`new` 走上游开通、`renew` 走上游续费
+（`RenewHost`，链路与幂等见 15.5）；两者共用同一状态机与认领行锁锚点。
 
 **充值单（`recharges`）**
 
@@ -1789,6 +1793,13 @@ form 参数：
 ### 12.4 会员端接口（订单与财务）
 
 全部要求**会员 token**（`aud=member`），且只操作**本人**数据；未携带/无效 token → `401`。
+
+**订单对象字段**（下单/详情/列表/支付返回统一结构，字段语义见 12.3 的 orders 表）：
+`id` / `trade_no` / `member_id` / `product_id` / `product_name` / `cycle` / `qty` / `config`（对象）/
+`amount` / `discount_amount` / `final_amount` / `coupon_code` / `status` / **`type`** /
+`pay_channel` / `channel_trade_no` / `pay_time` / `host_id` / **`instance_id`** / `provision_error` /
+`delivered_at` / `created_at` / `updated_at`（加粗两项为阶段 5b 新增：`type` 区分新购 `new` /
+续费 `renew`，`instance_id` 为续费单对应的实例 ID）。
 
 #### `POST /api/v1/orders`
 
@@ -2042,6 +2053,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `POST /api/v1/admin/orders/:id/retry-delivery`（阶段 5a，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `POST/GET /api/v1/orders`、`GET /api/v1/orders/:id`、`POST /api/v1/orders/:id/pay`、`POST /api/v1/orders/:id/cancel` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `GET /api/v1/instances`、`GET /api/v1/instances/:id`（阶段 5a） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST /api/v1/admin/instances/:id/suspend`、`/unsuspend`（阶段 5b，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `POST /api/v1/admin/instances/:id/sync`、`GET /api/v1/admin/instances/:id/logs`（阶段 5b） | ✓ | ✓ | ✓ | ✗（`401`） |
+| `POST /api/v1/instances/:id/power`、`/reinstall`、`/reset-password`、`/renew`、`GET /api/v1/instances/:id/reinstall-options`、`/logs`（阶段 5b） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST/GET /api/v1/recharges`、`GET /api/v1/finance/balance`、`GET /api/v1/finance/ledger` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST\|GET /api/v1/payments/epay/notify`、`GET /api/v1/payments/epay/return` | 公开（无鉴权，验签是凭证） | 公开 | 公开 | 公开 |
 
@@ -2052,12 +2066,13 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `40001` | 参数错误：分页越界、`status`/`type` 取值非法、`member_id` 非正整数、金额写法非法、URL 非法、设置请求体为空、订单/商品 ID 非法、`config` 键值类型不符 |
 | `40002` | 参数校验失败：周期不可售、未知配置项/取值、优惠码不存在或无效、订单状态不允许支付/取消/**重试交付**、余额不足、渠道未启用或配置不完整、`pay_type` 不受支持、`enabled=true` 缺必填设置项、超时越界 |
 | `401` | 未携带/无效 token（会员接口用管理员 token 访问同样 401） |
-| `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance；**重试交付接口非 admin**） |
+| `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance；**重试交付接口非 admin；实例 suspend / unsuspend 非 admin（阶段 5b）**） |
 | `404` | 商品不存在或已下架、订单不存在或非本人、**实例不存在或非本人**、优惠码不存在（校验接口） |
 | `409` | （阶段 4 未新用） |
 | `500` | 库内设置值损坏等内部错误 |
 | `50001` | 本地库读写失败 |
 | `50002` | 支付渠道调用失败（渠道拒绝下单、响应异常、网络失败）；message 为脱敏后的渠道提示 |
+| `50003` | **上游（IDC 面板）调用失败（阶段 5b）**：实例操作/重装/改密/暂停/恢复/同步/续费回读等场景；message 为已脱敏的上游原因（不含密码与密钥） |
 
 ### 12.9 业务边界（本批实现约定）
 
@@ -2468,6 +2483,11 @@ cancelled                                provisioning ──上游开通成功�
 **对既有接口的影响**：订单视图新增 `host_id` / `provision_error` / `delivered_at`；
 订单列表 `status` 过滤支持 6 态；发起支付/取消的状态提示按 6 态给出（12.4）。
 
+**阶段 5b 扩展**：`paid → provisioning` 的认领与后续落库**按订单 `type` 分流**——
+`new` 走上游开通（`CreateHost`，本节口径不变），`renew` 走上游续费（`RenewHost`，
+落库为更新实例到期时间而非新建实例，见 15.5）；两条分支共用同一 6 态状态机、
+同一认领行锁幂等锚点与同一管理员重试入口。
+
 ### 14.2 instances 表（迁移 0007）
 
 订单交付成功后的主机记录；订单 ↔ 实例**本期一对一**（唯一键 `uk_instances_order`），
@@ -2482,7 +2502,7 @@ cancelled                                provisioning ──上游开通成功�
 | `name` | string | 主机名（开通时提交上游的 `host`：`oem-` + 订单号小写） |
 | `billing_cycle` | string | 计费周期（本地 6 周期之一） |
 | `next_due_date` | string \| null | 到期时间（UTC；开通后从上游 `nextduedate` 回读，回读失败留 `null`） |
-| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；**本期只写 `active`**，后三者由阶段 5b 维护 |
+| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；5a 只写 `active`，**5b 起 `suspended` 由管理端暂停与到期扫描写入**，`cancelled` / `terminated` 留 5c（操作矩阵见 15.1） |
 | `upstream_status` | string | 上游 `domainstatus` 原文（如 `Active`；同步字段） |
 | `dedicated_ip` | string | 上游主 IPv4（未回读为空串） |
 | `assigned_ips` | string | 上游附加 IP（库内逗号分隔原文；接口输出为数组） |
@@ -2609,18 +2629,277 @@ cancelled                                provisioning ──上游开通成功�
    均为 20.00（真实扣费）。
 3. **`hostinfo` 回读字段实测**：`port=0`、`assignedips=[""]`（含空项，接口输出已过滤为空数组）、
    `password` 回传（与开通提交的 16 位密码一致）；`host_option_config`（`all=1`）为空。
-4. **本批真机未覆盖「带配置项开通」**：演练商品（上游 pid 15）配置项的 `upstream_id` 全为 0，
-   按 id 口径选值需要前端按新口径下单，本批以集成测试覆盖参数拼装
-   （断言 `configoption[<配置项 id>]` 与 `cart_data[configoptions][<配置项 id>]`），
-   真机行为留待 5b 服务操作（重装选系统等）顺带复核。
+4. **「带配置项开通」真机复核已由阶段 5b 补做（15.7 第 1 条）**：本批（5a）演练时未做行为级验证，
+   仅以集成测试覆盖参数拼装（断言 `configoption[<配置项 id>]` 与 `cart_data[configoptions][<配置项 id>]`）；
+   5b 对同一商品选**非默认**操作系统（`{"87":"278"}` = CentOS-9-Stream-x64）真实开通并回读核对，
+   所选值与上游 `host_data.os` 及 `config_options` 完全一致（对照组为上游默认值），口径确认无误。
 5. **终止申请（RequestCancel）**：返回 `status=202` + `pending=true` +
    `data.cancel_request_id=432`，主机 `domainstatus` 保持 `Active`（上游异步处理，同 8.5 第 13 条）；
    本地实例状态本批**不同步**（服务操作与状态同步留 5b）。
 
-## 15. 变更记录
+## 15. 实例操作与续费（阶段 5b）
+
+本节描述：实例状态与操作矩阵（15.1）、会员端操作接口（15.2）、管理端操作接口（15.3）、
+操作审计（15.4）、续费链路（15.5）、到期暂停扫描（15.6）、错误码与真机实测（15.7）。
+数据结构由**迁移 0008** 引入（`orders` 扩 `type` / `instance_id` + `instance_operation_logs` 建表）。
+
+> 本批范围：会员端电源/重装/改密、管理端暂停/恢复/同步、续费下单与自动续费、到期暂停扫描。
+> **实例申请取消/终止（`RequestCancel` 与 `cancelled` / `terminated` 状态）留阶段 5c**，本批不动。
+
+### 15.1 实例状态与操作矩阵
+
+`instances.status` 沿用迁移 0007 的四态枚举（`active` / `suspended` / `cancelled` / `terminated`）；
+**本批起产生 `suspended`**（管理端手动暂停与到期未续费自动暂停），后两者仍留 5c：
+
+```
+active ──管理端暂停 / 到期未续费自动扫描──▶ suspended ──管理端恢复 / 续费成功自动恢复──▶ active
+   │                                            │
+   └──────────── 阶段 5c 终止流程 ──────────────┴──▶ cancelled ──▶ terminated
+```
+
+**状态与操作的可执行矩阵**（定稿；不满足时返回 `40002`，且**失败尝试同样写审计**）：
+
+| 操作 | 入口 | 权限 | 允许的实例状态 | 上游调用 | 本地影响 |
+| --- | --- | --- | --- | --- | --- |
+| 电源：`soft_on` / `soft_off` / `reboot` / `hard_off` / `hard_reboot` | `POST /instances/:id/power` | 会员本人 | 仅 `active` | `POST /provision/default`（`func=on/off/reboot/hard_off/hard_reboot`） | 无（仅审计） |
+| 重装系统 | `POST /instances/:id/reinstall` | 会员本人 | 仅 `active` | `POST /provision/default`（`func=reinstall` + `os`/`port`） | 无（仅审计） |
+| 重装可选系统列表 | `GET /instances/:id/reinstall-options` | 会员本人 | 任意 | `GET /host/cloudos` | 无 |
+| 重置密码 | `POST /instances/:id/reset-password` | 会员本人 | 仅 `active` | `POST /provision/default`（`func=crack_pass` + `password`） | 新密码落库到实例记录 |
+| 续费下单 | `POST /instances/:id/renew` | 会员本人 | `active` / `suspended` | 无（仅本地建单） | 创建 `type=renew` 的 pending 订单 |
+| 暂停 | `POST /admin/instances/:id/suspend` | **仅 admin** | 仅 `active` | `POST /provision/default`（`func=suspend` + `reason`） | `status → suspended` |
+| 恢复 | `POST /admin/instances/:id/unsuspend` | **仅 admin** | 仅 `suspended` | `POST /provision/default`（`func=unsuspend`） | `status → active` |
+| 同步 | `POST /admin/instances/:id/sync` | admin / finance / support | 任意 | `GET /cart/hostinfo`（all=1）+ `POST /provision/default`（`func=status`） | 回写同步字段；按上游 `domainstatus` 收敛 `active ↔ suspended` |
+| 操作记录 | `GET /instances/:id/logs`、`GET /admin/instances/:id/logs` | 见 15.4 | 任意 | 无 | 无 |
+| 到期暂停（自动） | 应用内后台任务 | system | `active` 且 `next_due_date < now` | `POST /provision/default`（`func=suspend` + 固定原因） | `status → suspended` |
+
+**硬操作风险标注**：`hard_off`（强制关机）/ `hard_reboot`（强制重启）等价于直接断电/复位，
+**可能造成主机数据损坏或文件系统异常**，本批**按需开放**（面板类产品的常规能力），
+责任由调用方与操作者承担；契约与接口提示文案均标明「强制」语义，前端应做二次确认。
+
+**异步语义**：上游的电源/重装/改密调用是**受理即返回**——接口返回成功只表示「指令已提交」，
+实际执行由上游异步完成（实测：`soft_on` 后 `func=status` 短暂返回 `process/开机中`，
+重装期间为 `process/重装中`；改密完成前上游会以 `406 重置密码中不能执行该操作`
+拒绝其它模块操作，见 15.7）。需要确认最终状态时用管理端同步接口回读。
+
+**密码口径（重置密码）**：
+- 请求体 `password` 省略或空串 → 服务端生成 **16 位强密码**（与开通密码同规则：大小写/数字/特殊四类齐备，`crypto/rand`）；
+- 传入 `password` → 校验 **8-64 个字符且同时包含字母与数字**，不满足返回 `40002`；
+- 新密码**落库到实例记录**（`instances.password`，仅会员本人在实例详情可见），并在本次响应中返回；
+- 密码**不写日志、不写审计**（审计 message 经敏感串替换，见 15.4）。
+
+### 15.2 会员端接口契约
+
+全部要求**会员 token**，且只操作**本人实例**；他人实例与不存在的实例统一 `404 实例不存在`（与 14.4 同口径）。
+
+#### `POST /api/v1/instances/:id/power`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `op`（必填）：`soft_on` / `soft_off` / `reboot` / `hard_off` / `hard_reboot` |
+| 成功 | HTTP 200，`data` = `{instance_id, action, message, status}`；`action` 为审计动作（`power_on` / `power_off` / `reboot` / `hard_off` / `hard_reboot`） |
+| 错误码 | `401`、`40001`（op 非法/ID 非法）、`404`、`40002`（实例非 active）、`50003`（上游失败） |
+
+#### `GET /api/v1/instances/:id/reinstall-options`
+
+| 项目 | 说明 |
+| --- | --- |
+| 成功 | HTTP 200，`data` = `{instance_id, os: [{id, name, group}], groups: [{id, name}]}`；`os[].id` 即重装接口的 `os_id` |
+| 错误码 | `401`、`404`、`40002`（商品未配置操作系统项）、`50003`（上游失败） |
+| 上游口径 | `GET /host/cloudos?productid=<上游 pid>&os_config_option_id=<os 配置项 id>`；**必须带 `os_config_option_id`**（实测不带该参数上游返回空列表），该项 ID 从商品 `config_json` 的 `config_groups[].options[].option_name`（形如 `os|操作系统`）解析 |
+
+#### `POST /api/v1/instances/:id/reinstall`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `os_id`（必填，正整数，取自重装可选系统列表）、`port`（可选，0-65535，0 = 不指定） |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"reinstall", message, status}`；上游异步执行 |
+| 错误码 | `401`、`40001`（os_id/port 非法）、`404`、`40002`（实例非 active）、`50003` |
+
+#### `POST /api/v1/instances/:id/reset-password`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `password`（可选；省略即自动生成，口径见 15.1） |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"reset_password", message, status, password}`（`password` 为最终生效的新密码，仅本次响应返回） |
+| 错误码 | `401`、`404`、`40002`（实例非 active / 密码强度不足）、`50003`（上游失败） |
+
+#### `POST /api/v1/instances/:id/renew`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `cycle`（必填，6 周期之一）；**本批不支持优惠码**（无 `coupon_code` 字段，传入被忽略，订单折扣恒为 `0.00`） |
+| 金额 | 按**当前商品**该周期本地售价（商品下架仍可续费：已购实例不受上架状态影响；该周期无售价返回 `40002`） |
+| 成功 | HTTP 200，`data` 为订单对象（`type=renew`、`instance_id` 已填、`status=pending`） |
+| 错误码 | `401`、`40001`（cycle 非法/ID 非法）、`404`、`40002`（实例非 active/suspended、商品不存在、周期不可售）、`50001` |
+| 后续 | 支付成功（在线/余额）→ 自动续费交付（15.5）；失败可经管理员重试同入口 `POST /admin/orders/:id/retry-delivery` |
+
+#### `GET /api/v1/instances/:id/logs`
+
+| 项目 | 说明 |
+| --- | --- |
+| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`（新记录在前）；`items` 见 15.4 |
+| 错误码 | `401`、`40001`、`404`（他人实例与不存在统一 404） |
+
+### 15.3 管理端接口契约
+
+#### `POST /api/v1/admin/instances/:id/suspend`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin` 角色**（`finance` / `support` 返回 `403`） |
+| 请求体 | `reason`（**必填**，≤200 字符；同原因提交上游并写入审计） |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"suspend", message, status:"suspended"}` |
+| 错误码 | `401`、`403`、`40001`（reason 空/过长、ID 非法）、`404`、`40002`（实例非 active）、`50003` |
+| 上游 | `func=suspend` + `reason`；本地状态条件更新（`active → suspended`，并发下只有一个生效） |
+
+#### `POST /api/v1/admin/instances/:id/unsuspend`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 同上（仅 `admin`） |
+| 请求体 | 无 |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"unsuspend", message, status:"active"}` |
+| 错误码 | `401`、`403`、`40001`、`404`、`40002`（实例非 suspended）、`50003` |
+
+#### `POST /api/v1/admin/instances/:id/sync`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**admin / finance / support 均可**（只读回读 + 状态收敛，不影响计费） |
+| 请求体 | 无 |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"sync", message, status, power_state, power_desc, status_changed, instance, next_due_date, upstream_status}`；`instance` 为同步后的实例摘要 |
+| 错误码 | `401`、`40001`、`404`、`50003`（上游回读失败/主机不存在） |
+| 行为 | ① `hostinfo` 回写 `next_due_date` / `upstream_status` / `dedicated_ip` / `assigned_ips` / `port` / 账号密码（回读不到的字段保留原值）；② 按上游 `domainstatus` **收敛本地状态**（`Suspended ↔ Active`，仅在这两态之间，`cancelled` / `terminated` 不动）；③ 附带查询电源状态（失败不影响同步成功，如实记录在 `message`） |
+
+#### `GET /api/v1/admin/instances/:id/logs`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（所有角色） |
+| 分页 | 同会员端 |
+| 错误码 | `401`、`40001`、`404` |
+
+### 15.4 操作审计（`instance_operation_logs`，迁移 0008）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 主键 |
+| `instance_id` | int | 实例 ID（`instances.id`） |
+| `actor_type` | string | `member`（会员操作）/ `admin`（管理员操作）/ `system`（自动：开通、续费、到期暂停） |
+| `actor_id` | int | 操作者 ID（`member_id` / `admin_id`；`system` 恒为 0） |
+| `action` | string | `create` / `power_on` / `power_off` / `reboot` / `hard_off` / `hard_reboot` / `reinstall` / `reset_password` / `suspend` / `unsuspend` / `sync` / `renew` |
+| `status` | string | `success` / `fail` |
+| `message` | string | 结果说明（≤500 字符，**已脱敏：不含密码与密钥**；上游错误原样透传前先做敏感串替换） |
+| `created_at` | string | 发生时间（UTC） |
+
+**留痕范围**：所有实例操作**无论成功失败都写一条**——含失败尝试（状态不允许、上游报错、参数不合法）
+与系统自动操作（开通交付、续费交付、到期暂停）。审计写入**不参与业务事务**：
+写失败只记服务日志，不改变操作结果（操作结果以实例状态与上游回读为准）。
+
+**开通审计**：`create` 在交付成功后按 `host_id` 反查实例写入（`actor=system`）；
+交付失败时尚无实例记录，失败原因落在订单 `provision_error`（不在本表）。
+
+接口视图（会员端与管理端一致）：`{id, instance_id, actor_type, actor_id, action, status, message, created_at}`。
+
+### 15.5 续费链路（`orders` 扩展，迁移 0008）
+
+**数据模型扩展**（见 12.3 的 orders 表）：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `type` | string | `new`（新购，默认）/ `renew`（续费） |
+| `instance_id` | int \| null | 续费单对应的实例（`renew` 单必填；`new` 单为 `null`，实例由 `instances.order_id` 反向关联） |
+
+**时序（与新购交付同一骨架，契约 14.3 的续费分支）**：
+
+```
+① 会员续费下单（POST /instances/:id/renew）→ 订单 pending（type=renew + instance_id）
+② 支付入账（在线回调 / 余额支付，链路与 12.2/12.4 完全相同）
+③ 事务提交后触发交付（Trigger，异步）→ 认领行锁（paid → provisioning）      ← 幂等锚点
+④ 上游续费：RenewHost（POST /host/renew → POST /apply_credit 余额支付）
+⑤ 回读：hostinfo（all=1）取 nextduedate / domainstatus / IP / 端口 / 账号密码
+⑥ 恢复：① 回读显示上游已是 Active（**实测：上游在续费成功后会自行解除到期暂停**）→
+   本地直接收敛为 active，不再调 Unsuspend（此时调上游会以 `不能解除该暂停` 被拒，见 15.7 第 6 条）；
+   ② 上游仍 Suspended（或回读失败且本地 suspended）→ 尝试 Unsuspend（失败不阻断成交，本地保持 suspended）
+⑦ 落库（事务）：更新实例同步字段与状态 + 订单 → active（host_id / delivered_at）
+```
+
+**金额与优惠码**：续费金额取**当前商品**该周期售价（下单时快照）；**续费单不接受优惠码**
+（本批口径，请求体无 `coupon_code`，折扣恒 `0.00`）。
+
+**幂等与失败**：
+- 认领行锁保证重复回调 / 重复触发**不重复续费**（同一订单同一时刻只有一个交付在跑）；
+- 失败（上游拒绝、余额不足、实例/订单不匹配等）→ 订单 `failed` + `provision_error`（脱敏），
+  管理员经 `POST /admin/orders/:id/retry-delivery` 重试（与 5a 同入口，按订单 `type` 分流执行续费）；
+- **回读失败不算续费失败**（上游已扣费）：到期时间保留原值，审计 message 标注，可用管理端同步接口核对；
+- 续费成功但恢复（Unsuspend）失败：**不阻断续费成交**，实例保持 `suspended`，审计记 `unsuspend/fail`，
+  待管理员排查或再次恢复；
+- 已知边界：进程在 `provisioning` 时崩溃会留下悬挂续费单（与 14.3 第 3 条同一已知边界）。
+
+**视图同步**：订单视图新增 `type` / `instance_id`（12.4）；实例详情/列表的 `next_due_date` 即为下次到期时间（12.4 起已输出）。
+
+### 15.6 到期暂停扫描（应用内后台任务）
+
+| 项目 | 说明 |
+| --- | --- |
+| 调度 | 服务启动后延迟 **1 分钟**执行首轮，之后每 **24 小时**一轮（常量：`scheduler.DefaultInitialDelay` / `DefaultInterval`）；由 `cmd/server` 在构建路由时启用（`router.Options.EnableDueScan`），单批 50 条循环处理，单轮整体超时 5 分钟 |
+| 命中条件 | `instances.status = active` 且 `next_due_date` 非空且 `< 当前时间`（UTC，按 `next_due_date` 升序） |
+| 动作 | 调上游 `func=suspend`（原因固定「到期未续费，系统自动暂停」）→ 本地条件更新 `active → suspended` → 审计（`actor=system`、`action=suspend`） |
+| 失败重试 | 单实例失败（上游报错等）**不中断本轮**，审计记 `fail`，本地保持 `active`，**下一轮自动重试** |
+| 幂等 | 上游返回业务失败时回读一次主机：若 `domainstatus=Suspended`（上游已自行暂停等）则只收敛本地状态，审计记 `success` 并标注「上游已是暂停状态（幂等）」；本地状态条件更新保证并发下只有一个生效 |
+| 已知边界 | ① 上游自行暂停（非本系统触发）不在扫描范围，由管理端同步接口收敛；② 扫描间隔窗口内到期的实例最迟下一轮被处理（≤24h+1min）；③ 上游不可达时整轮跳过并记 ERROR（不误改本地状态）；④ **不做到期提醒通知**（阶段 6）；⑤ 到期后本地暂停不自动重新计费，续费成功由续费链路自动恢复（15.5） |
+
+### 15.7 真机实测与差异记录（2026-10-08，生产上游）
+
+本批对生产上游完成真机演练（带配置项开通复核 → 实例操作逐项回读 → 续费 → 终止申请），
+与阶段 2/5a 记录不同的新发现如下（不回写 8.5 / 14.5 的历史条目）：
+
+1. **`configoption` 口径行为级复核通过（补 14.5 第 4 条的欠账）**：对商品「美国一区 Kurun A型」
+   （本地 id=11 / 上游 pid 15）按新口径 `config={"87":"278"}` 下单（配置项 `87=os|操作系统`，
+   值 `278=CentOS-9-Stream-x64`，**非默认值**），支付后自动开通 `host_id=10923`；
+   经 `GET /host/details` 回读，主机 `os` 与 `config_options` 中 `os` 项均为
+   `CentOS-9-Stream-x64`（与所选一致）；对照组 `host_id=10922`（5a 开通，快照 `{"0":"0"}`
+   未识别键）回读为列表首项 `CentOS-7.6.1810-x64`（上游默认）。**结论：键=配置项 id、
+   值=所选值 id 的口径在真实开通链路中精确生效。**
+2. **`GET /host/details?host_id=<id>` 可作回读来源**（阶段 2 未收录）：机器凭证（API 登录 JWT）
+   可访问该前台接口，返回 `host_data`（含 `os` / `suspendreason` / 电源无关字段）与
+   `config_options`（配置项当前取值）、`domainstatus_desc` 等，比重放 `hostinfo` 更丰富；
+   **本批未用于落库**（契约冻结的同步来源为 `hostinfo`，见 15.3 的 sync），仅作真机核对手段。
+3. **`GET /host/cloudos` 必须带 `os_config_option_id`**（补 8.3 的参数口径）：不带该参数时上游返回
+   空列表（实测 `cloud_os: []`），带上商品的「操作系统」配置项 id 才返回可选系统（实测 13 个）。
+   `cloud_os[].id` 即重装接口 `os` 参数（阶段 2 已真机验证）。
+4. **上游电源/重装/改密为异步受理**：`func=status` 在操作进行中返回 `process`（如「开机中」「重装中」）；
+   改密完成前上游会以 `406 重置密码中不能执行该操作` 拒绝其它模块操作（含暂停）。
+   接入方不得把「发起成功」当作「已完成」，也不需要自动重试同一指令（等上游完成后自然可再操作）。
+5. **实例操作、到期扫描、续费与终止的真机结果**（演练机 `host_id=10923` / 实例 2 / 商品 11）：
+
+   | 步骤 | 结果 |
+   | --- | --- |
+   | 电源 soft_on / soft_off / reboot | 均受理成功；`status` 轮询依次观测到 `process`（开机中/关机中）→ `on` / `off` / `on`，终态与指令一致 |
+   | 重置密码（自动生成 16 位） | 上游 `host/details` 回读密码与响应/落库值**逐字一致**；改密完成后一段时间上游以 `406 重置密码中不能执行该操作` 拒绝其它模块操作（约 30 秒内恢复可操作） |
+   | 管理端暂停（带原因） | 上游 `domainstatus=Suspended`、`suspendreason` 与提交原因一致；本地 `status=suspended`；审计 `suspend/success/admin` |
+   | 管理端同步 | `同步完成：上游状态 Suspended，到期时间 …；电源状态 …`；本地状态按上游收敛（`status_changed` 正确） |
+   | 管理端恢复 | 上游回到 `Active`，本地回到 `active`，审计 `unsuspend/success/admin` |
+   | **到期暂停扫描** | 将实例 `next_due_date` 置为过去后重启服务：启动 1 分钟后首轮扫描日志 `scanned=1 suspended=1 failed=0`；上游 `domainstatus=Suspended`、`suspendreason=到期未续费，系统自动暂停`；本地 `suspended`；审计 `suspend/success/system` |
+   | **续费（suspended 状态）** | 下单 ¥20 → mock 渠道支付入账 → 自动续费交付 2 秒完成；上游 `nextduedate` **+2 592 000 秒（30 天）**、`domainstatus` 自行回到 `Active`；本地 `next_due_date` 与上游一致、`status` 收敛为 `active`；审计 `renew/success/system` + `unsuspend/success/system`（收敛路径） |
+   | 重装 | `reinstall-options` 返回 13 个可选系统（上游全局 os id）；选 `Debian-12.0_x64` 发起重装 → 上游受理（当时 `status=process`），`host/details` 回读 `os` 已更新为目标系统 |
+   | 终止申请 | `POST /host/cancel` 返回 `status=202` + `pending=true` + `cancel_request_id=433`（上游异步处理，主机暂仍 `Active`；本地状态由 5c 收敛） |
+
+6. **上游续费成功会自行解除到期暂停（本批真机发现并修复的实现缺口）**：首次真机续费时，
+   `RenewHost` 成功后上游已把 `domainstatus` 从 `Suspended` 改回 `Active`；
+   而实现按「本地 suspended → 调 Unsuspend」的旧分支再次调用上游，被 `400 不能解除该暂停` 拒绝，
+   导致审计记 `unsuspend/fail` 且**本地状态滞留在 suspended**（与上游不一致）。
+   处置：续费交付的恢复分支改为**先看回读结果**——上游已 `Active` 时本地直接收敛（不再调 Unsuspend），
+   上游仍 `Suspended` 时才主动 `Unsuspend`；两条分支均不阻断续费成交（15.5 第 ⑥ 步）。
+   修复后重跑了完整真机续费链路（第二次续费 ¥20）验证：本地状态直接收敛为 `active`、
+   审计为 `unsuspend/success/system`（「上游已自行解除暂停，本地状态已收敛为 active」），问题不再复现。
+
+## 16. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v9 | 阶段 5b：新增第 15 节「实例操作与续费」——**操作矩阵与状态约束**（会员端电源/重装/改密仅 `active`；续费 `active`/`suspended`；管理端 suspend/unsuspend 仅 `admin` 且状态受限、sync 全角色；硬操作 `hard_off`/`hard_reboot` 按需开放并标注风险；上游操作异步受理语义与密码强度口径）；**`instance_operation_logs` 审计表**（迁移 0008：id/instance_id/actor_type(member/admin/system)/actor_id/action/status/message(脱敏)/created_at；全部操作含失败尝试与系统自动操作留痕；审计不参与业务事务）；**续费链路**（orders 扩 `type` ENUM('new','renew') + `instance_id`，`POST /instances/:id/renew` 按当前商品售价建单、**不支持优惠码**；支付成功 → 认领行锁幂等 → `RenewHost` → 回读顺延 `next_due_date` → 订单 active；suspended 续费成功自动 Unsuspend（失败不阻断）；失败置 `failed` + 管理员重试同入口；订单视图新增 `type`/`instance_id`）；**到期暂停扫描**（启动延迟 1 分钟 + 每 24h；`active` 且 `next_due_date < now` → 上游 Suspend + 本地 suspended + 审计 actor=system；失败下轮重试、上游已暂停幂等收敛、上游不可达整轮跳过；不做到期提醒）；**接口**（会员端 `POST /instances/:id/power|reinstall|reset-password|renew`、`GET /instances/:id/reinstall-options|logs`；管理端 `POST /admin/instances/:id/suspend|unsuspend|sync`、`GET /admin/instances/:id/logs`）；错误码新增 `50003`（上游调用失败）；**真机实测差异（15.7）**——`configoption` 口径行为级复核通过（所选 os 精确生效，对照组为默认值）、`/host/details` 可作回读来源、`/host/cloudos` 必须带 `os_config_option_id`、电源/重装/改密为异步受理（`process` 中间态与 `406 重置密码中不能执行该操作`）；同步更新 12.3（orders 两列）/12.4（订单视图 `type`/`instance_id`）/12.7（角色矩阵）/12.8（错误码）/14.1（状态机交付分支按 type 分流）/14.2（instances 状态说明：本批起产生 suspended）；变更记录移到第 16 节 |
 | 2026-10-08 | v8 | 阶段 5a：新增第 14 节「订单交付与自动开通」——**订单状态机扩为 6 态**（`pending → paid → provisioning → active / failed`，`cancelled` 仅 `pending`；迁移 0007 ALTER ENUM 并新增 `host_id` / `provision_error` / `delivered_at` 列；**入账幂等集合扩为交付态**：`paid`/`provisioning`/`active`/`failed` 重复回调一律幂等、不重复触发交付）；**instances 表**（订单↔实例一对一 + 上游主机 ID 唯一；订单快照字段、上游同步字段（到期时间/domainstatus/IP/端口/账号密码）、状态枚举（本期只写 `active`，后三者留 5b）；敏感字段仅会员本人详情可见、不进列表与日志）；**自动交付时序**（入账提交后触发、不阻塞回调；认领行锁幂等；`CreateHost` 开通参数拼装（pid/周期映射/host 生成/16 位随机密码/`configoption` 快照）；回读失败不阻断交付；失败置 `failed` + 脱敏原因；超时与落库兜底；进程崩溃悬挂为已知边界；可测性以 `DeliveryTrigger` 注入同步实现）；**接口**（会员端 `GET /instances`、`GET /instances/:id`；管理端 `GET /admin/instances`、`POST /admin/orders/:id/retry-delivery`（仅 admin，同步执行、失败仍 200 返回订单供处置））；同步更新 12.3（状态机与列）/12.4（订单视图三字段与状态提示）/12.7（角色矩阵）/12.8（错误码）/12.9（边界第 1、5 条）/12.10（第 7 条改为已落地+5b 范围）；**真机实测差异（14.5）**——下单/交付 `configoption` 键值口径修正为上游本地 id（上游源码与生产数据佐证：真实商品 `upstream_id` 恒为 0 且未识别键被静默忽略），10.3/12.3/12.4/14.3 同步；**真机全链路演练**（订单 O20261008105520T0J03J → host 10922 → 回读核对一致 → 终止申请 cancel_request_id=432）；变更记录移到第 15 节 |
 | 2026-10-08 | v7 | 阶段 4+：新增第 13 节「站点安装向导」——**安装状态机**（无 DSN / 库不可达（含修复模式与 `db=down`）/ 表缺失 / 无管理员 / 存量库自动补标记五种场景 + 续装态 `site_missing`/`pending`；`install.progress` 区分「向导走了一半」与「存量库」；任意步刷新页面或重启进程后按 `state`+`progress` 落回正确步骤，不回退不错位）；**安装模式请求分发**（`/install` 与安装 API 放行、`/api/v1/health` 照常、其它 API `503`+`50301`、浏览器导航 `302` 跳转；装完后 `/install` 永久关闭，重访为「系统已安装」提示页，安装 API 一律 `50302`）；**安装页与 9 个安装 API**（内嵌 HTML/CSS/JS 不依赖前端构建产物、字段校验、自动建库、连接失败按 MySQL 错误码给处置建议）；**默认管理员替换策略**（复用迁移 0003 行改写、库内不得残留默认哈希行、禁用 `admin/admin123456` 组合）；**配置文件合并写入规范**（生效路径、保留既有键与注释、原子替换、0600、只写部署级参数）；**并发与一次性保护**（进程内写锁 + `installed` 条件插入）；**免重启热切换**（同锁内换数据库句柄/JWT 密钥/引擎，`restart_required` 恒 false）；**安全边界**（无鉴权的风险与「装完即关」缓解、密钥不回显不落日志）；错误码新增 `50301`/`50302`/`50303`；**安装页「重启续装」两处 UI 修复**（`status` 新增 `admin_username`/`site_name` 供完成页摘要展示库内实况、第 2 步提交后按最新状态落位而非固定跳第 3 步）；12.1 的 settings 键补充 `site`/`installed`/`install.progress`；变更记录移到第 14 节 |
 | 2026-10-08 | v6 | 阶段 4：新增第 12 节「支付与财务」——**后台设置机制**（settings 表 + `GET/PUT /admin/settings/payment/epay` 与 `/admin/settings/upstream`，密钥三态与脱敏、审计、读时校验按内容失效的生效方式、渠道可插拔扩展方式）；**易支付渠道**（彩虹标准协议：下单/签名/回调验签/同步跳转/`out_trade_no` 策略/应答口径/错误分支矩阵）；**订单与充值单/余额/流水**（数据模型与状态机、会员端下单/支付（epay + balance）/取消/充值/余额/流水接口、回调入账幂等与金额校验、管理端对账接口、角色矩阵）；**优惠码应用口径**（下单抵扣 + 支付成功条件自增 `used_count` + 极端并发超用不阻断）；更新 8.6（上游参数来源=后台设置，`config.yaml` 的 `upstream` 段停用）、第 9 节（探活按设置取参、掩码口径说明）、11.1/11.6（折扣应用已实现与并发边界）、错误码表新增 `50002`；变更记录移章（v6 时位于第 13 节，v7 起为第 14 节） |

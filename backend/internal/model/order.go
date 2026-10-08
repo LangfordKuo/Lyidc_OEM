@@ -18,6 +18,24 @@ const (
 	OrderStatusCancelled = "cancelled"
 )
 
+// 订单类型取值（orders.type，阶段 5b）。
+const (
+	// OrderTypeNew 新购：交付 = 上游开通（CreateHost）→ 落 instances。
+	OrderTypeNew = "new"
+	// OrderTypeRenew 续费：交付 = 上游续费（RenewHost）→ 更新 instances 到期时间。
+	OrderTypeRenew = "renew"
+)
+
+// IsValidOrderType 判断订单类型是否在 orders.type 枚举内。
+func IsValidOrderType(orderType string) bool {
+	switch orderType {
+	case OrderTypeNew, OrderTypeRenew:
+		return true
+	default:
+		return false
+	}
+}
+
 // 支付渠道取值（orders.pay_channel / recharges.channel）。
 const (
 	// PayChannelBalance 余额支付（本地事务扣款，不经渠道）。
@@ -61,7 +79,9 @@ func IsOrderSettled(status string) bool {
 //   - CouponID / CouponCode 为下单快照；CouponCode 空串表示未用码；
 //   - PayChannel / ChannelTradeNo / PayTime 在支付成功时写入（余额支付时 PayChannel=balance）；
 //   - HostID / ProvisionError / DeliveredAt 在交付链路写入（阶段 5a）：host_id 为上游主机 ID，
-//     provision_error 为最近一次失败原因（成功清空），delivered_at 为交付完成时间。
+//     provision_error 为最近一次失败原因（成功清空），delivered_at 为交付完成时间；
+//   - Type / InstanceID 由阶段 5b 引入（迁移 0008）：type 区分新购（new）/ 续费（renew），
+//     续费单记录 instance_id（新购单为 NULL，实例由 instances.order_id 反向关联）。
 type Order struct {
 	ID             uint64     `gorm:"column:id;primaryKey;autoIncrement"`
 	TradeNo        string     `gorm:"column:trade_no"`
@@ -77,10 +97,12 @@ type Order struct {
 	CouponID       *uint64    `gorm:"column:coupon_id"`
 	CouponCode     string     `gorm:"column:coupon_code"`
 	Status         string     `gorm:"column:status"`
+	Type           string     `gorm:"column:type"`
 	PayChannel     string     `gorm:"column:pay_channel"`
 	ChannelTradeNo string     `gorm:"column:channel_trade_no"`
 	PayTime        *time.Time `gorm:"column:pay_time"`
 	HostID         *int       `gorm:"column:host_id"`
+	InstanceID     *uint64    `gorm:"column:instance_id"`
 	ProvisionError string     `gorm:"column:provision_error"`
 	DeliveredAt    *time.Time `gorm:"column:delivered_at"`
 	CreatedAt      time.Time  `gorm:"column:created_at"`
