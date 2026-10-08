@@ -1,128 +1,100 @@
 # Lyidc_OEM
 
-岭云互联 IDC 财务系统，代理对接专用。
+岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
-一个独立部署的 IDC 财务/计费系统（对标魔方财务、WHMCS），后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + HeroUI（Tailwind CSS v4）。已完成**阶段 0-5b**：脚手架 / 账号体系 / 上游对接 / 商品与计费（6 周期 + 优惠码）/ 支付与财务（易支付 + 充值余额流水）/ 站点安装向导（首次访问浏览器完成部署，全程零文件编辑）/ 订单交付与自动开通（支付成功 → 上游开通 → 实例落库与查询）/ **实例操作与续费**（电源/重装/改密、管理端暂停/恢复/同步、续费下单与自动续费、到期暂停扫描、实例操作审计）。接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v9）。
+后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + HeroUI（Tailwind CSS v4）。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v9）。
+
+## 快速部署
+
+```bash
+git clone https://github.com/LangfordKuo/Lyidc_OEM.git && cd Lyidc_OEM/deploy
+cp .env.example .env          # 至少改掉 MYSQL_ROOT_PASSWORD
+docker compose up -d
+```
+
+浏览器打开 **`http://<主机>:8088/install`**，按向导 6 步完成安装
+（第 2 步数据库主机填 `mysql`，勾选自动建库）。装完即用：
+
+- 前台商城 `/`、会员中心 `/console`
+- 管理后台 `/admin`（用向导第 4 步设的账号登录）
+- 升级：`docker compose pull && docker compose up -d`
+
+> 首次部署全程不需要编辑配置文件：数据库连接与随机 JWT 密钥由安装向导写入数据卷。
+
+其它部署方式（分开 `docker run`、本地二进制、已有 nginx 反代）、环境变量表、国内镜像加速与
+故障排查，见 **[docs/deploy.md](docs/deploy.md)**；发版与 tag 规则见 [docs/RELEASE.md](docs/RELEASE.md)。
+
+## 功能概览
+
+- **账号体系**：会员/管理员双受众 JWT、RBAC 角色（admin / finance / cs）、注册登录与资料
+- **商品与计费**：上游商品导入、本地定价、6 种计费周期、优惠码规则与校验
+- **下单与支付**：购物车下单、易支付在线支付、充值余额与流水、支付回调对账
+- **交付与实例**：支付成功自动开通（上游 CreateHost）、实例落库与查询、电源/重装/改密、
+  管理端暂停恢复同步、续费下单与自动续费、到期暂停扫描、操作审计
+- **运营**：站内通知 + 邮件（SMTP）、到期提醒、工单、后台设置（支付/上游/邮件等全部进库，改完即生效）
+- **部署**：浏览器安装向导、容器化交付（GHCR 双镜像）、Release 三平台包
 
 ## 目录结构
 
 ```
 backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/backend）
-  cmd/server/            HTTP 服务入口（默认监听 127.0.0.1:8080）
-  cmd/migrate/           数据库迁移命令（up / down / version）
-  internal/config/       配置加载与校验（backend/config.yaml）+ 合并写入（安装向导用）
-  internal/db/           MySQL 连接与连接池
-  internal/install/      安装状态机、安装页与安装 API、配置写入与热切换
-  internal/auth/         JWT 签发/校验与 bcrypt 密码工具
-  internal/model/        GORM 实体（members / admins）与金额类型
-  internal/store/        数据访问层（GORM 查询封装）
-  internal/router/       路由注册、中间件（鉴权/RBAC）与接口处理
-  internal/response/     统一响应包与错误码表
-  migrations/            编号 SQL 迁移文件（golang-migrate 风格）
-frontend/                React 前端（Vite + TS + HeroUI v3 + Tailwind v4）
-  src/api/               fetch 封装 / 接口调用
-  src/components/        复用组件
-  src/lib/               工具函数
-  src/pages/             页面
-docs/api-contract.md     接口契约（改接口先改这里）
-.github/workflows/ci.yml 持续集成
+  cmd/server/            HTTP 服务入口（含安装向导模式）
+  cmd/migrate/           迁移命令（up / down n / version）
+  internal/              config / db / install / auth / model / store / router / upstream /
+                         payment / pricing / delivery / scheduler / notify / email / settings
+  migrations/            编号 SQL 迁移（go:embed 内嵌进二进制）
+frontend/                React 前端（src/api、src/app、src/pages、src/components…）
+deploy/                  compose 编排 + .env 示例 + 镜像内的 nginx/入口脚本模板
+scripts/                 package.sh（三平台打包）、check_release_workflow.py（交付资产自检）
+docs/                    部署指南、发版说明、接口契约
+Dockerfile.backend/frontend + .dockerignore
 ```
-
-## 环境要求
-
-- Go 1.25+（开发机为 1.27.1）
-- Node.js 20.19+ / npm 11（开发机为 Node 26 + npm 11）
-- MySQL 5.7（本地 127.0.0.1:3306；**无需预先建库/建表**——安装向导可自动建库并建表）
 
 ## 本地开发
 
-### 1. 后端
+环境：Go 1.25+、Node 20.19+、MySQL 5.7（**无需预先建库建表**，安装向导可代劳）。
 
-**方式 A：安装向导（推荐，首次部署零文件编辑）**
-
-```bash
-cd backend
-go mod download
-
-go run ./cmd/server                    # 无需先写配置：未配置数据库时自动进入安装向导模式
-# 浏览器打开 http://127.0.0.1:8080/install ，按 6 步走完：
-#   环境检查 → 数据库（可自动建库）→ 初始化建表 → 管理员账号 → 站点信息 → 完成
-```
-
-安装完成后：数据库连接与随机生成的 JWT 密钥**自动合并写入配置文件**
-（优先当前已加载路径，没有则运行目录 `./config.yaml`），服务**无需重启**即切换为正常模式，
-`/install` 永久关闭。默认管理员 `admin / admin123456` 会被替换，库内不残留默认凭据。
-契约见 [docs/api-contract.md](docs/api-contract.md) 第 13 节。
-
-**方式 B：手工配置（开发调试/已有部署）**
+**后端**
 
 ```bash
 cd backend
-cp config.example.yaml config.yaml     # config.yaml 已被 .gitignore 忽略，按需修改 DSN
-go run ./cmd/migrate up                # 建表（首次执行），version 可查看当前版本
-go run ./cmd/migrate version
-go run ./cmd/server                    # 启动服务，监听 127.0.0.1:8080
-curl http://127.0.0.1:8080/api/v1/health
+go run ./cmd/server          # 无配置即进入安装向导模式，浏览器打开 http://127.0.0.1:8080/install
 ```
 
-> 库内已有管理员但无 `installed` 标记的存量库，启动时会**自动补写安装标记**并直接以正常模式运行，
-> 不会被安装向导打断（契约 13.1 场景 5）。
+手工配置（开发调试常用）：`cp config.example.yaml config.yaml` 后改 `database.dsn`，
+再 `go run ./cmd/migrate up` 建表、`go run ./cmd/server` 启动。
+配置读取顺序：`-config` → `LYIDC_CONFIG` → `./config.yaml` → `./backend/config.yaml` → 内置缺省值。
 
-迁移命令：
-
-```bash
-go run ./cmd/migrate up        # 应用全部未执行的迁移
-go run ./cmd/migrate down [n]  # 回滚 n 步（缺省 1 步）
-go run ./cmd/migrate version   # 查看当前版本与 dirty 状态
-```
-
-配置读取顺序：`-config` 参数 → 环境变量 `LYIDC_CONFIG` → `./config.yaml` → `./backend/config.yaml` → 内置缺省值。数据库不可用时服务仍会启动，`/api/v1/health` 会返回 `db: "down"`，方便定位环境问题。
-
-后端测试：
-
-```bash
-cd backend
-gofmt -l .        # 应无输出
-go vet ./...
-go test ./...
-```
-
-账号体系的集成测试（httptest + 真实 MySQL 5.7）使用独立测试库，默认
-`root:lyidc123@tcp(127.0.0.1:3306)/lyidc_test`（自动建库并执行迁移）；
-可用环境变量 `LYIDC_TEST_DSN` 覆盖（CI 使用 `root:root@.../lyidc_test`）。
-MySQL 不可达时这些用例会整体跳过（`t.Skip`）。
-
-### 2. 前端
+**前端**
 
 ```bash
 cd frontend
 npm install
-npm run dev       # http://127.0.0.1:5173，/api 代理到 127.0.0.1:8080
+npm run dev                  # http://127.0.0.1:5173，/api 代理到 127.0.0.1:8080
 ```
 
-前端测试与构建：
+**测试与构建**
 
 ```bash
-cd frontend
-npm run typecheck   # tsc --noEmit
-npm test            # vitest run
-npm run build       # 类型检查 + 生产构建
+cd backend  && gofmt -l . && go vet ./... && go test ./...
+cd frontend && npm run typecheck && npm test && npm run build
 ```
+
+后端集成测试（httptest + 真实 MySQL 5.7）用独立测试库，默认
+`root:lyidc123@tcp(127.0.0.1:3306)/lyidc_test`（自动建库并执行迁移），可用 `LYIDC_TEST_DSN` 覆盖；
+MySQL 不可达时整体跳过。
 
 ## 文档
 
-- [docs/api-contract.md](docs/api-contract.md)：统一响应包、错误码表、`/api/v1/health`、认证与账号（会员/管理员）契约。**后续阶段改接口必须先改本文档再改代码。**
-- [frontend/README.md](frontend/README.md)：前端目录与命令速查。
+- [docs/deploy.md](docs/deploy.md)：三种部署方式、环境变量、升级、镜像加速、故障排查
+- [docs/RELEASE.md](docs/RELEASE.md)：发版流程、tag 命名规则、发布后核对清单
+- [docs/api-contract.md](docs/api-contract.md)：统一响应包、错误码表、各接口契约（**改接口先改这里**）
+- [frontend/README.md](frontend/README.md)：前端目录与命令速查
 
-## 阶段规划
+## 阶段进度
 
-- 阶段 0（已完成）：脚手架、配置、数据库连接、迁移、统一响应包、健康检查、CI。
-- 阶段 1（已完成）：账号体系（`members` / `admins` 表、JWT HS256 双受众、会员与管理员接口、RBAC 角色守卫、开发默认管理员 `admin / admin123456`）。
-- 阶段 2（已完成）：上游「魔方财务系统」对接层与探活接口。
-- 阶段 3a（已完成）：商品与计费（上游导入、本地定价、上下架、会员端只读目录）。
-- 阶段 3b（已完成）：计费周期扩为 6 个周期 + 优惠码规则与校验。
-- 阶段 4（已完成）：支付与财务（易支付 + 充值/余额/流水 + 下单与在线支付 + 运行时可设置项全进后台设置）。
-- 阶段 4+（已完成）：站点安装向导（首次访问浏览器完成部署，全程零文件编辑）。
-- 阶段 5a（已完成）：订单交付与自动开通（支付成功 → 入账提交后异步交付 → 上游 `CreateHost` 开通 → 实例落库；订单状态机扩为 6 态；管理端重试交付；会员/管理端实例查询；真机全链路演练）。
-- 阶段 5b（已完成）：实例操作与续费（会员端电源/重装/改密、管理端暂停/恢复/同步、`instance_operation_logs` 操作审计；续费下单 `POST /instances/:id/renew` → 支付 → 自动 `RenewHost` 续期并顺延 `next_due_date`；到期未续费每日扫描自动暂停；真机演练：配置项开通复核 + 操作逐项回读 + 续费顺延 + 终止申请）。
-- 阶段 5c 及以后：实例终止流程（申请取消/`cancelled`/`terminated` 收敛）、到期提醒通知、`provisioning` 悬挂订单对账等。
+已完成阶段 0–8b：脚手架与 CI → 账号体系 → 上游对接 → 商品计费（含优惠码）→ 支付财务 →
+安装向导 → 订单交付与自动开通 → 实例操作与续费 → 通知体系 → 前端官网/会员区/管理后台 →
+阶段 9 交付自动化（Release 包 + GHCR 镜像 + 部署文档）。
+后续：实例终止流程收敛、`provisioning` 悬挂订单对账等。

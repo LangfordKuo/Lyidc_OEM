@@ -1,0 +1,51 @@
+# Lyidc_OEM 前端站点配置模板。
+# nginx 官方镜像 entrypoint 会用 envsubst 渲染本文件（见 Dockerfile.frontend），
+# 只有 ${...} 形式会被替换，nginx 自身的 $host / $uri 等变量不受影响。
+# 可用变量：BACKEND_UPSTREAM（缺省 http://backend:8080）。
+
+server {
+    listen       80;
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # 前端产物是文本资源，压缩收益明显。
+    gzip on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # 带内容指纹的构建产物可长缓存。
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # 后端 API（会员端/管理端/支付回调/健康检查）。
+    # 必须命中后端：若这里漏配或写错地址，请求会退化成静态站点 404/502，而不是后端 JSON。
+    location /api/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # 安装向导（由后端内嵌页面提供）：首次部署从这里进入，装完自动关闭。
+    location /install {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA 路由回退：前台/会员中心/管理后台都是前端路由，刷新时交回 index.html。
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

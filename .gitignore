@@ -52,3 +52,9 @@ Desktop.ini
 *~
 tmp/
 scratch/
+/deploy/.env
+/build/
+
+# ---- Python（自检脚本的字节码缓存）----
+__pycache__/
+*.pyc

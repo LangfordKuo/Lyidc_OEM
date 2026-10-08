@@ -1,0 +1,38 @@
+# 构建上下文 = 仓库根目录（两个 Dockerfile 都从根构建）。
+# 这里挡住不该进镜像的东西：镜像更小、层缓存更稳、密钥不进层。
+# 注意：deploy/docker/ 是镜像要用的（入口脚本与 nginx 模板），**不能**忽略。
+
+# ---- 版本控制 / 工具痕迹 ----
+.git
+.gitignore
+.github
+.claude-*
+.codex-*
+scratch
+build
+*.log
+*.tmp
+
+# ---- 后端 ----
+backend/bin
+backend/build
+# 本地真实配置：含数据库密码与 JWT 密钥，绝不能进镜像
+backend/config.yaml
+backend/*.test
+**/*.exe
+**/*.dll
+**/*.so
+
+# ---- 前端（镜像内 npm ci 重装、vite 重新构建）----
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/coverage
+
+# ---- 文档与本地环境 ----
+docs
+README.md
+LICENSE
+deploy/.env
+deploy/.env.*
+!deploy/.env.example

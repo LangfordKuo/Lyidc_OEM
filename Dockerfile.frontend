@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# Lyidc_OEM 前端镜像（node 构建 → nginx 托管静态产物 + 反代后端）。
+#
+# 构建（**上下文必须是仓库根目录**）：
+#   docker build -f Dockerfile.frontend -t lyidc-oem-frontend .
+#
+# 运行期靠环境变量 BACKEND_UPSTREAM 指定后端地址（缺省 http://backend:8080，
+# 即 compose 里的服务名）；**填错=502**：nginx 能起来、首页正常，但 /api/v1 与 /install
+# 会返回 502 Bad Gateway（见 docs/deploy.md 故障排查）。
+
+# ---------- 构建阶段 ----------
+FROM node:22-alpine AS builder
+
+# 目标架构由 buildx 注入。前端产物是平台无关的静态文件，这里声明只为显式记录构建矩阵，
+# 不参与构建（因此不需要像后端那样把 TARGETARCH 传给编译器）。
+ARG TARGETARCH
+
+WORKDIR /src
+
+# 先拷依赖清单，锁文件不变时命中缓存。
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY frontend/ ./
+RUN npm run build
+
+# ---------- 运行阶段 ----------
+FROM nginx:1.27-alpine
+
+COPY --from=builder /src/dist /usr/share/nginx/html
+
+# nginx 官方镜像的 entrypoint 会用 envsubst 把 /etc/nginx/templates/*.template
+# 渲染到 /etc/nginx/conf.d/（同名去 .template 后缀），因此后端地址由模板变量注入，
+# 换个后端不需要重建镜像。
+COPY deploy/docker/nginx-default.conf.template /etc/nginx/templates/default.conf.template
+
+# 默认指向 compose 服务名 backend；单独 docker run 时用 -e 覆盖成实际主机名。
+ENV BACKEND_UPSTREAM=http://backend:8080
+
+EXPOSE 80
+
+# 健康检查只看 nginx 自身能否应答静态首页（后端是否就绪由后端容器自己的 healthcheck 管）。
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+    CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1

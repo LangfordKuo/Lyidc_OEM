@@ -1,0 +1,420 @@
+# Lyidc_OEM 发布流水线：打 tag 即自动产出
+#   1) 三平台发布包（tar.gz / zip，附 SHA256）→ GitHub Release（自动生成更新说明）
+#   2) GHCR 双镜像（后端 + 前端，linux/amd64 + linux/arm64）
+#   3) 容器冒烟：真起 MySQL + 两镜像，跑完安装向导全流程再断言
+#
+# 手动演练：Actions → Release → Run workflow（dry_run 默认 true = 只构建不发布）。
+# 发版步骤与 tag 规则见 docs/RELEASE.md。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只构建不发布（跳过 GitHub Release 与镜像推送，仍跑冒烟）"
+        type: boolean
+        default: true
+
+# 默认最小权限：只有确实需要的 job 才提权（release 要 contents:write，docker 要 packages:write）。
+permissions:
+  contents: read
+
+env:
+  # 两个镜像构建阶段的平台矩阵（冒烟在 runner 本机架构上重建，见 smoke job 说明）。
+  PLATFORMS: linux/amd64,linux/arm64
+  SMOKE_BACKEND_IMAGE: lyidc-oem-backend:smoke
+  SMOKE_FRONTEND_IMAGE: lyidc-oem-frontend:smoke
+
+jobs:
+  frontend:
+    name: 前端构建（一次）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      - name: 构建（tsc --noEmit + vite build）
+        run: npm run build
+
+      # 三平台共用同一份前端产物：只在打包 job 里下载，绝不按平台重跑 npm ci。
+      - name: 上传前端产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  build-packages:
+    name: 打包 ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: 下载前端产物
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: build/frontend-dist
+
+      - name: 解析版本号
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-${GITHUB_SHA:0:7}"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "本次打包版本：${version}"
+
+      - name: 交叉编译并打包
+        run: |
+          set -euo pipefail
+          bash scripts/package.sh \
+            --version "${VERSION}" \
+            --platforms "${{ matrix.goos }}/${{ matrix.goarch }}" \
+            --dist build/frontend-dist \
+            --outdir build/packages
+
+      - name: 上传发布包
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/packages/*
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-packages]
+    # 只有 tag 推送才发 Release；workflow_dispatch 的 dry_run 一律跳过。
+    if: "${{ startsWith(github.ref, 'refs/tags/v') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}"
+    permissions:
+      contents: write
+    steps:
+      - name: 下载全部发布包
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: 列出待发布文件
+        run: ls -l release-assets
+
+      - name: 创建 Release（附产物 + 自动生成更新说明）
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          # v1.0.0-rc.1 这类带后缀的 tag 标为预发布
+          prerelease: "${{ contains(github.ref_name, '-') }}"
+          fail_on_unmatched_files: true
+
+  docker:
+    name: 构建并推送镜像（GHCR）
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # dry_run 时只构建不推送（push=false，多架构照常编译，验证 Dockerfile 在两种架构下都能过）。
+      DRY_RUN: "${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Docker 拒绝大写仓库名，而 GitHub 用户名可能含大写（如 LangfordKuo）→ 统一小写。
+      - name: 计算镜像名
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "BACKEND_IMAGE=ghcr.io/${owner}/lyidc-oem-backend"
+            echo "FRONTEND_IMAGE=ghcr.io/${owner}/lyidc-oem-frontend"
+          } >> "$GITHUB_ENV"
+          echo "后端镜像：ghcr.io/${owner}/lyidc-oem-backend"
+          echo "前端镜像：ghcr.io/${owner}/lyidc-oem-frontend"
+
+      - name: 设置 QEMU（构建 arm64 镜像需要）
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        if: "${{ env.DRY_RUN == 'false' }}"
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 后端镜像标签
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.BACKEND_IMAGE }}
+          # vX.Y.Z / X.Y / sha-xxxxxxx / latest（latest 只在 tag 上给，避免分支构建覆盖正式版）
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=Lyidc_OEM backend
+            org.opencontainers.image.description=岭云互联 IDC 财务系统后端（Go + Gin + GORM）
+
+      - name: 构建后端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          platforms: ${{ env.PLATFORMS }}
+          push: ${{ env.DRY_RUN == 'false' }}
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: 前端镜像标签
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=Lyidc_OEM frontend
+            org.opencontainers.image.description=岭云互联 IDC 财务系统前端（React + Vite + nginx）
+
+      - name: 构建前端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: ${{ env.PLATFORMS }}
+          push: ${{ env.DRY_RUN == 'false' }}
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  smoke:
+    name: 容器冒烟（安装向导全链路）
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      contents: read
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 这里**重建**镜像而不拉 GHCR 的产物：冒烟要验证的是「Dockerfile 在干净环境里能构建出
+      # 能跑的容器」，而不是 registry 可拉取性（后者另有匿名回读检查，见 scratch/stage9/ACCEPTANCE.md）。
+      # 本机构建同时避开了私有包需要登录、跨账号可见性等一堆与镜像本身无关的失败源。
+      - name: 构建冒烟镜像（本机架构）
+        run: |
+          set -euo pipefail
+          docker build -f Dockerfile.backend  -t "${SMOKE_BACKEND_IMAGE}"  .
+          docker build -f Dockerfile.frontend -t "${SMOKE_FRONTEND_IMAGE}" .
+
+      - name: 起容器并断言（未安装态 → 安装向导 → 就绪态 → 反代 → 健康检查）
+        run: |
+          set -euo pipefail
+
+          NET=lyidc-smoke
+          BACKEND=smoke-backend
+          FRONTEND=smoke-frontend
+          BASE=http://127.0.0.1:8080
+          WEB=http://127.0.0.1:8088
+
+          dump_logs() {
+            echo "================= 失败现场 ================="
+            docker ps -a || true
+            for c in "${BACKEND}" "${FRONTEND}"; do
+              echo "----------------- docker logs ${c} -----------------"
+              docker logs "${c}" 2>&1 | tail -150 || true
+              docker inspect -f '{{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${c}" || true
+            done
+          }
+
+          # 无论成败都清理；失败时先把容器日志打出来（否则 CI 上只剩一句断言失败，无从排查）。
+          cleanup() {
+            status=$?
+            if [ "${status}" -ne 0 ]; then
+              dump_logs
+              echo "::error::容器冒烟失败（exit=${status}）"
+            fi
+            docker rm -f "${BACKEND}" "${FRONTEND}" >/dev/null 2>&1 || true
+            docker network rm "${NET}" >/dev/null 2>&1 || true
+            exit "${status}"
+          }
+          trap cleanup EXIT
+
+          wait_up() {
+            url=$1
+            seconds=$2
+            i=0
+            while [ "${i}" -lt "${seconds}" ]; do
+              if curl -s -o /dev/null --max-time 3 "${url}"; then
+                return 0
+              fi
+              i=$((i + 1))
+              sleep 1
+            done
+            echo "等待超时：${url}"
+            return 1
+          }
+
+          wait_healthy() {
+            container=$1
+            seconds=$2
+            i=0
+            state=missing
+            while [ "${i}" -lt "${seconds}" ]; do
+              state=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}" 2>/dev/null || echo missing)
+              if [ "${state}" = "healthy" ]; then
+                echo "${container} health=${state} ✓"
+                return 0
+              fi
+              i=$((i + 2))
+              sleep 2
+            done
+            echo "::error::${container} 健康检查未变为 healthy（当前 ${state}）"
+            docker inspect -f '{{json .State.Health}}' "${container}" || true
+            return 1
+          }
+
+          # 安装向导一步到位：POST /install/api/<step>
+          wizard() {
+            step=$1
+            body=$2
+            out=$(curl -sS -X POST -H 'Content-Type: application/json' --max-time 60 -d "${body}" "${BASE}/install/api/${step}")
+            if ! printf '%s' "${out}" | jq -e '.code == 0' >/dev/null; then
+              echo "::error::安装向导 ${step} 失败：${out}"
+              return 1
+            fi
+            printf '%s' "${out}"
+          }
+
+          echo "== 1) 起后端容器（空数据卷、未安装） =="
+          docker network create "${NET}"
+          docker run -d --name "${BACKEND}" --network "${NET}" --network-alias backend \
+            --add-host=host.docker.internal:host-gateway \
+            -p 8080:8080 "${SMOKE_BACKEND_IMAGE}"
+          wait_up "${BASE}/api/v1/health" 60
+
+          echo "== 2) 首启未安装态断言（空库 → 安装向导未完成） =="
+          status_json=$(curl -fsS "${BASE}/install/api/status")
+          printf '%s' "${status_json}" | jq -e '.code == 0 and .data.installed == false' >/dev/null
+          state=$(printf '%s' "${status_json}" | jq -r '.data.state')
+          echo "安装状态：${state}"
+          [ "${state}" = "unconfigured" ] || { echo "::error::期望 unconfigured（容器首启无 database.dsn），实际 ${state}"; exit 1; }
+          # 未安装时 /api/v1/health 必须是 503 + db=down（这才是「不可用」的正确表达）
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/v1/health")
+          [ "${code}" = "503" ] || { echo "::error::未安装态 /api/v1/health 期望 503，实际 ${code}"; exit 1; }
+
+          echo "== 3) 跑一遍安装向导（数据库 → 建表 → 管理员 → 站点 → 完成） =="
+          db_body='{"host":"host.docker.internal","port":3306,"username":"root","password":"root","database":"lyidc","create_database":true}'
+          printf '%s' "$(wizard database/test "${db_body}")" | jq -e '.data.connected == true' >/dev/null
+          echo "  第 2 步 数据库连接：OK"
+          wizard database "${db_body}" >/dev/null
+          echo "  第 2 步 保存数据库参数：OK"
+          printf '%s' "$(wizard initialize '{}')" | jq -e '.data.to_version >= 1' >/dev/null
+          echo "  第 3 步 初始化建表：OK"
+          wizard admin '{"username":"smokeadmin","password":"SmokeAdmin123","confirm_password":"SmokeAdmin123","nickname":"smoke"}' >/dev/null
+          echo "  第 4 步 管理员账号：OK"
+          wizard site '{"name":"Smoke Site","url":"http://127.0.0.1:8088","admin_email":"smoke@example.com"}' >/dev/null
+          echo "  第 5 步 站点信息：OK"
+          printf '%s' "$(wizard complete '{}')" | jq -e '.data.installed == true' >/dev/null
+          echo "  第 6 步 完成安装：OK"
+
+          echo "== 4) 就绪态断言（已安装 + 数据库 up + 向导关闭） =="
+          health_json=$(curl -fsS "${BASE}/api/v1/health")
+          printf '%s' "${health_json}" | jq -e '.data.status == "ok" and .data.db == "up"' >/dev/null
+          echo "  /api/v1/health：$(printf '%s' "${health_json}" | jq -c '.data')"
+          # 装完后安装向导永久关闭（页面提示已安装；安装 API 返回 50302）
+          install_page=$(curl -fsS "${BASE}/install")
+          printf '%s' "${install_page}" | grep -q "系统已安装" || { echo "::error::安装完成后 /install 未提示已安装"; exit 1; }
+          echo "  /install 已提示「系统已安装」"
+
+          echo "== 5) 起前端容器（nginx 托管 SPA + 反代后端） =="
+          docker run -d --name "${FRONTEND}" --network "${NET}" -p 8088:80 \
+            -e BACKEND_UPSTREAM=http://backend:8080 \
+            "${SMOKE_FRONTEND_IMAGE}"
+          wait_up "${WEB}/" 60
+
+          root_html=$(curl -fsS "${WEB}/")
+          printf '%s' "${root_html}" | grep -q '<div id="root"' || { echo "::error::前端首页缺少 SPA 挂载点 <div id=\"root\">"; exit 1; }
+          echo "  GET / 200 且含 <div id=\"root\""
+
+          # 反代链路：经前端 nginx 打 /api/v1/health 必须拿到后端 JSON（拿不到就是静态 404/502）
+          proxy_health=$(curl -fsS "${WEB}/api/v1/health")
+          printf '%s' "${proxy_health}" | jq -e '.code == 0 and .data.db == "up"' >/dev/null \
+            || { echo "::error::经前端反代拿到的不是后端健康检查 JSON：${proxy_health}"; exit 1; }
+          echo "  经前端 /api/v1/health 反代到后端：OK"
+          curl -fsS "${WEB}/install" >/dev/null
+          echo "  经前端 /install 反代到后端：OK"
+
+          echo "== 6) 健康检查状态（两镜像 Dockerfile 里的 HEALTHCHECK） =="
+          wait_healthy "${BACKEND}" 60
+          wait_healthy "${FRONTEND}" 60
+
+          echo "== 7) 重启后端（模拟升级/重启：数据卷里的配置与库应保持就绪） =="
+          docker restart "${BACKEND}" >/dev/null
+          wait_up "${BASE}/api/v1/health" 60
+          curl -fsS "${BASE}/api/v1/health" | jq -e '.data.db == "up"' >/dev/null
+          echo "  重启后仍为已安装 + 数据库 up：OK"
+
+          echo "全部断言通过 ✅"

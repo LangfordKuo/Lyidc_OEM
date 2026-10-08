@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1
+#
+# Lyidc_OEM 后端镜像（多阶段：golang 编译 → alpine 运行）。
+#
+# 构建（**上下文必须是仓库根目录**，因为要拷贝 backend/ 源码与 migrations/ 内嵌资源）：
+#   docker build -f Dockerfile.backend -t lyidc-oem-backend .
+#
+# 为什么运行阶段选 alpine：
+#   后端是纯 Go 依赖（无 cgo），CGO_ENABLED=0 编出的二进制是**静态链接**的，不依赖任何 libc，
+#   所以不需要 glibc 基础镜像；而相比 scratch 又多了 ca-certificates（上游对接 HTTPS、
+#   邮件 SMTP TLS 必需）与 tzdata（时间戳与时区相关逻辑），出问题时还能 docker exec 进去排查。
+#
+# 数据与配置：/app/data（容器工作目录；安装向导把 config.yaml 写在这里，故挂卷持久化）。
+
+# ---------- 构建阶段 ----------
+FROM golang:1.25-alpine AS builder
+
+# 交叉编译的目标平台由 buildx 注入（--platform linux/arm64 或构建矩阵）。
+# 必须写在 FROM 之后、COPY 之前：这两个 ARG 在 FROM 行引用会要求 --build-arg 显式传入。
+ARG TARGETOS
+ARG TARGETARCH
+
+# CGO_ENABLED=0：纯静态编译，产出无 libc 依赖的二进制，可直接跑在 alpine 上。
+ENV CGO_ENABLED=0 \
+    GOOS=${TARGETOS:-linux} \
+    GOARCH=${TARGETARCH:-amd64}
+
+WORKDIR /src
+
+# 先只拷依赖清单：模块不变时这一层命中缓存，不会重复下载。
+COPY backend/go.mod backend/go.sum ./backend/
+RUN cd backend && go mod download
+
+# 再拷源码（migrations/ 通过 go:embed 内嵌进二进制，安装向导建表依赖它）。
+COPY backend ./backend
+RUN cd backend \
+    && go build -trimpath -ldflags="-s -w" -o /out/lyidc-server ./cmd/server \
+    && go build -trimpath -ldflags="-s -w" -o /out/lyidc-migrate ./cmd/migrate
+
+# ---------- 运行阶段 ----------
+FROM alpine:3.21
+
+# 运行期依赖：CA 证书（HTTPS/SMTP TLS）、时区数据（slog 时间戳与到期扫描）。
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S lyidc \
+    && adduser -S -G lyidc -h /app -s /sbin/nologin lyidc \
+    && mkdir -p /app/data \
+    && chown -R lyidc:lyidc /app
+
+COPY --from=builder /out/lyidc-server /app/lyidc-server
+# 迁移命令随镜像一起带上：服务启动**不会**自动执行迁移（只有安装向导第 3 步会），
+# 升级跨版本且包含新迁移时需要手动跑一次：
+#   docker compose exec backend /app/lyidc-migrate -config /app/data/config.yaml up
+COPY --from=builder /out/lyidc-migrate /app/lyidc-migrate
+COPY deploy/docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/backend-entrypoint.sh
+
+# 容器内**必须监听 0.0.0.0:8080**（入口脚本生成的默认配置里写的就是它）：
+# 若沿用本机默认的 127.0.0.1:8080，端口映射（-p / compose ports）会打不进来。
+EXPOSE 8080
+
+# 配置与数据目录：首次启动由入口脚本生成最小配置，安装向导完成后合并写入 config.yaml。
+VOLUME ["/app/data"]
+
+# 工作目录即数据目录 → 后端缺省配置查找路径 ./config.yaml 正好落在卷里。
+WORKDIR /app/data
+
+# 时区：容器内 tzdata 已装好，可用 TZ 覆盖（compose/.env 里可改）。
+ENV TZ=Asia/Shanghai
+
+# 健康检查分两种合法形态（这也是默认能跑通「compose up 后进安装向导」的前提）：
+#   - 已安装：GET /api/v1/health → 200（数据库 up）；
+#   - 未安装：GET /api/v1/health → 503（db=down，属预期），此时 GET /install/api/status → 200。
+# 因此两者取或：任一返回 2xx 即视为容器健康（进程与 HTTP 栈正常应答）。
+# 注意不要只判 /api/v1/health，否则首启未安装时容器会被标成 unhealthy，
+# 依赖 service_healthy 的前端容器就永远起不来，浏览器打不开安装向导。
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/api/v1/health \
+        || wget -q -O /dev/null http://127.0.0.1:8080/install/api/status \
+        || exit 1
+
+# 以 root 运行：安装向导要往数据卷写 config.yaml，而命名卷默认 root 属主，
+# 非 root 启动会因权限失败（契约 13.4 的 config_write 环境检查会直接报错）。
+# 想以非 root 运行：先 `docker run --rm -v lyidc-data:/app/data alpine chown -R 100:101 /app/data`
+# 再在 compose 里加 `user: "lyidc"`。权衡见 docs/deploy.md「数据卷权限」。
+ENTRYPOINT ["/usr/local/bin/backend-entrypoint.sh"]
