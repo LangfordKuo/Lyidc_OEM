@@ -1,4 +1,12 @@
 // Command server 启动 Lyidc_OEM 后端 HTTP 服务。
+//
+// 启动装配（阶段 4+）：
+//   - 配置加载 → 日志 → 交给 install.Supervisor 探测安装状态；
+//   - **未安装**（无配置/库连不上/未建表/无管理员）时进入安装向导模式：进程照常启动，
+//     浏览器访问 /install 完成数据库、建表、管理员、站点信息，全程无需编辑配置文件；
+//   - 已安装时构建正常模式引擎；安装完成时 Supervisor 在进程内热切换（免重启）。
+//
+// 契约见 docs/api-contract.md 第 13 节。
 package main
 
 import (
@@ -15,13 +23,19 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/install"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/router"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout = 10 * time.Second
+	// startupProbeTimeout 是启动时探测安装状态（含连接数据库）的超时。
+	startupProbeTimeout = 15 * time.Second
+)
 
 func main() {
 	configPath := flag.String("config", "", "配置文件路径（缺省时按 ./config.yaml、./backend/config.yaml 顺序查找）")
@@ -37,39 +51,49 @@ func main() {
 	slog.SetDefault(logger)
 
 	if cfg.SourcePath == "" {
-		logger.Warn("未找到配置文件，使用缺省配置", "searched", config.DefaultSearchPaths)
+		logger.Warn("未找到配置文件，使用缺省配置（将进入安装向导模式）", "searched", config.DefaultSearchPaths)
 	} else {
 		logger.Info("配置加载完成", "path", cfg.SourcePath)
 	}
 	if cfg.JWT.UsesDefaultSecret() {
-		logger.Warn("jwt.secret 正在使用开发默认密钥，生产环境必须修改", "config_key", "jwt.secret")
+		logger.Warn("jwt.secret 正在使用开发默认密钥，生产环境必须修改（安装向导完成时会自动替换为随机密钥）",
+			"config_key", "jwt.secret")
 	}
 
 	gin.SetMode(ginMode(cfg.Server.Mode))
 
-	gdb, dbErr := db.Open(cfg.Database)
-	if dbErr != nil {
-		// 数据库不可用时不退出：/api/v1/health 会持续报告 db=down，便于定位环境问题。
-		logger.Error("数据库连接失败", "error", dbErr, "dsn", config.MaskDSN(cfg.Database.DSN))
-	} else {
-		logger.Info("数据库连接成功", "dsn", config.MaskDSN(cfg.Database.DSN))
+	// Supervisor 同时负责：安装状态机、安装页/安装 API、正常模式引擎的构建与热切换。
+	supervisor, err := install.NewSupervisor(install.Options{
+		Logger:     logger,
+		Config:     cfg,
+		ConfigPath: cfg.SourcePath,
+		BuildEngine: func(gdb *gorm.DB, jwt config.JWTConfig) http.Handler {
+			return router.New(router.Options{
+				Logger: logger,
+				Ping:   db.PingFunc(gdb),
+				DB:     gdb,
+				JWT:    jwt,
+			})
+		},
+	})
+	if err != nil {
+		logger.Error("初始化安装监督器失败", "error", err)
+		os.Exit(1)
 	}
+	defer supervisor.Shutdown()
+
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupProbeTimeout)
+	supervisor.Init(startupCtx)
+	cancelStartup()
 
 	// 支付渠道参数与上游对接参数都在后台设置（settings 表）里，由 router 按当前设置动态构造：
 	// 启动时不做读取（数据库可能不可用），管理员改完设置下一次调用即生效（契约 12.1）。
 	logger.Info("支付与上游参数由后台设置承载", "settings_api", "/api/v1/admin/settings",
 		"keys", []string{"payment.epay", "upstream"})
 
-	engine := router.New(router.Options{
-		Logger: logger,
-		Ping:   db.PingFunc(gdb),
-		DB:     gdb,
-		JWT:    cfg.JWT,
-	})
-
 	srv := &http.Server{
 		Addr:              cfg.Server.Addr,
-		Handler:           engine,
+		Handler:           supervisor,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -98,11 +122,7 @@ func main() {
 		}
 	}
 
-	if gdb != nil {
-		if err := db.Close(gdb); err != nil {
-			logger.Warn("关闭数据库连接失败", "error", err)
-		}
-	}
+	// 数据库连接由 Supervisor 统一管理（可能与启动时不同：安装向导会热切换）。
 	logger.Info("服务已退出")
 }
 

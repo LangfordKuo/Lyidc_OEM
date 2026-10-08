@@ -2,8 +2,9 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v6（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
-> 阶段 3b 六周期 + 优惠码；**阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付**）
+> 版本：v7（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
+> **阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑**）
 
 ## 1. 通用约定
 
@@ -1485,7 +1486,7 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream` |
+| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节 |
 | `value` | text | 设置值（JSON 文本），结构与键一一对应 |
 | `updated_by` | int \| null | 最后修改的管理员 ID（审计用；NULL = 没有接口写入记录） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -2071,11 +2072,348 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 7. **订单交付**：上游开通、主机绑定、续费与升级留阶段 5（本批 `paid` 只是状态）。
 8. **前台支付页**：本批返回渠道 `payurl` 与二维码等字段，前端展示页面由后续前端批次实现。
 
-## 13. 变更记录
+## 13. 站点安装向导（阶段 4+）
+
+本节描述：安装状态机（13.1）、安装模式下的请求分发与页面（13.2）、安装 API（13.3）、
+配置文件写入规范（13.4）、并发与一次性保护（13.5）、免重启热切换（13.6）、
+安全边界（13.7）、错误码（13.8）、边界与暂不支持（13.9）。
+
+> **动因**：代理商部署时**不允许改任何配置文件**——首次访问用浏览器完成：
+> 数据库信息 → 初始化建表 → 管理员账号 → 站点信息，装完即用（阶段 4 已把「用户可设置项」
+> 全部做进后台设置，本批补齐「部署级参数由安装向导代写」）。
+
+### 13.1 安装状态机
+
+判定的输入全部来自**实际环境**（配置文件、数据库连通性、核心表、`installed` 标记、`admins` 表内容），
+不依赖任何本地标志文件，因此换机器、换进程、重启后结论一致。判定顺序与结论：
+
+| # | 场景 | 判定条件 | 结论 |
+| --- | --- | --- | --- |
+| 1 | 无数据库 DSN | 未找到配置文件，**或**配置文件未显式提供非空 `database.dsn`（`config.DatabaseConfigured=false`） | **安装模式**，从第 1 步起 |
+| 2 | 库不可达 | DSN 已配置，但连接/Ping 失败 | **安装/修复模式**：页面提示连接失败，允许修改数据库参数重试；进程照常启动，`/api/v1/health` 报 `db=down`；从第 2 步起 |
+| 3 | 表缺失 | 库可达，但核心表（`settings`、`admins`）不全 | **安装模式**，从第 3 步（初始化建表）起 |
+| 4 | 无管理员 | 库可达、核心表齐、`settings` 无 `installed` 标记，且**没有安装者管理员**（`admins` 为空，或仅剩未修改的默认管理员） | **安装模式**，从第 4 步（管理员账号）起 |
+| 5 | 存量库 | 库可达、核心表齐、无 `installed` 标记，但 `admins` 非空 | **自动补写 `installed` 标记**（`source=auto`）并进入正常模式，同时写日志——避免打断既有开发/升级库 |
+
+补充规则：
+
+1. **场景 4 的“安装者管理员”判据**：`admins` 表中存在密码哈希**不等于**迁移 0003 默认哈希的行
+   （默认哈希见 13.3 的默认管理员策略）。按契约字面语义，场景 5 的判据取「`admins` 表非空」，
+   即：迁移 0003 写入的默认管理员同样算「存量部署的既成事实」，不会把既有部署打回安装模式。
+2. **`install.progress` 进度标记优先于场景 5**：向导改动过数据库（建表 / 建管理员 / 写站点信息）后
+   会写入 `settings.install.progress`，**存在该键时不执行场景 5 的自动补标记**——否则刚建完表的库
+   （表齐、只有默认管理员、无标记）会被误判为存量库、向导提前关闭并把默认管理员留在库里。
+   该标记在安装完成时删除。
+3. **续装定位（向导任意步刷新 / 进程重启后的恢复）**：无 `installed` 标记且不属于场景 5 时，
+   按「安装者管理员 → 站点信息 → 完成」逐级定位续装点，共 5 个状态：
+
+   | 状态 | 判据 | 标签 | first_step |
+   | --- | --- | --- | --- |
+   | `admin_missing` | 不存在安装者管理员（`admins` 为空，或**全部**是未修改的默认管理员） | 等待创建管理员账号 | 4 |
+   | `site_missing` | 已存在安装者管理员（`total - unmodified > 0`，与 `progress.admin_ready` 同口径），但 `settings.site` 不存在 | 等待站点信息 | 5 |
+   | `pending` | 安装者管理员与 `settings.site` 都已就绪 | 等待完成安装 | 6 |
+
+   因此：建完管理员后刷新 → 停在第 5 步；存完站点后刷新 → 停在第 6 步；
+   中途重启进程（库内留有 `install.progress`）→ 启动探测**落在正确的续装步骤**（不会一律退回第 4 步，
+   也不会被场景 5 误判为存量库）。
+4. 场景 5 的补标记写入失败**不阻断**服务：照常进入正常模式，仅记录告警。
+5. `installed` 标记的值结构：`{"at":"<RFC3339 UTC>","version":1,"source":"wizard|auto"}`；
+   标记存在但 JSON 内容损坏时同样按「已安装」处理（存在即已安装，避免内容问题把线上服务打回安装模式）。
+
+### 13.2 安装模式下的请求分发与页面
+
+`install.Supervisor` 是 HTTP 入口，按状态分发（契约级行为，与实现解耦）：
+
+| 请求 | 未安装（安装模式） | 已安装 |
+| --- | --- | --- |
+| `/install`、`/install/**` | 安装向导页 / 安装 API | 「系统已安装」提示页 / 全部安装 API 返回 `50302` |
+| `/api/v1/health` | 正常返回（库可达 `200 db=up`；不可达 `503 db=down`，格式同第 5 节） | 同左 |
+| 其它 `/api/**` | `503` + 统一包 `code=50301`，`message="系统尚未安装"` | 正常业务接口 |
+| 其它路径（浏览器导航，`Accept` 含 `text/html`） | `302` → `/install` | 正常业务（前端/静态资源） |
+
+**页面**：单页多步骤向导（6 步：环境检查 / 数据库 / 初始化 / 管理员 / 站点 / 完成），
+HTML/CSS/JS 全部由后端 `go:embed` 内嵌，**不依赖前端构建产物**（安装时前端尚未部署）。
+每步一个安装 API，页面据 `GET /install/api/status` 的 `state` + `progress` 决定停留步骤。
+
+**刷新与重启后的恢复表现**（保证向导可续跑，不会回退或错位）：
+
+| 现场 | 刷新页面 / 重启进程后的落点 |
+| --- | --- |
+| 未保存数据库参数 | 第 1 步（状态 `unconfigured`，库不可达时 `db_unreachable` → 第 2 步） |
+| 已建表、未建管理员 | 第 4 步（`admin_missing`） |
+| 已建管理员、未填站点 | 第 5 步（`site_missing`） |
+| 已填站点、未完成 | 第 6 步（`pending`） |
+| 已完成 | 向导已关闭（`installed`，页面为重访提示页） |
+
+页面状态提示条（`state_label` + `detail`）与步骤条同源于 status，因此**每一步之后都立即反映实况**；
+第 2 步填写的数据库参数只存在进程内存，重启后需重填（库内进度仍可定位到正确的续装步骤）。
+
+**落位规则（两条路径一致）**：页面每次拿到 status 都按 `state`+`progress` 计算应处步骤
+（`first_step` 下限、`progress` 上推），**刷新页面**与**第 2 步提交成功之后**都走同一规则——
+因此重启续装在「保存并继续」之后直接落到第 5/6 步（而不是固定跳第 3 步）；
+全新流程仍是第 3 步。完成页摘要一律取自 status 的 `admin_username`/`site_name`（库内实况）。
+
+**已安装后的关闭规则**：安装完成（`installed` 标记写入 + 配置文件写入成功）后，
+`/install` **永久关闭**：重访返回「系统已安装」提示页（HTTP 200，纯提示，不含任何安装表单），
+`/install/api/*` 一律返回 `50302`。**不提供重新安装入口**：重装需先清空数据库（删库或删表）后重启服务。
+若向导中途停止（进程重启），库内仍有 `install.progress`，服务按 13.1 判定为安装模式、向导可继续走完。
+
+### 13.3 安装 API
+
+安装 API **不挂会员/管理员鉴权**（安装时尚不存在任何账号），仅**安装模式下可用**：
+已安装时统一返回 `50302`；未安装时返回 `50301` 的只有业务接口，安装 API 不受影响。
+响应统一使用第 2 节的响应包；下文只列 `data`。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/install` | 安装向导页（已安装时为「系统已安装」提示页） |
+| GET | `/install/api/status` | 当前状态与进度（安装页每次加载与每步之后调用） |
+| GET | `/install/api/environment` | 环境检查与运行信息 |
+| POST | `/install/api/database/test` | 测试数据库连接（可顺带自动建库） |
+| POST | `/install/api/database` | 保存数据库参数到**安装会话**并复验连接 |
+| POST | `/install/api/initialize` | 执行内嵌迁移建表（可重复执行） |
+| POST | `/install/api/admin` | 创建安装者管理员账号 |
+| POST | `/install/api/site` | 写入站点信息（`settings.site`） |
+| POST | `/install/api/complete` | 生成 JWT 密钥 → 写配置文件 → 写标记 → 热切换 |
+
+#### 13.3.1 `GET /install/api/status`
+
+```json
+{
+  "code": 0, "message": "ok",
+  "data": {
+    "installed": false,
+    "state": "tables_missing",
+    "state_label": "数据库尚未初始化",
+    "detail": "数据库可达但缺少核心表：settings、admins",
+    "first_step": 3, "step_count": 6,
+    "config_path": "D:/app/config.yaml", "config_exists": true, "config_source": "config.yaml",
+    "server_addr": "127.0.0.1:8080",
+    "database": {"configured": true, "reachable": true, "host": "127.0.0.1", "port": 3306,
+                  "username": "root", "database": "lyidc", "server_version": "5.7.44", "table_count": 0},
+    "progress": {"database_ready": true, "tables_ready": false, "admin_ready": false,
+                  "site_ready": false, "completed": false},
+    "installed_at": "", "admin_console": "/api/v1/admin/auth/login",
+    "admin_username": "", "site_name": ""
+  }
+}
+```
+
+`state` 取值（7 个）：`unconfigured`（1）/ `db_unreachable`（2）/ `tables_missing`（3）/
+`admin_missing`（4）/ `site_missing`（5）/ `pending`（6）/ `installed`（0，向导已关闭）；
+括号内为对应的 `first_step`，语义与判据见 13.1。
+`progress` 是各步骤完成情况的布尔量，与 `state` 互为印证（`progress.admin_ready` 与
+`state=site_missing|pending`、`progress.site_ready` 与 `state=pending` 的判据同口径）；
+页面**同时**使用两者定位步骤，因此刷新后不会回退。
+
+`admin_username` / `site_name` 是**库内实际已就绪内容**的展示字段（完成页摘要的数据源）：
+
+| 字段 | 取值 | 语义 |
+| --- | --- | --- |
+| `admin_username` | 密码哈希不等于默认哈希的安装者管理员用户名；不存在时为空串 | 完成页显示「管理员账号」；为空才显示「未创建」 |
+| `site_name` | `settings.site.name`；键不存在或内容损坏时为空串 | 完成页显示「站点名称」；为空才显示「未填写」 |
+
+两者都来自数据库实时读取，**不使用页面表单的瞬时值**——向导中途刷新或重启进程后表单为空，
+若依赖表单会把已就绪的管理员/站点误显示为「未创建/未填写」（与状态条的「已就绪」自相矛盾）。
+
+**`database` 不回显密码，也不回显完整 DSN**（13.7）。
+
+#### 13.3.2 `GET /install/api/environment`
+
+```json
+{
+  "code": 0, "message": "ok",
+  "data": {
+    "ok": true,
+    "checks": [
+      {"key": "config_write", "name": "配置写入点可写", "ok": true,
+       "detail": "安装完成后将把数据库连接与 JWT 密钥写入：D:/app/config.yaml", "advice": ""},
+      {"key": "migrations", "name": "迁移资源完整", "ok": true,
+       "detail": "共 6 个版本：0001_create_system_settings、…、0006_create_finance_and_orders", "advice": ""},
+      {"key": "runtime", "name": "运行环境", "ok": true, "detail": "go1.25.11 windows/amd64，PID 10588，…", "advice": ""}
+    ],
+    "runtime": {"go_version": "go1.25.11", "os": "windows", "arch": "amd64", "pid": 10588,
+                 "working_dir": "D:/app", "config_path": "D:/app/config.yaml", "config_source": "config.yaml",
+                 "server_addr": "127.0.0.1:8080", "state": "unconfigured",
+                 "migrations": [{"version": 1, "name": "0001_create_system_settings"}]}
+  }
+}
+```
+
+检查项失败时 `ok=false` 且 `advice` 给出**具体处置建议**（如目录不可写时的授权方式）。
+
+#### 13.3.3 `POST /install/api/database/test` 与 `POST /install/api/database`
+
+请求体（两者相同）：
+
+| 字段 | 类型 | 必填 | 校验 |
+| --- | --- | --- | --- |
+| `host` | string | 是 | 非空，不含空格与 `/` `\`（主机名或 IP） |
+| `port` | int | 否 | 缺省 3306，取值 1-65535 |
+| `username` | string | 是 | 非空 |
+| `password` | string | 否 | 允许为空（MySQL 账号可无密码） |
+| `database` | string | 是 | `^[A-Za-z0-9_]{1,64}$`（避免拼接建库语句时出现注入面） |
+| `create_database` | bool | 否 | 缺省 false；库不存在（MySQL 1049）时为 true 则先按 `utf8mb4/utf8mb4_general_ci` 建库再连 |
+
+`test` 只探测；`database` 在探测成功后把 DSN 存入**安装会话（进程内存）**，参数在「完成」时才写配置文件（13.4）。
+
+```json
+{"connected": true, "host": "127.0.0.1", "port": 3306, "username": "root", "database": "lyidc",
+ "server_version": "5.7.44", "database_created": true, "table_count": 0}
+```
+
+`database` 的响应额外带 `state` / `first_step` / `installed`：
+若新参数指向的库**已安装**（修复模式下的典型结果），`installed=true`，服务**当场热切换为正常模式**
+（13.6），向导随之关闭。
+
+失败返回 `503` + `code=50303`，`data.advice` 给处置建议，`data.need_create_database` 标记「库不存在且未勾选自动建库」。
+失败原因按 MySQL 错误码翻译：`1045` 账号/密码错误、`1049` 库不存在、`1130` 拒绝本机 IP、`1044` 对该库无权限、
+网络层错误（dial/超时）提示「网络不通、端口错误或 MySQL 未启动」。
+
+#### 13.3.4 `POST /install/api/initialize`
+
+无请求体（可传 `{}`）。用**内嵌迁移文件**（`go:embed`，0001-0006，与 `cmd/migrate` 同一套，不复制 SQL）建表：
+
+```json
+{"from_version": 0, "to_version": 6,
+ "applied": [{"version": 1, "name": "0001_create_system_settings"}],
+ "no_change": false, "table_count": 11, "state": "admin_missing", "first_step": 4}
+```
+
+可重复执行：已是最新版本时 `no_change=true` 且 `applied` 为空。迁移表为 dirty 时返回 `500` + `50001`
+并提示按迁移文件手工修复。前置条件：已完成第 2 步（否则 `40002`）；库不可达 `50303`。
+
+#### 13.3.5 `POST /install/api/admin`
+
+| 字段 | 类型 | 必填 | 校验 |
+| --- | --- | --- | --- |
+| `username` | string | 是 | `^[A-Za-z0-9_]{3,32}$`（与账号体系一致，见 6.1） |
+| `password` | string | 是 | 8-72 字节（bcrypt 上限）；**不得为默认密码 `admin123456`** |
+| `confirm_password` | string | 是 | 必须与 `password` 相同 |
+| `nickname` | string | 否 | ≤32 个字符（按 rune 计），缺省等于 `username` |
+
+```json
+{"admin_id": 1, "username": "opsadmin", "created": false, "updated": false,
+ "replaced_default_admin": true, "state": "admin_missing", "first_step": 4}
+```
+
+- `created`：本次**新建**了管理员行（库内原本没有默认管理员行）；
+- `updated`：本次**改写**了本安装会话已建立的账号（重复执行第 4 步的幂等结果）；
+- `replaced_default_admin`：改写了迁移 0003 写的默认管理员行（保留其主键 id）。
+
+**默认管理员替换策略（本批定稿）**：
+
+1. 迁移 0003 写入 `admin / admin123456`，其 bcrypt 哈希是「未修改的默认管理员」的唯一判据；
+2. 第 4 步在一个事务内：取出哈希等于默认哈希的行（`SELECT … FOR UPDATE`）→ 校验目标用户名未被**其它**管理员占用
+   （占用返回 `409`）→ **复用该行**改写为安装者账号（用户名/密码/昵称/角色 `admin`/状态 `active`，
+   `last_login_at` 清空）→ 删除其余默认哈希行（极端情况下的重复行）；
+3. 安装完成后**库内不得残留哈希等于默认哈希的行**；请求使用 `admin` + `admin123456` 组合会被直接拒绝；
+4. 前端文案与完成页均提示「默认管理员已被替换」。
+
+#### 13.3.6 `POST /install/api/site`
+
+| 字段 | 类型 | 必填 | 校验 |
+| --- | --- | --- | --- |
+| `name` | string | 是 | 1-64 个字符（按 rune 计） |
+| `url` | string | 否 | 留空合法；非空须为带主机名的 `http(s)://`（写入时去掉结尾 `/`），供后续生成 `notify_url` 等推荐地址 |
+| `admin_email` | string | 否 | 留空合法；非空须为邮箱格式（阶段 6 邮件通知预留） |
+
+写入 `settings.site` = `{"name":…,"url":…,"admin_email":…}`（`updated_by` 记安装者管理员 ID，缺失时记 NULL），
+同时更新 `install.progress`。格式问题返回 `40001`，规则问题（名称空/超长）返回 `40002`。
+
+#### 13.3.7 `POST /install/api/complete`
+
+无请求体。前置条件：库可达且表齐、存在安装者管理员（`admins` 非空且不全是默认哈希行）、`site` 已配置；
+不满足分别返回 `40002`（引导回对应步骤）。执行顺序**固定**：
+
+1. 生成 32 字节随机 JWT 密钥（base64url，43 字符，`crypto/rand`）；
+2. **写配置文件**（合并写入，规范见 13.4）；
+3. 写 `installed` 标记（`settings`，条件插入，见 13.5）；
+4. 删除 `install.progress`（best effort）；
+5. **热切换**：进程内换用新 JWT 密钥与新的数据库句柄重建正常模式引擎，无需重启（13.6）。
+
+```json
+{"installed": true, "config_path": "D:/app/config.yaml", "config_written": true,
+ "jwt_secret_written": true, "marker_written": true, "restart_required": false,
+ "site": {"name": "我的云主机", "url": "https://cloud.example.com", "admin_email": "ops@example.com"},
+ "admin_console": "/api/v1/admin/auth/login",
+ "admin_console_hint": "前端页面尚未部署：可用 curl 或浏览器插件调用 … 获取管理员 token，随后即可访问 /api/v1/admin/** 接口。",
+ "installed_at": "2026-10-08T10:01:45Z"}
+```
+
+**响应只回「已写入」状态**：不回显 JWT 密钥、数据库密码或完整 DSN（13.7）。
+写配置文件失败返回 `500`（`data.advice` 提示目录权限或 `-config` 改路径），此时**不写标记**、状态不变，可重试。
+写标记失败（键已存在）返回 `50302`：说明已有一次安装生效（并发或重复请求），配置文件已写但内容一致，无副作用。
+
+### 13.4 配置文件写入规范
+
+| 项目 | 规范 |
+| --- | --- |
+| 生效路径 | 优先**当前已加载路径**（`-config` 指定的 > `LYIDC_CONFIG` > 默认查找命中的那个，即 `cfg.SourcePath`）；不存在时用**运行目录下的 `./config.yaml`** |
+| 合并语义 | 文件已存在时**保留全部既有键、注释与书写顺序**，只更新 `database.dsn` 与 `jwt.secret`，并补齐缺失的缺省节/键（`server.addr/mode`、`database.max_open_conns/max_idle_conns/conn_max_lifetime`、`jwt.expire_hours`、`log.level/format`）；文件不存在时按缺省结构新建并写说明性文件头注释 |
+| 书写风格 | 2 空格缩进；`dsn` / `secret` 用双引号（与 `config.example.yaml` 一致）；键顺序保持既有文件的顺序（新增节追加在末尾） |
+| 权限与原子性 | 同目录临时文件写出后**原子替换**，权限 `0600`（含数据库密码与密钥；Windows 上仅表达只读位语义） |
+| 内容范围 | **只写部署级参数**（`database.dsn`、`jwt.secret`）；其余「用户可设置」的内容仍走 `settings` 表（12.1） |
+| 失败处置 | 目录不可写/文件只读时返回 `500` 并在环境检查与错误 `advice` 中给出处置建议；既有文件 YAML 语法错误时**拒绝覆盖**并提示先修正或删除该文件 |
+| 生效方式 | 写盘后进程内立即生效（热切换）；下次启动由加载链读取同一文件，前后一致 |
+
+### 13.5 并发与一次性保护
+
+| 层次 | 机制 |
+| --- | --- |
+| 进程内 | 安装步骤在 Supervisor 的同一把写锁内执行：并发安装请求**串行化**；后到者会重新判定状态，已安装则返回 `50302` |
+| 跨进程 | `installed` 标记用**条件插入**（`INSERT … ON DUPLICATE KEY UPDATE key=key`，受影响行数 0 表示键已存在）：并发/重复安装中只有一次返回成功 |
+| 请求级 | 第 4 步在同一会话内重复执行是**幂等更新**（`updated=true`）；第 3 步重复执行 `no_change=true`；第 5 步是 upsert |
+| 中途重启 | 库内 `install.progress` 使向导可续跑，且不会被场景 5 误判为存量库（13.1 补充规则 2） |
+
+### 13.6 免重启热切换（本批取舍）
+
+**结论：采用进程内热切换，无需重启。** `install.Supervisor` 持有当前数据库句柄、JWT 配置与正常模式引擎：
+
+1. 安装模式下 `BuildEngine` 尚未构建（不注册业务路由）；
+2. 「完成安装」时用**新的 JWT 密钥**与**安装会话里的数据库句柄**构建正常模式引擎（`router.New`），
+   在同一把写锁内替换掉引擎引用与状态，随后所有请求交由新引擎处理；
+3. 数据库句柄由 Supervisor 统一管理：DSN 变化时退役旧句柄（退出时统一关闭），健康检查与业务接口用同一句柄；
+4. 风险与代价：切换瞬间的并发请求要么落在旧引擎（无 DB 或旧密钥）要么落在新引擎，二者都不会返回错误数据；
+   已签发的 token 在密钥更换后失效（安装场景本就是全新部署，无有效会话）。**故不保留「提示重启」降级路径**，
+   但保留 `restart_required` 字段（恒为 `false`）以便后续如需降级时前端无需改动。
+
+### 13.7 安全边界
+
+| 风险 | 本批口径与缓解 |
+| --- | --- |
+| 安装期无鉴权（行业惯例：安装时尚无账号可用） | ①仅在**安装模式**可达（装完即关，`/install/**` 与全部安装 API 永久失效）；②安装模式要求「配置文件无 DSN / 库不可达 / 未建表 / 无管理员」四种状态之一，**已安装的系统不会进入安装模式**；③所有安装步骤在写锁内串行，`installed` 标记条件插入保证只有一次安装生效；④请求日志记录 `client_ip` 与状态码便于审计 |
+| 安装页被未授权者抢先访问 | 部署后应**立即**完成安装并访问一次 `/install` 确认已关闭；生产环境建议安装期间只对可信网络开放端口（部署注意事项，非接口能力） |
+| 密钥（数据库密码、JWT 密钥）外泄 | ①只进**配置文件与进程内存**；②接口响应只回「已写入」状态，`status`/`database` 视图**不含密码与完整 DSN**；③日志只记 `host/port/database`，错误文本经密码抹除（`MaskDSN`/`sanitizeDBError`）后再输出；④测试与演练包含「响应/日志不含密钥」的断言 |
+| 默认管理员残留 | 见 13.3.5 的替换策略：安装完成后库内不得存在默认哈希行，且 `admin/admin123456` 被列为禁用组合 |
+| 安装接口被用于探测数据库 | 连接测试只回「是否连通」与 MySQL 版本/表数量，不回显凭据；库名有严格字符集限制，建库语句使用反引号包裹 |
+
+### 13.8 错误码汇总（阶段 4+ 新增）
+
+| code | HTTP | 含义 | 出现场景 |
+| --- | --- | --- | --- |
+| `50301` | 503 | 系统尚未安装 | 未安装时访问业务接口（`/api/**`，health 除外） |
+| `50302` | 503 | 系统已安装，安装向导已关闭 | 已安装时访问 `/install/api/**`、重复提交「完成安装」 |
+| `50303` | 503 | 数据库连接失败 | 安装向导测试连接/保存参数失败（`data.advice` 给处置建议） |
+
+其余沿用既有错误码：参数格式 `40001`、规则校验 `40002`、用户名冲突 `409`、数据库故障 `50001`、内部错误 `500`。
+
+### 13.9 边界与暂不支持
+
+1. **不提供重新安装/卸载**：装完后无接口可回到安装模式（重装需清空数据库后重启）。
+2. **不校验配置文件之外的部署要素**：如防火墙、Nginx、域名解析、HTTPS 证书、时区/磁盘空间（环境检查只覆盖配置写入点、内嵌迁移资源与运行信息）。
+3. **不写 `server.addr` 之外的部署参数**：监听端口沿用既有配置或缺省（首次部署如需改端口，仍是启动参数/配置文件层面的事）。
+4. **安装会话不持久化**：第 2 步填写的数据库参数在进程内存中，进程重启后需重填（库内进度标记只用于状态判定）。
+5. **安装完成不发送通知**：邮件/Webhook 通知留后续阶段（`site.admin_email` 已预留）。
+6. **配置文件语法错误时服务不启动**：加载链仍然报错退出（既有行为），无法通过浏览器修复——此时需人工修正或删除该文件。
+7. **前端页面由后续前端批次实现**：本批完成页只给纯文本说明（`admin_console` + `admin_console_hint`），实际管理后台页面在前端构建产物部署后可用。
+
+## 14. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
-| 2026-10-08 | v6 | 阶段 4：新增第 12 节「支付与财务」——**后台设置机制**（settings 表 + `GET/PUT /admin/settings/payment/epay` 与 `/admin/settings/upstream`，密钥三态与脱敏、审计、读时校验按内容失效的生效方式、渠道可插拔扩展方式）；**易支付渠道**（彩虹标准协议：下单/签名/回调验签/同步跳转/`out_trade_no` 策略/应答口径/错误分支矩阵）；**订单与充值单/余额/流水**（数据模型与状态机、会员端下单/支付（epay + balance）/取消/充值/余额/流水接口、回调入账幂等与金额校验、管理端对账接口、角色矩阵）；**优惠码应用口径**（下单抵扣 + 支付成功条件自增 `used_count` + 极端并发超用不阻断）；更新 8.6（上游参数来源=后台设置，`config.yaml` 的 `upstream` 段停用）、第 9 节（探活按设置取参、掩码口径说明）、11.1/11.6（折扣应用已实现与并发边界）、错误码表新增 `50002`；变更记录移到第 13 节 |
+| 2026-10-08 | v7 | 阶段 4+：新增第 13 节「站点安装向导」——**安装状态机**（无 DSN / 库不可达（含修复模式与 `db=down`）/ 表缺失 / 无管理员 / 存量库自动补标记五种场景 + 续装态 `site_missing`/`pending`；`install.progress` 区分「向导走了一半」与「存量库」；任意步刷新页面或重启进程后按 `state`+`progress` 落回正确步骤，不回退不错位）；**安装模式请求分发**（`/install` 与安装 API 放行、`/api/v1/health` 照常、其它 API `503`+`50301`、浏览器导航 `302` 跳转；装完后 `/install` 永久关闭，重访为「系统已安装」提示页，安装 API 一律 `50302`）；**安装页与 9 个安装 API**（内嵌 HTML/CSS/JS 不依赖前端构建产物、字段校验、自动建库、连接失败按 MySQL 错误码给处置建议）；**默认管理员替换策略**（复用迁移 0003 行改写、库内不得残留默认哈希行、禁用 `admin/admin123456` 组合）；**配置文件合并写入规范**（生效路径、保留既有键与注释、原子替换、0600、只写部署级参数）；**并发与一次性保护**（进程内写锁 + `installed` 条件插入）；**免重启热切换**（同锁内换数据库句柄/JWT 密钥/引擎，`restart_required` 恒 false）；**安全边界**（无鉴权的风险与「装完即关」缓解、密钥不回显不落日志）；错误码新增 `50301`/`50302`/`50303`；**安装页「重启续装」两处 UI 修复**（`status` 新增 `admin_username`/`site_name` 供完成页摘要展示库内实况、第 2 步提交后按最新状态落位而非固定跳第 3 步）；12.1 的 settings 键补充 `site`/`installed`/`install.progress`；变更记录移到第 14 节 |
+| 2026-10-08 | v6 | 阶段 4：新增第 12 节「支付与财务」——**后台设置机制**（settings 表 + `GET/PUT /admin/settings/payment/epay` 与 `/admin/settings/upstream`，密钥三态与脱敏、审计、读时校验按内容失效的生效方式、渠道可插拔扩展方式）；**易支付渠道**（彩虹标准协议：下单/签名/回调验签/同步跳转/`out_trade_no` 策略/应答口径/错误分支矩阵）；**订单与充值单/余额/流水**（数据模型与状态机、会员端下单/支付（epay + balance）/取消/充值/余额/流水接口、回调入账幂等与金额校验、管理端对账接口、角色矩阵）；**优惠码应用口径**（下单抵扣 + 支付成功条件自增 `used_count` + 极端并发超用不阻断）；更新 8.6（上游参数来源=后台设置，`config.yaml` 的 `upstream` 段停用）、第 9 节（探活按设置取参、掩码口径说明）、11.1/11.6（折扣应用已实现与并发边界）、错误码表新增 `50002`；变更记录移章（v6 时位于第 13 节，v7 起为第 14 节） |
 | 2026-10-08 | v5 | 阶段 3b：计费周期 4 → 6（新增 `biennial` / `triennial`，上游字段 `biennially` / `triennially` 映射与中文显示名入契约；`upstream_prices_json`、`pricing_json.fixed`、会员端 `prices` 同步扩为 6 键）；新增第 11 节「优惠码」（coupons 数据模型、管理端 CRUD、公开校验接口 `GET /coupons/:code/validate`、折扣计算口径与 reason 枚举、暂不支持清单）；变更记录补记 v4 |
 | 2026-10-08 | v4 | 阶段 3a（补记）：新增第 10 节「商品与计费」（上游导入与幂等、`upstream_prices_json` 缓存、upstream/markup/fixed 三模式定价、上下架校验、会员端只读目录、管理端接口与角色矩阵、生产上游实测差异） |
 | 2026-10-08 | v3 | 阶段 2：新增第 8 节「上游对接」（鉴权机制、`{status,msg,data}` 与状态码映射、上游接口清单、实测示例、实测与文档不符之处/字段类型踩坑）与第 9 节「管理端上游探活接口」；本阶段对生产上游完成真机联调（开通/开关机/重启/重装/暂停/恢复/续费/取消申请） |

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lyidc_OEM 安装向导</title>
+<style>
+  :root {
+    --bg: #f4f4f5;
+    --card: #ffffff;
+    --border: #e4e4e7;
+    --text: #18181b;
+    --muted: #71717a;
+    --primary: #006FEE;
+    --primary-hover: #005bc4;
+    --primary-soft: #e6f1fe;
+    --success: #17c964;
+    --success-soft: #e8faf0;
+    --danger: #f31260;
+    --danger-soft: #fee7ef;
+    --warn-soft: #fefce8;
+    --warn-border: #fde68a;
+    --warn-text: #854d0e;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: .2px; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  h3 { font-size: 14px; margin: 18px 0 6px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -18px rgba(0,0,0,.35);
+  }
+  .steps { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 20px; padding: 0; list-style: none; }
+  .steps li {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); font-size: 13px; transition: .15s;
+  }
+  .steps li .dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #e4e4e7; color: #52525b;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+  }
+  .steps li.active { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+  .steps li.active .dot { background: var(--primary); color: #fff; }
+  .steps li.done { color: var(--success); border-color: #bbf7d0; background: var(--success-soft); }
+  .steps li.done .dot { background: var(--success); color: #fff; }
+  .field { margin: 10px 0 0; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+  .field .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+  input[type=text], input[type=password], input[type=number], input[type=email] {
+    width: 100%; padding: 9px 12px; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 10px; background: #fff;
+    color: var(--text); outline: none; transition: .15s;
+  }
+  input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,111,238,.15); }
+  .row { display: flex; gap: 12px; }
+  .row > .field { flex: 1; }
+  .row > .field.narrow { flex: 0 0 140px; }
+  .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; align-items: center; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    padding: 9px 18px; border-radius: 12px; border: 1px solid transparent;
+    transition: .15s;
+  }
+  button.primary { background: var(--primary); color: #fff; }
+  button.primary:hover { background: var(--primary-hover); }
+  button.ghost { background: #fff; border-color: var(--border); color: var(--text); }
+  button.ghost:hover { background: #fafafa; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .alert { border-radius: 12px; padding: 12px 14px; margin-top: 16px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .alert.ok { background: var(--success-soft); border: 1px solid #bbf7d0; color: #166534; }
+  .alert.err { background: var(--danger-soft); border: 1px solid #fecdd3; color: #9f1239; }
+  .alert.info { background: var(--warn-soft); border: 1px solid var(--warn-border); color: var(--warn-text); }
+  .hidden { display: none !important; }
+  table.checks { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.checks td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.checks td.name { white-space: nowrap; font-weight: 600; }
+  table.checks td.state { white-space: nowrap; font-weight: 700; }
+  .ok-text { color: var(--success); }
+  .err-text { color: var(--danger); }
+  dl.meta { margin: 14px 0 0; font-size: 13px; }
+  dl.meta div { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+  dl.meta dt { color: var(--muted); flex: 0 0 128px; margin: 0; }
+  dl.meta dd { margin: 0; word-break: break-all; }
+  code { background: #f4f4f5; border-radius: 6px; padding: 1px 6px; font-size: 12.5px; }
+  .spin::after { content: "…"; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+  @media (max-width: 560px) { .row { flex-direction: column; } .row > .field.narrow { flex: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lyidc_OEM 安装向导</h1>
+  <p class="sub">首次部署：全程在浏览器完成，无需手工编辑任何配置文件。配置文件写入位置：<code id="config-path">{{.ConfigPath}}</code></p>
+
+  <ul class="steps" id="steps"></ul>
+
+  <div class="card">
+    <div id="state-bar" class="alert info">正在读取安装状态…</div>
+
+    <!-- 第 1 步：环境检查 -->
+    <section id="step-1" class="step hidden">
+      <h2>1. 环境检查</h2>
+      <p class="sub">确认服务可以写入配置文件、内嵌迁移文件完整，并查看运行信息。</p>
+      <div id="env-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="checkEnvironment()">重新检查</button>
+        <button class="ghost" onclick="goStep(2)">下一步</button>
+      </div>
+    </section>
+
+    <!-- 第 2 步：数据库配置 -->
+    <section id="step-2" class="step hidden">
+      <h2>2. 数据库配置</h2>
+      <p class="sub">填写 MySQL 连接信息（5.7+）。密码只写入配置文件与内存，不会出现在日志或接口响应里。</p>
+      <div class="row">
+        <div class="field" style="flex:2">
+          <label for="db-host">主机</label>
+          <input id="db-host" type="text" value="127.0.0.1" autocomplete="off">
+        </div>
+        <div class="field narrow">
+          <label for="db-port">端口</label>
+          <input id="db-port" type="number" value="3306" min="1" max="65535">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="db-user">用户名</label>
+          <input id="db-user" type="text" value="root" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="db-pass">密码</label>
+          <input id="db-pass" type="password" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="field">
+        <label for="db-name">数据库名 <span class="hint">（不存在时可自动创建）</span></label>
+        <input id="db-name" type="text" value="lyidc" autocomplete="off">
+      </div>
+      <label class="checkbox">
+        <input id="db-create" type="checkbox" checked>
+        数据库不存在时自动建库（需要账号有 CREATE 权限）
+      </label>
+      <div id="db-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="saveDatabase(false)">测试连接</button>
+        <button class="ghost" onclick="saveDatabase(true)">保存并继续</button>
+      </div>
+    </section>
+
+    <!-- 第 3 步：初始化 -->
+    <section id="step-3" class="step hidden">
+      <h2>3. 初始化数据库</h2>
+      <p class="sub">执行内嵌迁移（0001-0006）建表。可重复执行：已是最新版本时不会重复建表。</p>
+      <div id="init-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="initialize()">开始初始化</button>
+        <button class="ghost" onclick="goStep(4)">下一步</button>
+      </div>
+    </section>
+
+    <!-- 第 4 步：管理员账号 -->
+    <section id="step-4" class="step hidden">
+      <h2>4. 管理员账号</h2>
+      <p class="sub">安装后用它登录管理后台。系统自带的默认管理员（admin / admin123456）会被替换，库内不会残留默认凭据。</p>
+      <div class="row">
+        <div class="field">
+          <label for="ad-user">用户名 <span class="hint">（3-32 位字母、数字或下划线）</span></label>
+          <input id="ad-user" type="text" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="ad-nick">昵称 <span class="hint">（可空，默认同用户名）</span></label>
+          <input id="ad-nick" type="text" autocomplete="off">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="ad-pass">密码 <span class="hint">（8-72 字节）</span></label>
+          <input id="ad-pass" type="password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="ad-confirm">确认密码</label>
+          <input id="ad-confirm" type="password" autocomplete="new-password">
+        </div>
+      </div>
+      <div id="admin-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="createAdmin()">创建管理员</button>
+        <button class="ghost" onclick="goStep(5)">下一步</button>
+      </div>
+    </section>
+
+    <!-- 第 5 步：站点信息 -->
+    <section id="step-5" class="step hidden">
+      <h2>5. 站点信息</h2>
+      <p class="sub">站点名称必填；站点地址用于生成支付回调等推荐地址，管理员邮箱为后续邮件通知预留（均可留空）。</p>
+      <div class="field">
+        <label for="site-name">站点名称</label>
+        <input id="site-name" type="text" placeholder="例如：我的云主机" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="site-url">站点地址 <span class="hint">（可空，如 https://cloud.example.com）</span></label>
+        <input id="site-url" type="text" placeholder="https://" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="site-mail">管理员邮箱 <span class="hint">（可空）</span></label>
+        <input id="site-mail" type="email" placeholder="ops@example.com" autocomplete="off">
+      </div>
+      <div id="site-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="saveSite()">保存站点信息</button>
+        <button class="ghost" onclick="goStep(6)">下一步</button>
+      </div>
+    </section>
+
+    <!-- 第 6 步：完成 -->
+    <section id="step-6" class="step hidden">
+      <h2>6. 完成安装</h2>
+      <p class="sub">将随机生成 JWT 密钥、把数据库连接与密钥合并写入配置文件，并写下安装标记。</p>
+      <dl class="meta" id="summary"></dl>
+      <div id="complete-result"></div>
+      <div class="actions">
+        <button class="primary" onclick="completeInstall()">完成安装</button>
+      </div>
+    </section>
+  </div>
+
+  <footer>Lyidc_OEM 安装向导 · 安装完成后 /install 将永久关闭</footer>
+</div>
+
+<script>
+const API = "/install/api";
+const STEP_NAMES = ["环境检查", "数据库", "初始化", "管理员", "站点", "完成"];
+let current = 1;
+let status = null;
+let installed = false;
+
+function el(id) { return document.getElementById(id); }
+
+function renderSteps() {
+  const list = el("steps");
+  list.innerHTML = "";
+  STEP_NAMES.forEach((name, index) => {
+    const step = index + 1;
+    const li = document.createElement("li");
+    if (step === current) li.className = "active";
+    else if (step < current) li.className = "done";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.textContent = step < current ? "✓" : String(step);
+    li.appendChild(dot);
+    li.appendChild(document.createTextNode(name));
+    list.appendChild(li);
+  });
+}
+
+function setAlert(id, kind, text) {
+  const box = el(id);
+  if (!text) { box.className = ""; box.textContent = ""; return; }
+  box.className = "alert " + kind;
+  box.textContent = text;
+}
+
+function alertText(envelope) {
+  if (!envelope) return "未知错误";
+  let text = envelope.message || "请求失败";
+  const data = envelope.data;
+  if (data && typeof data === "object" && data.advice) text += "\n处置建议：" + data.advice;
+  return text;
+}
+
+async function call(path, options) {
+  const response = await fetch(API + path, Object.assign({
+    headers: { "Content-Type": "application/json" },
+  }, options || {}));
+  let payload;
+  try { payload = await response.json(); } catch (err) { payload = { code: response.status, message: "响应不是合法 JSON" }; }
+  return payload;
+}
+
+function goStep(step) {
+  current = Math.max(1, Math.min(STEP_NAMES.length, step));
+  for (let i = 1; i <= STEP_NAMES.length; i++) {
+    el("step-" + i).classList.toggle("hidden", i !== current);
+  }
+  renderSteps();
+  if (current === 6) renderSummary();
+}
+
+function showStateBar() {
+  if (!status) return;
+  const bar = el("state-bar");
+  if (status.installed) {
+    bar.className = "alert ok";
+    bar.textContent = "系统已安装完成：" + (status.installed_at || status.detail) + "。安装向导已关闭。";
+    return;
+  }
+  const db = status.database || {};
+  const where = db.configured && db.database ? `（${db.username}@${db.host}:${db.port}/${db.database}）` : "";
+  bar.className = "alert info";
+  bar.textContent = "当前状态：" + (status.state_label || status.state) + where + " —— " + (status.detail || "");
+}
+
+function renderSummary() {
+  const db = (status && status.database) || {};
+  // 摘要展示**库内实际已就绪**的内容（status.admin_username / status.site_name），
+  // 表单值只作兜底——刷新或重启续装时表单是空的，不能据此判断「未创建/未填写」。
+  const adminName = (status && status.admin_username) || el("ad-user").value.trim();
+  const siteName = (status && status.site_name) || el("site-name").value.trim();
+  const rows = [
+    ["数据库", db.configured ? `${db.username}@${db.host}:${db.port}/${db.database}` + (db.server_version ? "（MySQL " + db.server_version + "）" : "") : "未配置"],
+    ["管理员账号", adminName || "未创建"],
+    ["站点名称", siteName || "未填写"],
+    ["配置文件", (status && status.config_path) || "{{.ConfigPath}}"],
+  ];
+  const dl = el("summary");
+  dl.innerHTML = "";
+  rows.forEach(([key, value]) => {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    div.appendChild(dt); div.appendChild(dd);
+    dl.appendChild(div);
+  });
+}
+
+// startStep 依据服务端状态与进度计算应当停留的步骤：
+// state 说明「从第几步开始」，progress 说明各步骤是否已完成（管理员/站点步骤完成后
+// state 仍是 admin_missing，靠 progress 才能跳到正确的步骤）。
+function startStep(s) {
+  let step = s.first_step || 1;
+  const p = s.progress || {};
+  if (p.database_ready && step < 3) step = 3;
+  if (p.tables_ready && step < 4) step = 4;
+  if (p.admin_ready && step < 5) step = 5;
+  if (p.site_ready && step < 6) step = 6;
+  return step;
+}
+
+async function refreshStatus() {
+  const payload = await call("/status");
+  if (payload.code !== 0) { setAlert("state-bar", "err", alertText(payload)); return null; }
+  status = payload.data;
+  installed = !!status.installed;
+  if (!installed) current = Math.max(current, startStep(status));
+  showStateBar();
+  renderSteps();
+  return status;
+}
+
+async function checkEnvironment() {
+  const payload = await call("/environment");
+  if (payload.code !== 0) { setAlert("env-result", "err", alertText(payload)); return; }
+  const data = payload.data;
+  const rows = (data.checks || []).map((check) => {
+    const advice = check.ok ? "" : `<div class="err-text">处置建议：${check.advice || ""}</div>`;
+    return `<tr><td class="name">${check.name}</td>
+      <td class="state ${check.ok ? "ok-text" : "err-text"}">${check.ok ? "通过" : "不通过"}</td>
+      <td>${check.detail || ""}${advice}</td></tr>`;
+  }).join("");
+  el("env-result").innerHTML = `<table class="checks">${rows}</table>`;
+  if (data.ok === false) setAlert("env-result", "err", "存在未通过的环境检查项，请按处置建议处理后重新检查。");
+}
+
+function databaseBody() {
+  return {
+    host: el("db-host").value.trim(),
+    port: parseInt(el("db-port").value, 10) || 3306,
+    username: el("db-user").value.trim(),
+    password: el("db-pass").value,
+    database: el("db-name").value.trim(),
+    create_database: el("db-create").checked,
+  };
+}
+
+async function saveDatabase(advance) {
+  const path = advance ? "/database" : "/database/test";
+  setAlert("db-result", "info", advance ? "正在保存并复验连接…" : "正在测试连接…");
+  const payload = await call(path, { method: "POST", body: JSON.stringify(databaseBody()) });
+  if (payload.code !== 0) { setAlert("db-result", "err", alertText(payload)); return; }
+  const data = payload.data;
+  let text = `连接成功：MySQL ${data.server_version}，库 ${data.database}（当前 ${data.table_count} 张表）`;
+  if (data.database_created) text += "；已自动创建数据库";
+  if (!advance) { setAlert("db-result", "ok", text); return; }
+  setAlert("db-result", "ok", text + "。参数已保存到安装会话，将在第 6 步写入配置文件。");
+  await refreshStatus();
+  if (installed) { setAlert("db-result", "ok", text + "。检测到该数据库已完成安装，系统已直接切换为正常模式（无需重启）。"); return; }
+  // 按最新状态落位，而不是固定跳第 3 步：全新流程 → 3（等待建表）；
+  // 表已建好 → 4；重启续装（管理员/站点已就绪）→ 5 / 6，与刷新页面时的落位一致。
+  goStep(startStep(status));
+}
+
+async function initialize() {
+  setAlert("init-result", "info", "正在执行迁移…");
+  const payload = await call("/initialize", { method: "POST", body: "{}" });
+  if (payload.code !== 0) { setAlert("init-result", "err", alertText(payload)); return; }
+  const data = payload.data;
+  const applied = (data.applied || []).map((step) => step.name).join("、");
+  let text = data.no_change
+    ? `数据库已是最新版本（v${data.to_version}），本次未执行任何迁移。`
+    : `迁移完成：v${data.from_version} → v${data.to_version}，本次应用 ${applied || "无"}。`;
+  text += `\n库内现有 ${data.table_count} 张表。`;
+  setAlert("init-result", "ok", text);
+  await refreshStatus();
+}
+
+async function createAdmin() {
+  const body = {
+    username: el("ad-user").value.trim(),
+    nickname: el("ad-nick").value.trim(),
+    password: el("ad-pass").value,
+    confirm_password: el("ad-confirm").value,
+  };
+  setAlert("admin-result", "info", "正在创建管理员…");
+  const payload = await call("/admin", { method: "POST", body: JSON.stringify(body) });
+  if (payload.code !== 0) { setAlert("admin-result", "err", alertText(payload)); return; }
+  const data = payload.data;
+  let text = `管理员 ${data.username}（ID ${data.admin_id}）已就绪。`;
+  if (data.replaced_default_admin) text += " 迁移写入的默认管理员 admin/admin123456 已被替换，库内不再存在默认凭据。";
+  if (data.updated) text += " （本次为更新同一账号）";
+  setAlert("admin-result", "ok", text);
+  await refreshStatus();
+}
+
+async function saveSite() {
+  const body = {
+    name: el("site-name").value.trim(),
+    url: el("site-url").value.trim(),
+    admin_email: el("site-mail").value.trim(),
+  };
+  setAlert("site-result", "info", "正在保存站点信息…");
+  const payload = await call("/site", { method: "POST", body: JSON.stringify(body) });
+  if (payload.code !== 0) { setAlert("site-result", "err", alertText(payload)); return; }
+  setAlert("site-result", "ok", `站点信息已写入（settings.site）：${payload.data.name}${payload.data.url ? " · " + payload.data.url : ""}`);
+  await refreshStatus();
+}
+
+async function completeInstall() {
+  if (!confirm("确认完成安装？完成后 /install 将永久关闭，配置写入 " + ((status && status.config_path) || "{{.ConfigPath}}") + "。")) return;
+  setAlert("complete-result", "info", "正在生成密钥、写入配置并切换运行模式…");
+  const payload = await call("/complete", { method: "POST", body: "{}" });
+  if (payload.code !== 0) { setAlert("complete-result", "err", alertText(payload)); return; }
+  const data = payload.data;
+  setAlert("complete-result", "ok",
+    `安装完成：\n· 配置文件已写入 ${data.config_path}\n· JWT 密钥已随机生成并写入配置文件\n· 安装标记已写入 settings.installed\n· 无需重启：服务已切换为正常模式\n\n` +
+    `${data.admin_console_hint}\n运营提示（纯文本，前端页面尚未部署）：前台与管理后台的页面将在前端构建产物部署后可用。`);
+  installed = true;
+  await refreshStatus();
+  showStateBar();
+}
+
+(async function boot() {
+  goStep(1);
+  await refreshStatus();
+  checkEnvironment();
+  if (installed) {
+    el("state-bar").className = "alert ok";
+    document.querySelectorAll(".step").forEach((node) => node.classList.add("hidden"));
+    return;
+  }
+  goStep(current);
+  if (current === 2) { el("db-user").focus(); }
+})();
+</script>
+</body>
+</html>

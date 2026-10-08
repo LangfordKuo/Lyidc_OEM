@@ -54,6 +54,11 @@ type Config struct {
 
 	// SourcePath 记录实际加载的配置文件路径，为空表示使用缺省值。
 	SourcePath string `yaml:"-"`
+
+	// DatabaseConfigured 表示配置文件里**显式**提供了非空 database.dsn。
+	// 未提供时 DSN 取开发缺省值（DefaultDSN），安装向导据此把「没有配置文件」与
+	// 「配置了但连不上」区分成两种不同的安装场景（契约 13.1）。
+	DatabaseConfigured bool `yaml:"-"`
 }
 
 // JWTConfig 是 JWT 签发与校验配置。
@@ -133,12 +138,27 @@ func Load(explicitPath string) (Config, error) {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return cfg, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
+	cfg.DatabaseConfigured = dsnConfigured(raw)
 
 	cfg.SourcePath = path
 	if err := cfg.Validate(); err != nil {
 		return cfg, fmt.Errorf("配置校验失败 (%s): %w", path, err)
 	}
 	return cfg, nil
+}
+
+// dsnConfigured 判断 YAML 原文是否显式提供了非空 database.dsn。
+// 只看「键是否出现且非空」，与 DefaultDSN 的取值无关（显式填写缺省值也算已配置）。
+func dsnConfigured(raw []byte) bool {
+	var probe struct {
+		Database *struct {
+			DSN *string `yaml:"dsn"`
+		} `yaml:"database"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return probe.Database != nil && probe.Database.DSN != nil && strings.TrimSpace(*probe.Database.DSN) != ""
 }
 
 // ResolvePath 返回实际使用的配置文件路径；返回空字符串表示未找到配置文件。
