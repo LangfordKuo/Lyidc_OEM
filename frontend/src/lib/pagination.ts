@@ -1,7 +1,7 @@
-// 分页计算：后端缺省 page_size=20，列表页统一按「总条数 + 每页条数」推导页码。
-export const DEFAULT_PAGE_SIZE = 20
+// 分页计算：商品目录接口一次返回全量上架商品，前端按固定每页条数切分。
+export const PRODUCT_PAGE_SIZE = 12
 
-export function totalPages(total: number, pageSize: number = DEFAULT_PAGE_SIZE): number {
+export function totalPages(total: number, pageSize: number = PRODUCT_PAGE_SIZE): number {
   if (!Number.isFinite(total) || !Number.isFinite(pageSize) || pageSize <= 0) {
     return 1
   }

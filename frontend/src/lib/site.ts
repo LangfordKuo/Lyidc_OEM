@@ -1,12 +1,10 @@
 // 站点常量。
 //
-// TODO(待接后端)：站点名真实来源是数据库 `settings.site.name`（安装向导第 4 步写入，
-// 见 docs/api-contract.md 12.1 与 13.3），但契约中**没有面向会员端的公开站点信息接口**
-// （只有安装模式下的 `GET /install/api/status` 会回带 site_name）。因此前端一期先用常量，
-// 待后端提供公开站点信息接口（例如 `GET /api/v1/site`）后再替换为接口读取。
+// 站点名的真实来源是数据库 `settings.site.name`（安装向导写入，见 docs/api-contract.md 13.3），
+// 但契约中**没有面向会员端的公开站点信息接口**，因此前端一期先用常量。
 export const SITE_NAME = '岭云互联'
 
-// 首页/页脚的一句话定位文案。
+/** 首页/页脚的一句话定位文案。 */
 export const SITE_TAGLINE = '稳定可靠的云服务器与 IDC 服务商'
 
 export const SITE_DESCRIPTION =

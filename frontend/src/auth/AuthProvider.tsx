@@ -13,9 +13,9 @@ import type { Member, RegisterInput } from '../api/types'
 import { AuthContext, type AuthContextValue } from './authContext'
 
 // AuthProvider 维护会员登录态：
-//   1. 首次进入：有 token 就校验并拉取 /members/me（token 缓存仅作首屏占位）；
+//   1. 首次进入：有 token 就校验并拉取 /members/me（本地缓存仅作首屏占位）；
 //   2. 登录/注册：签发 token 后立即拉取完整会员对象；
-//   3. 任意请求返回 401：api 层清 token 并通知这里同步清空登录态。
+//   3. 任意请求返回 401：api 层清 token 并通知这里同步清空登录态（守卫据此跳登录页）。
 export default function AuthProvider({ children }: { children: ReactNode }) {
   // 初始值直接取本地缓存（首屏不闪烁）；没有缓存就是未登录。
   const [member, setMember] = useState<Member | null>(() => {
@@ -60,12 +60,14 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     void reload().finally(() => setInitializing(false))
   }, [reload])
 
-  // token 失效通知：清空登录态（路由守卫据此跳登录页）。
-  useEffect(() => onUnauthorized((scope) => {
-    if (scope === 'member') {
-      setMember(null)
-    }
-  }), [])
+  // token 失效通知：清空登录态。
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setMember(null)
+      }),
+    [],
+  )
 
   const login = useCallback(
     async (username: string, password: string) => {
@@ -90,19 +92,16 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     clearMember()
   }, [clearMember])
 
-  const setBalance = useCallback(
-    (balance: string) => {
-      setMember((prev) => {
-        if (!prev) {
-          return prev
-        }
-        const next = { ...prev, balance }
-        setMemberProfile(next)
-        return next
-      })
-    },
-    [],
-  )
+  const setBalance = useCallback((balance: string) => {
+    setMember((prev) => {
+      if (!prev) {
+        return prev
+      }
+      const next = { ...prev, balance }
+      setMemberProfile(next)
+      return next
+    })
+  }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({

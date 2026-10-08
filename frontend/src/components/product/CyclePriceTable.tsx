@@ -1,7 +1,16 @@
-import { BILLING_CYCLES, type BillingCycle, type CyclePrices } from '../../lib/cycles'
-import { formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '../../lib/format'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { BILLING_CYCLES, type BillingCycle, type CyclePrices } from '@/lib/cycles'
+import { formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
-// CyclePriceTable 以表格形式列出六个周期的价格（含月均价折算），用于商品详情页价格一览。
+/** 以表格列出六个周期的价格（含月均价折算），用于商品详情页价格一览。 */
 export default function CyclePriceTable({
   prices,
   highlight,
@@ -11,41 +20,35 @@ export default function CyclePriceTable({
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-surface-secondary/60 text-muted">
-          <tr>
-            <th className="px-4 py-2 text-left font-medium">周期</th>
-            <th className="px-4 py-2 text-right font-medium">价格</th>
-            <th className="hidden px-4 py-2 text-right font-medium sm:table-cell">折合月均</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-muted/50">
+            <TableHead>周期</TableHead>
+            <TableHead className="text-right">价格</TableHead>
+            <TableHead className="hidden text-right sm:table-cell">折合月均</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {BILLING_CYCLES.map((cycle) => {
             const amount = prices[cycle]
             const perMonth = amount ? monthlyEquivalent(amount, cycle) : null
             return (
-              <tr
-                key={cycle}
-                className={[
-                  'border-t border-border',
-                  cycle === highlight ? 'bg-accent-soft/60 font-medium' : '',
-                ].join(' ')}
-              >
-                <td className="px-4 py-2">
+              <TableRow key={cycle} className={cn(cycle === highlight && 'bg-primary/5 font-medium')}>
+                <TableCell>
                   {formatCycleLabel(cycle)}
-                  <span className="ml-1.5 text-xs text-muted">({formatDuration(cycle)})</span>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  {amount ? formatMoney(amount) : <span className="text-muted">不可售</span>}
-                </td>
-                <td className="hidden px-4 py-2 text-right text-muted sm:table-cell">
+                  <span className="ml-1.5 text-xs text-muted-foreground">({formatDuration(cycle)})</span>
+                </TableCell>
+                <TableCell className="text-right">
+                  {amount ? formatMoney(amount) : <span className="text-muted-foreground">不可售</span>}
+                </TableCell>
+                <TableCell className="hidden text-right text-muted-foreground sm:table-cell">
                   {perMonth && cycle !== 'monthly' ? formatMoney(perMonth) : '—'}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   )
 }

@@ -1,13 +1,22 @@
-import { Button, Card, Chip } from '@heroui/react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
-import { paths } from '../../app/paths'
-import type { ProductSummary } from '../../api/types'
-import { cheapestCycle } from '../../lib/cycles'
-import { formatCycleLabel, formatMoney } from '../../lib/format'
-import { productTypeLabel } from '../../lib/productText'
+import { paths } from '@/app/paths'
+import type { ProductSummary } from '@/api/types'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { cheapestCycle } from '@/lib/cycles'
+import { formatCycleLabel, formatMoney } from '@/lib/format'
+import { productTypeLabel } from '@/lib/productText'
 
-// ProductCard 是商品列表卡片：名称/类型/最低价与周期提示/库存与试用标签 + 两个入口。
+/** 商品卡片：名称/类型/最低价与周期提示/库存与试用标签 + 两个入口。 */
 export default function ProductCard({
   product,
   groupName,
@@ -20,68 +29,70 @@ export default function ProductCard({
   const hasStock = product.stock_control !== 1 || product.stock_qty > 0
 
   return (
-    <Card className="flex h-full flex-col">
-      <Card.Header>
+    <Card className="flex h-full flex-col transition-shadow hover:shadow-md">
+      <CardHeader>
         <div className="flex items-start justify-between gap-2">
-          <Card.Title className="text-base leading-snug">{product.name}</Card.Title>
-          <Chip size="sm" variant="soft" color="accent">
-            {productTypeLabel(product.type)}
-          </Chip>
+          <CardTitle className="text-base leading-snug">
+            <Link to={paths.productDetail(product.id)} className="hover:text-primary">
+              {product.name}
+            </Link>
+          </CardTitle>
+          <Badge variant="secondary">{productTypeLabel(product.type)}</Badge>
         </div>
-        {groupName ? <Card.Description>{groupName}</Card.Description> : null}
-      </Card.Header>
+        {groupName ? <CardDescription>{groupName}</CardDescription> : null}
+      </CardHeader>
 
-      <Card.Content className="flex-1 space-y-3">
-        <div>
-          {cheapest ? (
-            <p className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-semibold text-foreground">
-                {formatMoney(cheapest.amount)}
-              </span>
-              <span className="text-sm text-muted">/ {formatCycleLabel(cheapest.cycle)}起</span>
-            </p>
-          ) : (
-            <p className="text-sm text-muted">暂不可售</p>
-          )}
-        </div>
+      <CardContent className="flex-1 space-y-3">
+        {cheapest ? (
+          <p className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-semibold text-foreground">
+              {formatMoney(cheapest.amount)}
+            </span>
+            <span className="text-sm text-muted-foreground">/ {formatCycleLabel(cheapest.cycle)}起</span>
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">暂不可售</p>
+        )}
 
         <div className="flex flex-wrap gap-1.5">
           {product.stock_control === 1 ? (
-            <Chip size="sm" variant="secondary" color={hasStock ? 'success' : 'danger'}>
+            <Badge
+              variant="outline"
+              className={hasStock ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}
+            >
               {hasStock ? `库存 ${product.stock_qty}` : '库存不足'}
-            </Chip>
+            </Badge>
           ) : (
-            <Chip size="sm" variant="secondary" color="default">
+            <Badge variant="outline" className="text-muted-foreground">
               不限库存
-            </Chip>
+            </Badge>
           )}
           {product.ontrial_max > 0 ? (
-            <Chip size="sm" variant="secondary" color="warning">
+            <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
               支持试用
-            </Chip>
+            </Badge>
           ) : null}
         </div>
-      </Card.Content>
+      </CardContent>
 
-      <Card.Footer className="flex gap-2">
+      <CardFooter className="gap-2">
         <Button
-          fullWidth
+          className="flex-1"
           variant="outline"
           size="sm"
-          onPress={() => navigate(paths.productDetail(product.id))}
+          onClick={() => navigate(paths.productDetail(product.id))}
         >
           查看详情
         </Button>
         <Button
-          fullWidth
-          variant="primary"
+          className="flex-1"
           size="sm"
-          isDisabled={!cheapest}
-          onPress={() => navigate(paths.productDetail(product.id))}
+          disabled={!cheapest}
+          onClick={() => navigate(paths.productDetail(product.id))}
         >
           立即购买
         </Button>
-      </Card.Footer>
+      </CardFooter>
     </Card>
   )
 }

@@ -1,21 +1,17 @@
-import { Spinner } from '@heroui/react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
+import { LoadingBlock } from '../components/common/PageState'
 import { buildLoginUrl } from '../lib/redirect'
 import { useAuth } from './authContext'
 
-// RequireAuth 是会员区路由守卫：未登录跳登录页并带上回跳地址。
+// RequireAuth 是会员路由守卫：未登录跳登录页并带 redirect 回跳参数。
+// 首屏校验中先展示加载态，避免「有 token 但资料未拉到」时闪跳登录页。
 export default function RequireAuth() {
   const { isAuthenticated, initializing } = useAuth()
   const location = useLocation()
 
   if (initializing) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-3 text-muted">
-        <Spinner size="md" />
-        <span className="text-sm">正在校验登录状态…</span>
-      </div>
-    )
+    return <LoadingBlock label="正在校验登录状态…" />
   }
 
   if (!isAuthenticated) {

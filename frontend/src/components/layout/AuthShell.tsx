@@ -1,34 +1,45 @@
-import { Card } from '@heroui/react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { ServerIcon } from 'lucide-react'
 
-import { SITE_NAME } from '../../lib/site'
+import { paths } from '@/app/paths'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SITE_NAME } from '@/lib/site'
 
-// AuthShell 是登录/注册页的居中卡片外壳。
+/** 认证页（登录/注册）的居中卡片外壳。 */
 export default function AuthShell({
   title,
-  subtitle,
-  children,
+  description,
   footer,
+  children,
 }: {
   title: string
-  subtitle?: ReactNode
-  children: ReactNode
+  description?: string
   footer?: ReactNode
+  children: ReactNode
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-12 sm:py-16">
-      <div className="mb-6 text-center">
-        <span className="mx-auto grid size-11 place-items-center rounded-xl bg-accent text-base font-semibold text-accent-foreground">
-          岭
+    <div className="mx-auto flex w-full max-w-md flex-col justify-center px-4 py-14 sm:py-20">
+      <Link
+        to={paths.home}
+        className="mx-auto flex items-center gap-2 text-foreground"
+        aria-label={SITE_NAME}
+      >
+        <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
+          <ServerIcon className="size-5" aria-hidden />
         </span>
-        <h1 className="mt-4 text-xl font-semibold text-foreground">{title}</h1>
-        <p className="mt-1 text-sm text-muted">{subtitle ?? `${SITE_NAME} 会员账号`}</p>
-      </div>
+        <span className="text-lg font-semibold">{SITE_NAME}</span>
+      </Link>
 
-      <Card>
-        <Card.Content className="space-y-5">{children}</Card.Content>
-        {footer ? <Card.Footer className="justify-center text-sm text-muted">{footer}</Card.Footer> : null}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-xl">{title}</CardTitle>
+          {description ? <CardDescription>{description}</CardDescription> : null}
+        </CardHeader>
+        <CardContent>{children}</CardContent>
       </Card>
+
+      {footer ? <div className="mt-5 text-center text-sm text-muted-foreground">{footer}</div> : null}
     </div>
   )
 }

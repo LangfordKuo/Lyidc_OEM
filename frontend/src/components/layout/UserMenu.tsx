@@ -1,14 +1,23 @@
-import { Dropdown } from '@heroui/react'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { LayoutDashboardIcon, LogOutIcon, WalletIcon } from 'lucide-react'
 
-import { fetchBalance } from '../../api/finance'
-import { useAuth } from '../../auth/authContext'
-import { paths } from '../../app/paths'
-import { formatMoney } from '../../lib/format'
+import { fetchBalance } from '@/api/finance'
+import { paths } from '@/app/paths'
+import { useAuth } from '@/auth/authContext'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { formatMoney } from '@/lib/format'
 
-// UserMenu 是顶栏右侧的会员菜单：昵称 + 余额（实时读取）+ 控制台/订单/充值入口 + 退出登录。
-// HeroUI v3 的 Dropdown.Trigger 本身就是按钮，无需再包一层 Button。
+/** 顶栏右侧的会员菜单：昵称 + 余额（实时读取）+ 退出登录。 */
 export default function UserMenu() {
   const { member, setBalance, logout } = useAuth()
   const navigate = useNavigate()
@@ -27,7 +36,7 @@ export default function UserMenu() {
         }
       })
       .catch(() => {
-        // 读取失败保留缓存值（菜单不展示错误，避免顶栏噪音）
+        // 读取失败保留缓存值（顶栏不展示错误，避免噪音）。
       })
     return () => {
       cancelled = true
@@ -38,63 +47,47 @@ export default function UserMenu() {
     return null
   }
 
-  const handleAction = (key: React.Key) => {
-    switch (key) {
-      case 'console':
-        navigate(paths.console)
-        break
-      case 'orders':
-        navigate(paths.consoleOrders)
-        break
-      case 'recharge':
-        navigate(paths.consoleRecharge)
-        break
-      case 'logout':
-        logout()
-        navigate(paths.home, { replace: true })
-        break
-      default:
-        break
-    }
-  }
+  const displayName = member.nickname || member.username
 
   return (
-    <Dropdown>
-      <Dropdown.Trigger
-        aria-label="会员菜单"
-        className="rounded-lg px-2 py-1 hover:bg-surface-secondary"
-      >
-        <span className="flex items-center gap-2">
-          <span className="grid size-7 place-items-center rounded-full bg-accent text-xs font-medium text-accent-foreground">
-            {(member.nickname || member.username).slice(0, 1).toUpperCase()}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="gap-2 px-1.5" aria-label="会员菜单">
+          <Avatar className="size-7">
+            <AvatarFallback className="bg-primary text-xs font-medium text-primary-foreground">
+              {displayName.slice(0, 1).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <span className="hidden max-w-24 truncate sm:inline">{displayName}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel>
+          <span className="block truncate text-sm font-medium">{displayName}</span>
+          <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+            余额 {formatMoney(member.balance)}
           </span>
-          <span className="hidden max-w-24 truncate text-sm sm:inline">
-            {member.nickname || member.username}
-          </span>
-        </span>
-      </Dropdown.Trigger>
-      <Dropdown.Popover placement="bottom end">
-        <Dropdown.Menu onAction={handleAction}>
-          <Dropdown.Item id="profile" isDisabled textValue="当前账号">
-            <div className="flex flex-col gap-0.5 py-1">
-              <span className="text-sm font-medium">{member.nickname || member.username}</span>
-              <span className="text-xs text-muted">余额 {formatMoney(member.balance)}</span>
-            </div>
-          </Dropdown.Item>
-          <Dropdown.Item id="console" textValue="控制台">
-            控制台
-          </Dropdown.Item>
-          <Dropdown.Item id="orders" textValue="我的订单">
-            我的订单
-          </Dropdown.Item>
-          <Dropdown.Item id="recharge" textValue="余额充值">
-            余额充值
-          </Dropdown.Item>
-          <Dropdown.Item id="logout" textValue="退出登录">
-            退出登录
-          </Dropdown.Item>
-        </Dropdown.Menu>
-      </Dropdown.Popover>
-    </Dropdown>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate('/console')}>
+          <LayoutDashboardIcon aria-hidden />
+          会员区
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigate('/console')}>
+          <WalletIcon aria-hidden />
+          余额与订单
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => {
+            logout()
+            navigate(paths.home, { replace: true })
+          }}
+        >
+          <LogOutIcon aria-hidden />
+          退出登录
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

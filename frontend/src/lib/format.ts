@@ -10,7 +10,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 })
 
-// formatDateTime 把 RFC3339 时间串格式化为本地时间；无法解析时原样返回。
+/** 把 RFC3339 时间串格式化为本地时间；无法解析时原样返回。 */
 export function formatDateTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -19,12 +19,12 @@ export function formatDateTime(value: string): string {
   return dateTimeFormatter.format(date)
 }
 
-// formatDateTimeOr 空值/未交付场景的占位版本。
+/** 空值/未交付场景的占位版本。 */
 export function formatDateTimeOr(value: string | null | undefined, fallback = '—'): string {
   return value ? formatDateTime(value) : fallback
 }
 
-// formatAmount 金额（定点小数字符串）统一显示两位小数；非法值原样返回。
+/** 金额（定点小数字符串）统一显示两位小数；非法值原样返回。 */
 export function formatAmount(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') {
     return '—'
@@ -36,20 +36,22 @@ export function formatAmount(value: string | number | null | undefined): string 
   return n.toFixed(2)
 }
 
-// formatMoney 带货币符号的金额，用于价格与余额展示（全站人民币）。
-// 非法输入原样返回，避免产出「¥abc」这类误导性文案。
+/** 带货币符号的金额，用于价格与余额展示（全站人民币）。非法输入原样返回。 */
 export function formatMoney(value: string | number | null | undefined): string {
   const amount = formatAmount(value)
   return Number.isFinite(Number(amount)) ? `¥${amount}` : amount
 }
 
-// formatCycleLabel 周期中文名，未知周期原样返回。
+/** 周期中文名，未知周期原样返回。 */
 export function formatCycleLabel(cycle: string): string {
   return CYCLE_LABELS[cycle as BillingCycle] ?? cycle
 }
 
-// monthlyEquivalent 按周期折算月均价（整数分计算，避免浮点误差）。
-export function monthlyEquivalent(amount: string | null | undefined, cycle: BillingCycle): string | null {
+/** 按周期折算月均价（整数分计算，避免浮点误差）。 */
+export function monthlyEquivalent(
+  amount: string | null | undefined,
+  cycle: BillingCycle,
+): string | null {
   if (amount === null || amount === undefined || amount === '') {
     return null
   }
@@ -58,24 +60,21 @@ export function monthlyEquivalent(amount: string | null | undefined, cycle: Bill
     return null
   }
   const months = CYCLE_MONTHS[cycle]
-  // 四舍五入到分（half-up），与后端金额口径一致
+  // 四舍五入到分（half-up），与后端金额口径一致。
   const perMonth = Math.round(cents / months)
   return (perMonth / 100).toFixed(2)
 }
 
-// formatDuration 周期时长文案，如「12 个月」。
+/** 周期时长文案，如「12 个月」。 */
 export function formatDuration(cycle: BillingCycle): string {
   return `${CYCLE_MONTHS[cycle]} 个月`
 }
 
-// truncate 按字符数截断长文案。
-export function truncate(value: string, max = 80): string {
-  return value.length <= max ? value : `${value.slice(0, max)}…`
-}
-
-// decodeDescription 把上游商品描述原文（含 HTML 实体与标签）转成可读纯文本。
-// 契约 10.3 备注 4：上游原文含 `<li>` 之类标签与 HTML 实体；这里只做实体反转义 + 去标签，
-// 以文本方式渲染，避免 dangerouslySetInnerHTML 带来的 XSS 面。
+/**
+ * 把上游商品描述原文（含 HTML 实体与标签）转成可读纯文本。
+ * 契约 10.3 备注 4：上游原文含 `<li>` 之类标签与 HTML 实体；这里只做实体反转义 + 去标签，
+ * 以纯文本渲染，避免 dangerouslySetInnerHTML 带来的 XSS 面。
+ */
 export function decodeDescription(value: string | null | undefined): string {
   if (!value) {
     return ''

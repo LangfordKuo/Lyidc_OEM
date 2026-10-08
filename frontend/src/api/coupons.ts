@@ -1,6 +1,6 @@
 import { http } from './client'
-import type { BillingCycle } from '../lib/cycles'
 import type { CouponValidation } from './types'
+import type { BillingCycle } from '../lib/cycles'
 
 // 优惠码公开校验（契约 11.4）：无需鉴权，用于下单前的折扣试算。
 // 注意：校验通过不代表下单一定成功（并发下 max_uses 可能被抢占），

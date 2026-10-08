@@ -1,18 +1,28 @@
-import { Label, ListBox, Select } from '@heroui/react'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { ConfigGroup } from '@/api/types'
+import { optionLabel, valueLabel } from '@/lib/productText'
 
-import type { ConfigGroup } from '../../api/types'
-import { optionLabel, valueLabel } from '../../lib/productText'
-
-// ConfigSelector 渲染商品的配置项（契约 10.3：会员端已过滤上游隐藏项与隐藏值）。
-// 提交给后端的键是 options[].id，值是其 values[].id（字符串形式）。
+/**
+ * 渲染商品的配置项（契约 10.3：会员端已过滤上游隐藏项与隐藏值）。
+ * 提交给后端的键是 options[].id，值是其 values[].id（字符串形式）。
+ */
 export default function ConfigSelector({
   groups,
   selected,
   onChange,
+  idPrefix = 'config',
 }: {
   groups: ConfigGroup[]
   selected: Record<string, string>
   onChange: (optionId: number, valueId: string) => void
+  idPrefix?: string
 }) {
   const options = groups.flatMap((group) => group.options)
   if (options.length === 0) {
@@ -23,38 +33,26 @@ export default function ConfigSelector({
     <div className="grid gap-4 sm:grid-cols-2">
       {options.map((option) => {
         const optionKey = String(option.id)
+        const selectId = `${idPrefix}-option-${option.id}`
         return (
-          <Select
-            key={option.id}
-            selectedKey={selected[optionKey] ?? null}
-            onSelectionChange={(key) => {
-              if (key !== null) {
-                onChange(option.id, String(key))
-              }
-            }}
-            placeholder="请选择"
-            className="w-full"
-          >
-            <Label>{optionLabel(option.name)}</Label>
-            <Select.Trigger>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
+          <div key={option.id} className="space-y-2">
+            <Label htmlFor={selectId}>{optionLabel(option.name)}</Label>
+            <Select
+              value={selected[optionKey] ?? undefined}
+              onValueChange={(value) => onChange(option.id, value)}
+            >
+              <SelectTrigger id={selectId} className="w-full" aria-label={optionLabel(option.name)}>
+                <SelectValue placeholder="请选择" />
+              </SelectTrigger>
+              <SelectContent>
                 {option.values.map((item) => (
-                  <ListBox.Item
-                    key={item.id}
-                    id={String(item.id)}
-                    textValue={valueLabel(item.name)}
-                  >
+                  <SelectItem key={item.id} value={String(item.id)}>
                     {valueLabel(item.name)}
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
+                  </SelectItem>
                 ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
+              </SelectContent>
+            </Select>
+          </div>
         )
       })}
     </div>

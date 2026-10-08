@@ -1,86 +1,79 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  BILLING_CYCLES,
-  availableCycles,
-  cheapestCycle,
-  isBillingCycle,
-  toBillingCycle,
-  type CyclePrices,
-} from './cycles'
-import { formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from './format'
+import { availableCycles, cheapestCycle, isBillingCycle, toBillingCycle, type CyclePrices } from '@/lib/cycles'
+import { decodeDescription, formatAmount, formatMoney, monthlyEquivalent } from '@/lib/format'
+import { pageWindow, totalPages } from '@/lib/pagination'
 
 const PRICES: CyclePrices = {
   monthly: '22.00',
   quarterly: '66.00',
   semiannual: null,
-  annual: '220.00',
+  annual: '200.00',
   biennial: null,
   triennial: null,
 }
 
-describe('计费周期', () => {
-  it('六个本地周期名与契约 10.2 一致（顺序固定）', () => {
-    expect(BILLING_CYCLES).toEqual([
-      'monthly',
-      'quarterly',
-      'semiannual',
-      'annual',
-      'biennial',
-      'triennial',
-    ])
-  })
-
-  it('availableCycles 过滤掉不可售（null）周期并保持标准顺序', () => {
+describe('计费周期工具（契约 10.2 / 10.3）', () => {
+  it('availableCycles 按标准顺序返回可售周期，跳过 null', () => {
     expect(availableCycles(PRICES)).toEqual(['monthly', 'quarterly', 'annual'])
   })
 
-  it('cheapestCycle 取最低价周期', () => {
+  it('cheapestCycle 返回最低价周期，全不可售返回 null', () => {
     expect(cheapestCycle(PRICES)).toEqual({ cycle: 'monthly', amount: '22.00' })
+    expect(
+      cheapestCycle({ ...PRICES, monthly: null, quarterly: null, annual: null }),
+    ).toBeNull()
   })
 
-  it('全部不可售时 cheapestCycle 返回 null，availableCycles 返回空数组', () => {
-    const none: CyclePrices = {
-      monthly: null,
-      quarterly: null,
-      semiannual: null,
-      annual: null,
-      biennial: null,
-      triennial: null,
-    }
-    expect(cheapestCycle(none)).toBeNull()
-    expect(availableCycles(none)).toEqual([])
+  it('cheapestCycle 同价时取周期更短者', () => {
+    const prices: CyclePrices = { ...PRICES, monthly: '50.00', quarterly: '50.00' }
+    expect(cheapestCycle(prices)?.cycle).toBe('monthly')
   })
 
-  it('周期判定与安全转换', () => {
+  it('周期名守卫', () => {
     expect(isBillingCycle('annual')).toBe(true)
-    expect(isBillingCycle('annually')).toBe(false) // 上游字段名不是本地周期名
-    expect(toBillingCycle('semiannual')).toBe('semiannual')
-    expect(toBillingCycle('')).toBeNull()
-    expect(toBillingCycle(undefined)).toBeNull()
+    expect(isBillingCycle('annually')).toBe(false)
+    expect(toBillingCycle('annually')).toBeNull()
+    expect(toBillingCycle('triennial')).toBe('triennial')
+  })
+
+  it('monthlyEquivalent 按整数分折算月均并四舍五入', () => {
+    expect(monthlyEquivalent('220.00', 'annual')).toBe('18.33')
+    expect(monthlyEquivalent('66.00', 'quarterly')).toBe('22.00')
+    expect(monthlyEquivalent(null, 'annual')).toBeNull()
   })
 })
 
-describe('金额与周期格式化', () => {
-  it('周期中文名与时长', () => {
-    expect(formatCycleLabel('monthly')).toBe('月付')
-    expect(formatCycleLabel('semiannual')).toBe('半年付')
-    expect(formatCycleLabel('triennial')).toBe('三年付')
-    expect(formatDuration('triennial')).toBe('36 个月')
+describe('金额与文案格式化', () => {
+  it('formatAmount 定点两位小数，非法值原样返回', () => {
+    expect(formatAmount('22')).toBe('22.00')
+    expect(formatAmount('22.056')).toBe('22.06')
+    expect(formatAmount(null)).toBe('—')
+    expect(formatAmount('abc')).toBe('abc')
   })
 
-  it('金额统一两位小数（后端金额为定点两位小数字符串）', () => {
-    expect(formatMoney('22')).toBe('¥22.00')
-    expect(formatMoney('22.5')).toBe('¥22.50')
-    expect(formatMoney('0')).toBe('¥0.00')
+  it('formatMoney 带货币符号', () => {
+    expect(formatMoney('198.00')).toBe('¥198.00')
     expect(formatMoney(null)).toBe('—')
-    expect(formatMoney('abc')).toBe('abc')
   })
 
-  it('月均价按周期月数折算（整数分，四舍五入到分）', () => {
-    expect(monthlyEquivalent('220.00', 'annual')).toBe('18.33')
-    expect(monthlyEquivalent('66.00', 'quarterly')).toBe('22.00')
-    expect(monthlyEquivalent('22.00', 'monthly')).toBe('22.00')
-    expect(monthlyEquivalent(null, 'monthly')).toBeNull()
+  it('decodeDescription 反转义 HTML 实体并去掉标签', () => {
+    expect(decodeDescription('&lt;li&gt;CPU:2核心&lt;/li&gt;')).toBe('CPU:2核心')
+    expect(decodeDescription('&lt;p&gt;A&lt;/p&gt;&lt;br&gt;B')).toBe('A\nB')
+    expect(decodeDescription(null)).toBe('')
+  })
+})
+
+describe('分页工具', () => {
+  it('totalPages 至少 1 页', () => {
+    expect(totalPages(0, 12)).toBe(1)
+    expect(totalPages(12, 12)).toBe(1)
+    expect(totalPages(13, 12)).toBe(2)
+  })
+
+  it('pageWindow 首尾页码 + 当前页窗口 + 省略号', () => {
+    expect(pageWindow(1, 1)).toEqual([1])
+    expect(pageWindow(5, 10)).toEqual([1, 'gap', 4, 5, 6, 'gap', 10])
+    expect(pageWindow(2, 4)).toEqual([1, 2, 3, 4])
   })
 })

@@ -10,7 +10,7 @@ export const BILLING_CYCLES = [
 
 export type BillingCycle = (typeof BILLING_CYCLES)[number]
 
-// 中文显示名：契约 10.2「中文显示名」列，接口不下发，由前端展示。
+/** 中文显示名：契约 10.2「中文显示名」列，接口不下发，由前端展示。 */
 export const CYCLE_LABELS: Record<BillingCycle, string> = {
   monthly: '月付',
   quarterly: '季付',
@@ -20,7 +20,7 @@ export const CYCLE_LABELS: Record<BillingCycle, string> = {
   triennial: '三年付',
 }
 
-// 周期月数：用于折算「月均价」与展示时长。
+/** 周期月数：用于折算「月均价」与展示时长。 */
 export const CYCLE_MONTHS: Record<BillingCycle, number> = {
   monthly: 1,
   quarterly: 3,
@@ -30,24 +30,24 @@ export const CYCLE_MONTHS: Record<BillingCycle, number> = {
   triennial: 36,
 }
 
-// 周期价格表：六个键始终存在，null 表示该周期不可售（契约 10.3）。
+/** 周期价格表：六个键始终存在，null 表示该周期不可售（契约 10.3）。 */
 export type CyclePrices = Record<BillingCycle, string | null>
 
 export function isBillingCycle(value: unknown): value is BillingCycle {
   return typeof value === 'string' && (BILLING_CYCLES as readonly string[]).includes(value)
 }
 
-// 把任意周期字符串安全转成 BillingCycle，非法值返回 null。
+/** 把任意周期字符串安全转成 BillingCycle，非法值返回 null。 */
 export function toBillingCycle(value: string | null | undefined): BillingCycle | null {
   return isBillingCycle(value) ? value : null
 }
 
-// availableCycles 按标准周期顺序返回可售（价格非 null）的周期。
+/** 按标准周期顺序返回可售（价格非 null）的周期。 */
 export function availableCycles(prices: CyclePrices): BillingCycle[] {
   return BILLING_CYCLES.filter((cycle) => prices[cycle] !== null && prices[cycle] !== undefined)
 }
 
-// cheapestCycle 返回最低价周期（同价时取周期更短者），全部不可售时返回 null。
+/** 返回最低价周期（同价时取周期更短者），全部不可售时返回 null。 */
 export function cheapestCycle(prices: CyclePrices): { cycle: BillingCycle; amount: string } | null {
   let best: { cycle: BillingCycle; amount: string } | null = null
   for (const cycle of BILLING_CYCLES) {

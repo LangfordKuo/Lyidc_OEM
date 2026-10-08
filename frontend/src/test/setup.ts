@@ -2,43 +2,44 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 
-afterEach(() => {
-  cleanup()
-})
-
-// jsdom 未实现的浏览器 API，HeroUI / React Aria 组件在测试中会用到。
-// 注意：部分 jsdom 版本会挂上不可调用的 matchMedia 占位，这里按「是否是函数」判断。
-if (typeof window.matchMedia !== 'function') {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  })
+// Radix 系列组件（Select / Dialog / DropdownMenu）在 jsdom 下依赖的浏览器 API 补齐。
+if (!window.HTMLElement.prototype.scrollIntoView) {
+  window.HTMLElement.prototype.scrollIntoView = vi.fn()
 }
-
-if (!('ResizeObserver' in globalThis)) {
+if (!window.HTMLElement.prototype.hasPointerCapture) {
+  window.HTMLElement.prototype.hasPointerCapture = () => false
+}
+if (!window.HTMLElement.prototype.setPointerCapture) {
+  window.HTMLElement.prototype.setPointerCapture = vi.fn()
+}
+if (!window.HTMLElement.prototype.releasePointerCapture) {
+  window.HTMLElement.prototype.releasePointerCapture = vi.fn()
+}
+if (!window.ResizeObserver) {
   class ResizeObserverStub {
     observe() {}
     unobserve() {}
     disconnect() {}
   }
-  Object.defineProperty(globalThis, 'ResizeObserver', {
-    writable: true,
-    value: ResizeObserverStub,
-  })
+  window.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
+}
+if (!window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia
 }
 
-if (!('scrollIntoView' in Element.prototype)) {
-  Object.defineProperty(Element.prototype, 'scrollIntoView', {
-    writable: true,
-    value: vi.fn(),
-  })
-}
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  localStorage.clear()
+  sessionStorage.clear()
+})

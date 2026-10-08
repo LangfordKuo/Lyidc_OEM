@@ -1,20 +1,24 @@
 import type { ReactNode } from 'react'
 
-// 区块标题：统一「大标题 + 说明」的排版。
+import { cn } from '@/lib/utils'
+
+/** 区块标题：标题 + 描述 + 右侧动作，页面内多处复用。 */
 export default function SectionHeading({
   title,
   description,
   action,
+  className,
 }: {
   title: string
-  description?: ReactNode
+  description?: string
   action?: ReactNode
+  className?: string
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className={cn('mb-6 flex flex-wrap items-end justify-between gap-3', className)}>
       <div>
-        <h2 className="text-xl font-semibold text-foreground">{title}</h2>
-        {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
+        <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {action}
     </div>

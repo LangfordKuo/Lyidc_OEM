@@ -1,4 +1,4 @@
-import { clearAdminToken, clearMemberToken, getAdminToken, getMemberToken } from './tokens'
+import { clearMemberToken, getMemberToken } from './tokens'
 
 // 统一响应包，字段与 backend/internal/response.Envelope 一一对应。
 // 契约文档：docs/api-contract.md 第 2 节。
@@ -14,7 +14,6 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 // 默认请求超时：避免后端未启动时页面无限转圈。
 export const DEFAULT_TIMEOUT_MS = 15000
 
-export type AuthScope = 'member' | 'admin'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type QueryValue = string | number | boolean | null | undefined
 export type QueryParams = Record<string, QueryValue>
@@ -25,14 +24,14 @@ export interface RequestOptions {
   body?: unknown
   /** 查询参数：null / undefined 会被跳过。 */
   query?: QueryParams
-  /** 注入哪一类 token（会员 token / 管理端 token），缺省不带鉴权头。 */
-  auth?: AuthScope
+  /** 是否注入会员 token（Authorization: Bearer）。 */
+  auth?: boolean
   headers?: Record<string, string>
   signal?: AbortSignal
   timeoutMs?: number
 }
 
-// ApiError 承载业务错误码与响应包 data，便于调用方按需展示（契约第 2/3 节）。
+/** ApiError 承载业务错误码与响应包 data，便于调用方按需展示（契约第 2/3 节）。 */
 export class ApiError extends Error {
   readonly code: number
   readonly data: unknown
@@ -51,7 +50,7 @@ export class ApiError extends Error {
     return this.code === 401
   }
 
-  /** 账号被禁用或角色权限不足（契约错误码 403）。 */
+  /** 账号被禁用或权限不足（契约错误码 403）。 */
   get isForbidden(): boolean {
     return this.code === 403
   }
@@ -68,9 +67,9 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// 未认证回调：会员 token 失效（401）时通知上层清理登录态并跳转登录页。
+// 未认证回调：会员 token 失效（401）时清本地 token 并通知上层清登录态（路由守卫据此跳登录页）。
 // ---------------------------------------------------------------------------
-type UnauthorizedListener = (scope: AuthScope) => void
+type UnauthorizedListener = () => void
 
 const unauthorizedListeners = new Set<UnauthorizedListener>()
 
@@ -81,15 +80,10 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
   }
 }
 
-function notifyUnauthorized(scope: AuthScope): void {
-  if (scope === 'member') {
-    clearMemberToken()
-  } else {
-    // 管理端 token 失效（401）：同步清本地登录态，由后台路由守卫跳登录页。
-    clearAdminToken()
-  }
+function notifyUnauthorized(): void {
+  clearMemberToken()
   for (const listener of unauthorizedListeners) {
-    listener(scope)
+    listener()
   }
 }
 
@@ -118,7 +112,7 @@ function buildHeaders(options: RequestOptions): Headers {
     headers.set('Content-Type', 'application/json')
   }
   if (options.auth) {
-    const token = options.auth === 'member' ? getMemberToken() : getAdminToken()
+    const token = getMemberToken()
     if (token) {
       headers.set('Authorization', `Bearer ${token}`)
     }
@@ -134,7 +128,12 @@ async function readEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   try {
     text = await response.text()
   } catch (error) {
-    throw new ApiError(-1, `读取响应失败：${error instanceof Error ? error.message : String(error)}`, null, response.status)
+    throw new ApiError(
+      -1,
+      `读取响应失败：${error instanceof Error ? error.message : String(error)}`,
+      null,
+      response.status,
+    )
   }
   if (!text) {
     // 空响应体：HTTP 成功时按「无数据」处理（本系统接口一律带响应包，属兜底分支）。
@@ -150,12 +149,14 @@ async function readEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   }
 }
 
-// request 调用后端接口并统一解析 {code, message, data}：
-// code === 0 返回 data，否则抛出 ApiError（携带 code / message / data / HTTP 状态）。
+/**
+ * request 调用后端接口并统一解析 `{code, message, data}`：
+ * `code === 0` 返回 `data`，否则抛出 ApiError（携带 code / message / data / HTTP 状态）。
+ */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { auth, method = 'GET', timeoutMs = DEFAULT_TIMEOUT_MS } = options
 
-  if (auth && !(auth === 'member' ? getMemberToken() : getAdminToken())) {
+  if (auth && !getMemberToken()) {
     // 未登录时不必打网络：直接给出与后端一致的 401 语义。
     throw new ApiError(401, '请先登录后再操作', null, 401)
   }
@@ -203,14 +204,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       response.status,
     )
     if (error.isUnauthorized && auth) {
-      notifyUnauthorized(auth)
+      notifyUnauthorized()
     }
     throw error
   }
   return envelope.data
 }
 
-// http 是 request 的薄封装，按方法直取，减少每次调用都要写 method 的样板。
+/** http 是 request 的薄封装，按方法直取，减少每次调用都要写 method 的样板。 */
 export const http = {
   get: <T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     request<T>(path, { ...options, method: 'GET' }),
@@ -218,8 +219,6 @@ export const http = {
     request<T>(path, { ...options, method: 'POST', body }),
   put: <T>(path: string, body?: unknown, options: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     request<T>(path, { ...options, method: 'PUT', body }),
-  patch: <T>(path: string, body?: unknown, options: Omit<RequestOptions, 'method' | 'body'> = {}) =>
-    request<T>(path, { ...options, method: 'PATCH', body }),
   del: <T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     request<T>(path, { ...options, method: 'DELETE' }),
 }

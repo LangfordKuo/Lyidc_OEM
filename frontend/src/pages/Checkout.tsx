@@ -1,43 +1,38 @@
-import {
-  Alert,
-  Button,
-  Card,
-  Chip,
-  Input,
-  Label,
-  Radio,
-  RadioGroup,
-  Separator,
-  TextField,
-} from '@heroui/react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { AlertCircleIcon, CheckCircle2Icon, ChevronRightIcon, LoaderCircleIcon, TicketIcon } from 'lucide-react'
 
-import { errorMessage } from '../api/client'
-import { validateCoupon } from '../api/coupons'
-import { fetchBalance } from '../api/finance'
-import { cancelOrder, createOrder, payOrder } from '../api/orders'
-import { fetchProductDetail } from '../api/products'
+import { errorMessage } from '@/api/client'
+import { validateCoupon } from '@/api/coupons'
+import { fetchBalance } from '@/api/finance'
+import { cancelOrder, createOrder } from '@/api/orders'
+import { fetchProductDetail } from '@/api/products'
 import type {
   CouponInvalidReason,
   CouponValidation,
-  EpayType,
   Order,
-  PayChannel,
+  OrderPayResult,
   ProductDetail as ProductDetailData,
-} from '../api/types'
-import { paths } from '../app/paths'
-import { useAuth } from '../auth/authContext'
-import { EmptyBlock, ErrorState, LoadingBlock } from '../components/common/PageState'
-import ConfigSelector from '../components/product/ConfigSelector'
-import CycleSelector from '../components/product/CycleSelector'
-import StatusBadge from '../components/StatusBadge'
-import { useAsync } from '../hooks/useAsync'
-import { cheapestCycle, type BillingCycle } from '../lib/cycles'
-import { readCheckoutDraft, rememberOrder } from '../lib/checkout'
-import { formatCycleLabel, formatDateTimeOr, formatMoney } from '../lib/format'
-import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES } from '../lib/orderStatus'
-import { optionLabel, valueLabel } from '../lib/productText'
+} from '@/api/types'
+import { paths } from '@/app/paths'
+import { useAuth } from '@/auth/authContext'
+import PayDialog from '@/components/checkout/PayDialog'
+import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageState'
+import StatusBadge from '@/components/common/StatusBadge'
+import ConfigSelector from '@/components/product/ConfigSelector'
+import CycleSelector from '@/components/product/CycleSelector'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
+import { useAsync } from '@/hooks/useAsync'
+import { readCheckoutDraft, rememberOrder } from '@/lib/checkout'
+import { cheapestCycle, type BillingCycle } from '@/lib/cycles'
+import { formatCycleLabel, formatDateTimeOr, formatMoney } from '@/lib/format'
+import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES } from '@/lib/orderStatus'
+import { optionLabel, valueLabel } from '@/lib/productText'
 
 // 校验失败原因文案（契约 11.2 的 5 个 reason 枚举，固定不扩展）。
 const COUPON_REASON_MESSAGES: Record<CouponInvalidReason, string> = {
@@ -48,6 +43,7 @@ const COUPON_REASON_MESSAGES: Record<CouponInvalidReason, string> = {
   cycle_not_applicable: '优惠码不适用于该周期',
 }
 
+/** 默认配置：每个可配置项取第一个可选值（契约 10.3：会员端已过滤隐藏项/值）。 */
 function defaultConfig(product: ProductDetailData): Record<string, string> {
   const selected: Record<string, string> = {}
   for (const group of product.config_groups) {
@@ -61,18 +57,14 @@ function defaultConfig(product: ProductDetailData): Record<string, string> {
   return selected
 }
 
-const PAY_METHODS: { value: PayChannel; title: string; description: string }[] = [
-  { value: 'epay', title: '在线支付', description: '跳转易支付收银台，支持支付宝 / 微信' },
-  { value: 'balance', title: '余额支付', description: '使用账户余额即时扣款并自动开通' },
-]
-
-// Checkout 是下单确认页：展示「商品/周期/配置/金额/优惠码」，提交后创建订单并发起支付。
+/** 结算页：商品/周期/配置快照 + 优惠码校验 + 金额明细 + 提交订单并拉起支付弹窗。 */
 export default function Checkout() {
   const params = useParams<{ productId: string }>()
   const navigate = useNavigate()
   const { member, setBalance } = useAuth()
 
-  const productId = params.productId && /^\d+$/.test(params.productId) ? Number(params.productId) : null
+  const productId =
+    params.productId && /^\d+$/.test(params.productId) ? Number(params.productId) : null
 
   const productState = useAsync<ProductDetailData>(
     () => {
@@ -85,11 +77,11 @@ export default function Checkout() {
   )
   const product = productState.data
 
-  const balanceState = useAsync(fetchBalance, [], Boolean(member))
+  // 余额：登录后实时读取（结算页需展示余额并据此判断余额支付可用性）。
+  const balanceState = useAsync(fetchBalance, [member?.id], Boolean(member))
   const balance = balanceState.data?.balance ?? member?.balance ?? '0.00'
 
-  // 选择状态（周期 + 配置项）：默认值由「详情页草稿 → 最低价周期」推导，
-  // 用户改动后记在 selection 里，不在 effect 里回写 state。
+  // 选择状态（周期 + 配置项）：默认值由「详情页草稿 → 最低价周期」推导。
   const [selection, setSelection] = useState<{
     productId: number
     cycle: BillingCycle
@@ -101,16 +93,13 @@ export default function Checkout() {
   const [couponError, setCouponError] = useState('')
   const [couponLoading, setCouponLoading] = useState(false)
 
-  const [channel, setChannel] = useState<PayChannel>('epay')
-  const [payType, setPayType] = useState<EpayType>('alipay')
-
   const [order, setOrder] = useState<Order | null>(null)
+  const [payOpen, setPayOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [paying, setPaying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
 
-  // 默认选择：优先用商品详情页存下的草稿；草稿缺失或该周期不可售时回落到最低价周期。
   const defaults = useMemo(() => {
     if (!product || productId === null) {
       return { cycle: 'monthly' as BillingCycle, config: {} as Record<string, string> }
@@ -132,7 +121,6 @@ export default function Checkout() {
   const price = product && product.prices[cycle] !== null ? product.prices[cycle] : null
   const discount = coupon?.valid ? coupon.discount_amount : '0.00'
   const finalAmount = coupon?.valid ? coupon.final_amount : price
-  const balanceInsufficient = finalAmount !== null && Number(balance) < Number(finalAmount)
 
   const changeCycle = (next: BillingCycle) => {
     if (productId === null) {
@@ -183,6 +171,7 @@ export default function Checkout() {
     setCouponError('')
   }
 
+  // 提交订单：成功后立即拉起支付弹窗（在线跳收银台/二维码，余额直接扣）。
   const handleCreateOrder = async () => {
     if (!product || productId === null) {
       return
@@ -206,7 +195,9 @@ export default function Checkout() {
         coupon_code: code,
       })
       setOrder(created)
-      setNotice('订单已创建，请在下方完成支付。')
+      // 记录最近订单：渠道同步回跳可能不带任何参数，支付结果页据此兜底找回。
+      rememberOrder({ id: created.id, trade_no: created.trade_no, productId: created.product_id })
+      setPayOpen(true)
     } catch (error) {
       setActionError(errorMessage(error, '下单失败，请稍后重试'))
     } finally {
@@ -214,50 +205,11 @@ export default function Checkout() {
     }
   }
 
-  const handlePay = async () => {
-    if (!order) {
-      return
-    }
-    setPaying(true)
-    setActionError('')
-    setNotice('')
-    try {
-      const result = await payOrder(order.id, {
-        channel,
-        ...(channel === 'epay' ? { pay_type: payType } : {}),
-      })
-      if (channel === 'epay') {
-        const payurl = result.pay.payurl
-        if (!payurl) {
-          setActionError('支付渠道未返回支付地址，请稍后重试或改用余额支付')
-          return
-        }
-        rememberOrder({
-          id: result.order.id,
-          trade_no: result.order.trade_no,
-          productId: result.order.product_id,
-        })
-        // 跳出本站前往渠道收银台；回跳地址由后端 return_url 设置决定。
-        window.location.assign(payurl)
-        return
-      }
-      // 余额支付：本地已入账，直接进入结果页。
-      if (result.pay.balance_after) {
-        setBalance(result.pay.balance_after)
-      }
-      navigate(`${paths.payResult}?order=${result.order.id}&channel=balance`, { replace: true })
-    } catch (error) {
-      setActionError(errorMessage(error, '支付失败，请稍后重试'))
-    } finally {
-      setPaying(false)
-    }
-  }
-
   const handleCancelOrder = async () => {
     if (!order) {
       return
     }
-    setSubmitting(true)
+    setCancelling(true)
     setActionError('')
     try {
       const cancelled = await cancelOrder(order.id)
@@ -266,7 +218,7 @@ export default function Checkout() {
     } catch (error) {
       setActionError(errorMessage(error, '取消订单失败'))
     } finally {
-      setSubmitting(false)
+      setCancelling(false)
     }
   }
 
@@ -274,6 +226,15 @@ export default function Checkout() {
     setOrder(null)
     setNotice('')
     setActionError('')
+    setPayOpen(false)
+  }
+
+  const handleBalancePaid = (result: OrderPayResult) => {
+    if (result.pay.balance_after) {
+      setBalance(result.pay.balance_after)
+    }
+    setPayOpen(false)
+    navigate(`${paths.payResult}?order=${result.order.id}&channel=balance`, { replace: true })
   }
 
   const configSummary = useMemo(() => {
@@ -313,7 +274,7 @@ export default function Checkout() {
           <EmptyBlock
             title="商品不存在或已下架"
             description={
-              <Link className="text-accent hover:underline" to={paths.products}>
+              <Link className="text-primary hover:underline" to={paths.products}>
                 返回商品列表
               </Link>
             }
@@ -329,17 +290,19 @@ export default function Checkout() {
     return null
   }
 
+  const orderCreated = order !== null
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <nav className="mb-4 text-sm text-muted" aria-label="面包屑">
+      <nav className="mb-4 flex items-center gap-1 text-sm text-muted-foreground" aria-label="面包屑">
         <Link className="hover:text-foreground" to={paths.products}>
           商品列表
         </Link>
-        <span className="mx-2">/</span>
+        <ChevronRightIcon className="size-3.5" aria-hidden />
         <Link className="hover:text-foreground" to={paths.productDetail(product.id)}>
           {product.name}
         </Link>
-        <span className="mx-2">/</span>
+        <ChevronRightIcon className="size-3.5" aria-hidden />
         <span className="text-foreground">确认订单</span>
       </nav>
 
@@ -348,247 +311,175 @@ export default function Checkout() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
           <Card>
-            <Card.Header>
-              <Card.Title className="text-base">商品与配置</Card.Title>
-              <Card.Description>
+            <CardHeader>
+              <CardTitle className="text-base">商品与配置</CardTitle>
+              <CardDescription>
                 {product.group.name} · {product.name}
-              </Card.Description>
-            </Card.Header>
-            <Card.Content className="space-y-6">
-              {order ? (
-                <div className="grid gap-2 text-sm">
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {orderCreated ? (
+                <dl className="grid gap-2 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted">商品</span>
-                    <span className="text-right text-foreground">{order.product_name}</span>
+                    <dt className="text-muted-foreground">商品</dt>
+                    <dd className="text-right text-foreground">{order.product_name}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted">周期</span>
-                    <span className="text-foreground">{formatCycleLabel(order.cycle)}</span>
+                    <dt className="text-muted-foreground">周期</dt>
+                    <dd className="text-foreground">{formatCycleLabel(order.cycle)}</dd>
                   </div>
                   {configSummary.map((item) => (
                     <div key={item.label} className="flex justify-between gap-4">
-                      <span className="text-muted">{item.label}</span>
-                      <span className="text-foreground">{item.value}</span>
+                      <dt className="text-muted-foreground">{item.label}</dt>
+                      <dd className="text-foreground">{item.value}</dd>
                     </div>
                   ))}
                   <div className="flex justify-between gap-4">
-                    <span className="text-muted">数量</span>
-                    <span className="text-foreground">{order.qty}</span>
+                    <dt className="text-muted-foreground">数量</dt>
+                    <dd className="text-foreground">{order.qty}</dd>
                   </div>
-                </div>
+                </dl>
               ) : (
                 <>
                   <div>
                     <p className="mb-2 text-sm font-medium text-foreground">计费周期</p>
-                    <CycleSelector prices={product.prices} value={cycle} onChange={changeCycle} size="sm" />
+                    <CycleSelector prices={product.prices} value={cycle} onChange={changeCycle} />
                   </div>
                   <div>
                     <p className="mb-2 text-sm font-medium text-foreground">配置项</p>
-                    <ConfigSelector
-                      groups={product.config_groups}
-                      selected={config}
-                      onChange={changeConfigValue}
-                    />
-                    {product.config_groups.length === 0 ? (
-                      <p className="text-sm text-muted">该商品无需选择配置。</p>
-                    ) : null}
+                    {product.config_groups.length > 0 ? (
+                      <ConfigSelector
+                        groups={product.config_groups}
+                        selected={config}
+                        onChange={changeConfigValue}
+                        idPrefix="checkout"
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">该商品无需选择配置。</p>
+                    )}
                   </div>
                 </>
               )}
-            </Card.Content>
+            </CardContent>
           </Card>
 
-          {order ? (
+          {orderCreated ? (
             <Card>
-              <Card.Header>
-                <Card.Title className="text-base">订单支付</Card.Title>
-                <Card.Description>订单号 {order.trade_no}</Card.Description>
-              </Card.Header>
-              <Card.Content className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
+              <CardHeader>
+                <CardTitle className="text-base">订单状态</CardTitle>
+                <CardDescription>订单号 {order.trade_no}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <StatusBadge
                     tone={ORDER_STATUS_TONES[order.status]}
                     label={ORDER_STATUS_LABELS[order.status]}
                   />
-                  {order.status === 'pending' ? (
-                    <>
-                      <span className="text-sm text-muted">创建于 {formatDateTimeOr(order.created_at)}</span>
-                    </>
-                  ) : null}
+                  <span className="text-sm text-muted-foreground">
+                    创建于 {formatDateTimeOr(order.created_at)}
+                  </span>
                 </div>
 
                 {order.status === 'pending' ? (
-                  <>
-                    <RadioGroup
-                      aria-label="支付方式"
-                      value={channel}
-                      onChange={(value) => setChannel(value as PayChannel)}
-                      className="gap-3"
-                    >
-                      {PAY_METHODS.map((method) => (
-                        // HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本），
-                        // 圆圈（Radio.Control / Radio.Indicator）也要放在 Radio.Content 内、文本之前。
-                        <Radio key={method.value} value={method.value}>
-                          <Radio.Content>
-                            <Radio.Control>
-                              <Radio.Indicator />
-                            </Radio.Control>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium">
-                                {method.title}
-                                {method.value === 'balance'
-                                  ? `（余额 ${formatMoney(balance)}）`
-                                  : ''}
-                              </span>
-                              <span className="text-xs text-muted">{method.description}</span>
-                            </div>
-                          </Radio.Content>
-                        </Radio>
-                      ))}
-                    </RadioGroup>
-
-                    {channel === 'epay' ? (
-                      <RadioGroup
-                        aria-label="在线支付方式"
-                        value={payType}
-                        onChange={(value) => setPayType(value as EpayType)}
-                        orientation="horizontal"
-                        className="gap-3"
-                      >
-                        <Radio value="alipay">
-                          <Radio.Content>
-                            <Radio.Control>
-                              <Radio.Indicator />
-                            </Radio.Control>
-                            支付宝
-                          </Radio.Content>
-                        </Radio>
-                        <Radio value="wxpay">
-                          <Radio.Content>
-                            <Radio.Control>
-                              <Radio.Indicator />
-                            </Radio.Control>
-                            微信支付
-                          </Radio.Content>
-                        </Radio>
-                      </RadioGroup>
-                    ) : null}
-
-                    {channel === 'balance' && balanceInsufficient ? (
-                      <Alert status="warning">
-                        <Alert.Indicator />
-                        <Alert.Content>
-                          <Alert.Description>
-                            余额不足（当前 {formatMoney(balance)}，应付 {formatMoney(order.final_amount)}），
-                            请改用在线支付或在会员区充值。
-                          </Alert.Description>
-                        </Alert.Content>
-                      </Alert>
-                    ) : null}
-
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        variant="primary"
-                        isDisabled={paying || (channel === 'balance' && balanceInsufficient)}
-                        onPress={handlePay}
-                      >
-                        {paying ? '正在发起支付…' : channel === 'epay' ? '前往支付' : '余额支付'}
-                      </Button>
-                      <Button variant="outline" isDisabled={submitting} onPress={handleCancelOrder}>
-                        取消订单
-                      </Button>
-                    </div>
-                  </>
+                  <div className="flex flex-wrap gap-3">
+                    <Button onClick={() => setPayOpen(true)}>继续支付</Button>
+                    <Button variant="outline" disabled={cancelling} onClick={handleCancelOrder}>
+                      {cancelling ? '取消中…' : '取消订单'}
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-sm text-muted">
+                    <p className="text-sm text-muted-foreground">
                       {order.status === 'cancelled'
                         ? '该订单已取消。'
-                        : '该订单已支付，可前往会员区查看订单状态与交付进度。'}
+                        : '该订单已支付，可前往支付结果页查看状态。'}
                     </p>
                     <div className="flex flex-wrap gap-3">
-                      <Button variant="primary" onPress={() => navigate(paths.consoleOrders)}>
-                        查看订单
+                      <Button onClick={() => navigate(`${paths.payResult}?order=${order.id}`)}>
+                        查看订单状态
                       </Button>
-                      <Button variant="outline" onPress={resetOrder}>
+                      <Button variant="outline" onClick={resetOrder}>
                         重新下单
                       </Button>
                     </div>
                   </div>
                 )}
-              </Card.Content>
+              </CardContent>
             </Card>
           ) : null}
 
           {notice ? (
-            <Alert status="success">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{notice}</Alert.Description>
-              </Alert.Content>
+            <Alert>
+              <CheckCircle2Icon className="text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <AlertDescription>{notice}</AlertDescription>
             </Alert>
           ) : null}
           {actionError ? (
-            <Alert status="danger">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description>{actionError}</Alert.Description>
-              </Alert.Content>
+            <Alert variant="destructive">
+              <AlertCircleIcon aria-hidden />
+              <AlertDescription>{actionError}</AlertDescription>
             </Alert>
           ) : null}
         </div>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          <Card>
-            <Card.Header>
-              <Card.Title className="text-base">费用明细</Card.Title>
-            </Card.Header>
-            <Card.Content className="space-y-3 text-sm">
+          <Card data-testid="checkout-summary">
+            <CardHeader>
+              <CardTitle className="text-base">费用明细</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted">{formatCycleLabel(cycle)}原价</span>
+                <span className="text-muted-foreground">{formatCycleLabel(cycle)}原价</span>
                 <span className="text-foreground">{formatMoney(order?.amount ?? price)}</span>
               </div>
 
-              {order ? (
+              {orderCreated ? (
                 <div className="flex justify-between">
-                  <span className="text-muted">优惠码</span>
+                  <span className="text-muted-foreground">优惠码</span>
                   <span className="text-foreground">
-                    {order.coupon_code ? `${order.coupon_code} · -${formatMoney(order.discount_amount)}` : '未使用'}
+                    {order.coupon_code
+                      ? `${order.coupon_code} · -${formatMoney(order.discount_amount)}`
+                      : '未使用'}
                   </span>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <TextField
-                    name="coupon_code"
-                    value={couponCode}
-                    onChange={(value) => {
-                      setCouponCode(value)
-                      setCoupon(null)
-                      setCouponError('')
-                    }}
-                    isInvalid={Boolean(couponError)}
-                    isDisabled={Boolean(order)}
-                  >
-                    <Label>优惠码</Label>
-                    <div className="flex gap-2">
-                      <Input placeholder="输入优惠码，如 WELCOME10" />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        isDisabled={couponLoading}
-                        onPress={handleValidateCoupon}
-                      >
-                        {couponLoading ? '校验中…' : '校验'}
-                      </Button>
-                    </div>
-                  </TextField>
-                  {couponError ? <p className="text-xs text-danger">{couponError}</p> : null}
+                  <label htmlFor="coupon-code" className="flex items-center gap-1.5 text-muted-foreground">
+                    <TicketIcon className="size-4" aria-hidden />
+                    优惠码
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="coupon-code"
+                      value={couponCode}
+                      placeholder="如 WELCOME10"
+                      aria-invalid={couponError ? true : undefined}
+                      onChange={(event) => {
+                        setCouponCode(event.target.value)
+                        setCoupon(null)
+                        setCouponError('')
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0"
+                      disabled={couponLoading}
+                      onClick={handleValidateCoupon}
+                    >
+                      {couponLoading ? '校验中…' : '校验'}
+                    </Button>
+                  </div>
+                  {couponError ? <p className="text-xs text-destructive">{couponError}</p> : null}
                   {coupon?.valid ? (
-                    <p className="text-xs text-success">
-                      {coupon.code} 可用：减免 {formatMoney(coupon.discount_amount)}
+                    <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                      <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400">
+                        {coupon.code}
+                      </Badge>
+                      可用：减免 {formatMoney(coupon.discount_amount)}
                       <button
                         type="button"
-                        className="ml-2 text-muted underline-offset-2 hover:underline"
+                        className="text-muted-foreground underline-offset-2 hover:underline"
                         onClick={clearCoupon}
                       >
                         清除
@@ -598,16 +489,16 @@ export default function Checkout() {
                 </div>
               )}
 
-              {order ? (
+              {orderCreated ? (
                 <div className="flex justify-between">
-                  <span className="text-muted">优惠减免</span>
+                  <span className="text-muted-foreground">优惠减免</span>
                   <span className="text-foreground">
                     {Number(order.discount_amount) > 0 ? `-${formatMoney(order.discount_amount)}` : '—'}
                   </span>
                 </div>
               ) : Number(discount) > 0 ? (
                 <div className="flex justify-between">
-                  <span className="text-muted">优惠减免</span>
+                  <span className="text-muted-foreground">优惠减免</span>
                   <span className="text-foreground">-{formatMoney(discount)}</span>
                 </div>
               ) : null}
@@ -615,39 +506,59 @@ export default function Checkout() {
               <Separator />
 
               <div className="flex items-baseline justify-between">
-                <span className="text-muted">应付金额</span>
-                <span className="text-xl font-semibold text-foreground">
+                <span className="text-muted-foreground">应付金额</span>
+                <span className="text-xl font-semibold text-foreground" data-testid="payable-amount">
                   {formatMoney(order?.final_amount ?? finalAmount)}
                 </span>
               </div>
 
-              {order ? null : (
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>账户余额</span>
+                <span>{formatMoney(balance)}</span>
+              </div>
+
+              {orderCreated ? (
+                <Button className="h-10 w-full text-base" onClick={() => setPayOpen(true)}>
+                  继续支付
+                </Button>
+              ) : (
                 <Button
-                  fullWidth
-                  variant="primary"
-                  size="lg"
-                  isDisabled={submitting || price === null}
-                  onPress={handleCreateOrder}
+                  className="h-10 w-full text-base"
+                  disabled={submitting || price === null}
+                  onClick={handleCreateOrder}
                 >
-                  {submitting ? '正在创建订单…' : '提交订单'}
+                  {submitting ? (
+                    <>
+                      <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
+                      正在创建订单…
+                    </>
+                  ) : (
+                    '提交订单'
+                  )}
                 </Button>
               )}
 
-              <p className="text-xs text-muted">
-                {order
+              <p className="text-xs text-muted-foreground">
+                {orderCreated
                   ? '订单创建后金额与优惠已快照，重复发起支付不会重复扣款。'
                   : '提交订单后生成待支付订单，可选择在线支付或余额支付。'}
               </p>
 
               {price === null ? (
-                <Chip color="danger" variant="soft" size="sm">
-                  当前周期不可售，请切换其他周期
-                </Chip>
+                <Badge variant="destructive">当前周期不可售，请切换其他周期</Badge>
               ) : null}
-            </Card.Content>
+            </CardContent>
           </Card>
         </aside>
       </div>
+
+      <PayDialog
+        order={order}
+        open={payOpen}
+        onOpenChange={setPayOpen}
+        balance={balance}
+        onPaid={handleBalancePaid}
+      />
     </div>
   )
 }
