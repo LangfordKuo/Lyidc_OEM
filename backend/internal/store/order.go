@@ -47,9 +47,14 @@ type OrderInput struct {
 
 // OrderFilter 是订单分页查询条件（page 从 1 开始）。
 type OrderFilter struct {
-	// MemberID 为 0 表示不按会员过滤（管理端预留；本批会员端一律传本人 ID）。
+	// MemberID 为 0 表示不按会员过滤（会员端一律传本人 ID；管理端传 0 表示全站）。
 	MemberID uint64
 	Status   string
+	// TradeNo 为**模糊**匹配（不区分大小写的 LIKE 包含匹配，与会员/工单搜索口径一致）；
+	// 空串表示不过滤。单号前缀 `O` 由调用方保证不参与匹配口径。
+	TradeNo string
+	// Type 为订单类型精确匹配（new / renew，阶段 8b）；空串表示不过滤。
+	Type     string
 	Page     int
 	PageSize int
 }
@@ -149,6 +154,12 @@ func (s *Store) ListOrders(ctx context.Context, filter OrderFilter) ([]model.Ord
 	}
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
+	}
+	if filter.TradeNo != "" {
+		query = query.Where("trade_no LIKE ?", containsKeyword(filter.TradeNo))
+	}
+	if filter.Type != "" {
+		query = query.Where("type = ?", filter.Type)
 	}
 
 	var total int64

@@ -1,11 +1,12 @@
-import { Card, Chip, Separator } from '@heroui/react'
+import { Card, Chip } from '@heroui/react'
 import { Link } from 'react-router-dom'
 
 import { fetchUpstreamHealth } from '../../api/adminSettings'
 import { listAdminInstances } from '../../api/adminInstances'
 import { listAdminLedger, listAdminMembers, listAdminRecharges } from '../../api/adminMembers'
+import { listAdminOrders } from '../../api/adminOrders'
 import { listAdminTickets } from '../../api/adminTickets'
-import type { Recharge, Ticket } from '../../api/types'
+import type { AdminOrder, Recharge, Ticket } from '../../api/types'
 import { paths } from '../../app/paths'
 import { useAdminAuth } from '../../auth/adminAuthContext'
 import StatCard from '../../components/admin/StatCard'
@@ -13,17 +14,18 @@ import { ErrorState } from '../../components/common/PageState'
 import { useAsync } from '../../hooks/useAsync'
 import { ADMIN_ROLE_DESCRIPTIONS, ADMIN_ROLE_LABELS, hasPermission } from '../../lib/adminRoles'
 import { formatDateTime, formatMoney } from '../../lib/format'
+import { ORDER_STATUS_TONES, orderStatusLabel } from '../../lib/orderStatus'
 import { ticketStatusLabel, ticketStatusTone } from '../../lib/ticketStatus'
 import StatusBadge from '../../components/StatusBadge'
 
 // AdminDashboard 是管理后台仪表盘：只用**既有接口能取到的**指标。
 //
 // 口径说明（不造假）：
-//   - 会员总数 / 实例数 / 待处理工单 / 已到账充值单 / 流水条数：均由对应列表接口的 total 取得
-//     （带 page_size=1 只读总数）；
+//   - 会员总数 / 订单数 / 实例数 / 待处理工单 / 已到账充值单 / 流水条数：均由对应列表接口的
+//     total 取得（带 page_size=1 只读总数）；
+//   - 订单指标（阶段 8b 补齐）：订单总数 / 待支付 / 交付失败 + 最近订单（GET /admin/orders）；
 //   - 上游探活：GET /admin/upstream/health（仅 admin）；
-//   - **订单总数与最近订单：管理端没有订单列表接口**（缺口，见交付报告），
-//     这里以明确的 TODO 卡片标注，不用其他数据凑数。
+//   - 收入趋势 / 日活等统计类指标仍**没有接口**，本页不做估算（页脚注明）。
 export default function AdminDashboard() {
   const { admin, role } = useAdminAuth()
 
@@ -47,6 +49,29 @@ export default function AdminDashboard() {
     () => listAdminInstances({ page: 1, page_size: 1, status: 'suspended' }),
     [],
     Boolean(role),
+  )
+  // 订单指标（阶段 8b）：总数 / 待交付（paid，尚未触发交付）/ 交付失败 + 最近订单
+  // （查看类接口，三角色均可读）。
+  const canOrders = hasPermission(role, 'orders.read')
+  const ordersState = useAsync(
+    () => listAdminOrders({ page: 1, page_size: 1 }),
+    [],
+    canOrders,
+  )
+  const paidOrdersState = useAsync(
+    () => listAdminOrders({ page: 1, page_size: 1, status: 'paid' }),
+    [],
+    canOrders,
+  )
+  const failedOrdersState = useAsync(
+    () => listAdminOrders({ page: 1, page_size: 1, status: 'failed' }),
+    [],
+    canOrders,
+  )
+  const recentOrdersState = useAsync(
+    () => listAdminOrders({ page: 1, page_size: 5 }),
+    [],
+    canOrders,
   )
   // 待处理工单（客服域：仅 admin / support）。
   const openTicketsState = useAsync(
@@ -77,6 +102,7 @@ export default function AdminDashboard() {
 
   const loadError =
     membersState.error ||
+    ordersState.error ||
     instancesState.error ||
     openTicketsState.error ||
     paidRechargesState.error ||
@@ -121,6 +147,19 @@ export default function AdminDashboard() {
             hint="全站会员账号（含已禁用）"
           />
           <StatCard
+            label="订单总数"
+            value={canOrders ? ordersState.data?.total : null}
+            loading={ordersState.loading}
+            placeholder={canOrders ? '—' : '无权限'}
+            hint={
+              canOrders
+                ? `待交付 ${paidOrdersState.data?.total ?? '—'} · 交付失败 ${
+                    failedOrdersState.data?.total ?? '—'
+                  }`
+                : undefined
+            }
+          />
+          <StatCard
             label="实例总数"
             value={instancesState.data?.total}
             loading={instancesState.loading}
@@ -145,6 +184,46 @@ export default function AdminDashboard() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
+        {canOrders ? (
+          <Card>
+            <Card.Header>
+              <Card.Title className="text-base">最近订单</Card.Title>
+              <Card.Description>新建在前，点击进入详情查看交付信息。</Card.Description>
+            </Card.Header>
+            <Card.Content className="space-y-3">
+              {recentOrdersState.loading ? (
+                <p className="text-sm text-muted">正在读取订单…</p>
+              ) : null}
+              {!recentOrdersState.loading && (recentOrdersState.data?.items.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted">暂无订单。</p>
+              ) : null}
+              {(recentOrdersState.data?.items ?? []).map((order: AdminOrder) => (
+                <div key={order.id} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      className="block truncate font-mono text-sm text-foreground hover:text-accent"
+                      to={paths.adminOrderDetail(order.id)}
+                    >
+                      {order.trade_no}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {order.member ? order.member.username : `#${order.member_id}`} ·{' '}
+                      {formatDateTime(order.created_at)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-sm text-foreground">{formatMoney(order.final_amount)}</span>
+                    <StatusBadge
+                      tone={ORDER_STATUS_TONES[order.status] ?? 'pending'}
+                      label={orderStatusLabel(order.status)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </Card.Content>
+          </Card>
+        ) : null}
+
         {canTickets ? (
           <Card>
             <Card.Header>
@@ -249,21 +328,12 @@ export default function AdminDashboard() {
         <Card variant="secondary">
           <Card.Header>
             <Card.Title className="text-base">暂缺的指标（接口未提供）</Card.Title>
-            <Card.Description>以下数据在契约中没有管理端接口，本页不做近似或估算。</Card.Description>
+            <Card.Description>以下数据在契约中没有接口，本页不做近似或估算。</Card.Description>
           </Card.Header>
           <Card.Content className="space-y-2 text-sm text-muted">
             <p>
-              <span className="text-foreground">订单总数 / 最近订单</span>
-              ：契约未定义 `GET /admin/orders`（列表）与 `GET /admin/orders/:id`（详情），
-              管理端目前只能凭订单 ID 执行「重试交付」。
-            </p>
-            <Separator />
-            <p>
               <span className="text-foreground">收入趋势 / 日活</span>
-              ：无统计类接口，不做前端估算。
-            </p>
-            <p className="text-xs">
-              以上缺口已列入阶段 8 交付报告，待后端补接口后在本页接入。
+              ：无统计类接口，不做前端估算（订单类指标已由阶段 8b 的管理端订单接口补齐）。
             </p>
           </Card.Content>
         </Card>

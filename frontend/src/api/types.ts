@@ -178,6 +178,23 @@ export interface Order {
   updated_at: string
 }
 
+/** 订单归属会员的概要（管理端订单视图 `member` 字段，契约 12.6）。 */
+export interface AdminOrderMember {
+  id: number
+  username: string
+  nickname: string
+  email: string
+  status: MemberStatus
+}
+
+/**
+ * 管理端订单视图（契约 12.6）：字段与会员端订单视图**完全一致**，额外回带会员概要。
+ * 会员行缺失时为 null（异常数据，不阻断订单展示）。
+ */
+export interface AdminOrder extends Order {
+  member: AdminOrderMember | null
+}
+
 export interface CreateOrderInput {
   product_id: number
   cycle: BillingCycle

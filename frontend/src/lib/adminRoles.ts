@@ -30,7 +30,8 @@ export type AdminPermission =
   | 'products.write'
   | 'products.import'
   | 'groups.write'
-  // 订单（契约 14.4）
+  // 订单（契约 12.6 查看类 / 14.4 重试交付）
+  | 'orders.read'
   | 'orders.retry'
   // 实例（契约 14.4 / 15.3）
   | 'instances.read'
@@ -57,6 +58,7 @@ const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
   'products.import': ['admin', 'finance'],
   'groups.write': ['admin', 'finance'],
 
+  'orders.read': ['admin', 'finance', 'support'],
   'orders.retry': ['admin'],
 
   'instances.read': ['admin', 'finance', 'support'],
@@ -83,6 +85,7 @@ const PERMISSION_LABELS: Record<AdminPermission, string> = {
   'products.write': '修改定价或上下架',
   'products.import': '上游导入商品',
   'groups.write': '修改商品分组',
+  'orders.read': '查看订单',
   'orders.retry': '重试订单交付',
   'instances.read': '查看实例',
   'instances.sync': '同步实例状态',

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,10 @@ import (
 const (
 	msgOrderMissing         = "订单不存在"
 	msgPaymentNotConfigured = "支付渠道未配置或未启用（请联系管理员在后台设置中填写并启用）"
+	// msgOrderStatusInvalid 是订单状态筛选取值非法时的提示（会员端与管理端同口径）。
+	msgOrderStatusInvalid = "status 只能是 pending / paid / provisioning / active / failed / cancelled"
+	// msgOrderTypeInvalid 是管理端订单类型筛选取值非法时的提示。
+	msgOrderTypeInvalid = "type 只能是 new（新购）或 renew（续费）"
 )
 
 // orderHandler 处理订单接口：创建（含优惠码抵扣）/ 列表 / 详情 / 发起支付 / 取消 /
@@ -88,6 +93,32 @@ type orderListView struct {
 	Page     int         `json:"page"`
 	PageSize int         `json:"page_size"`
 	Total    int64       `json:"total"`
+}
+
+// adminOrderMemberView 是订单归属会员的概要（阶段 8b）：供客服定位与核对，
+// 只含身份类字段（不含余额、手机号等与订单无关的信息）。
+type adminOrderMemberView struct {
+	ID       uint64 `json:"id"`
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Email    string `json:"email"`
+	Status   string `json:"status"`
+}
+
+// adminOrderView 是管理端订单视图（阶段 8b，契约 12.6）：
+// 字段与会员端订单视图**完全一致**（内嵌 orderView，JSON 平铺），额外回带会员概要 `member`
+// （会员行缺失时为 null，不阻断订单展示）。
+type adminOrderView struct {
+	orderView
+	Member *adminOrderMemberView `json:"member"`
+}
+
+// adminOrderListView 是管理端订单分页列表。
+type adminOrderListView struct {
+	Items    []adminOrderView `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int64            `json:"total"`
 }
 
 // payView 是发起支付的返回：epay 渠道给支付链接，余额支付给扣款结果。
@@ -256,8 +287,7 @@ func (h *orderHandler) listOrders(c *gin.Context) {
 	}
 	status := strings.TrimSpace(c.Query("status"))
 	if status != "" && !model.IsValidOrderStatus(status) {
-		response.Fail(c, response.CodeInvalidParam,
-			"status 只能是 pending / paid / provisioning / active / failed / cancelled")
+		response.Fail(c, response.CodeInvalidParam, msgOrderStatusInvalid)
 		return
 	}
 
@@ -502,6 +532,132 @@ func (h *orderHandler) retryDelivery(c *gin.Context) {
 	h.logger.Info("管理员重试交付成功", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", order.MemberID, "host_id", order.HostID)
 	response.Success(c, newOrderView(order, h.logger))
+}
+
+// listAdminOrders 处理 GET /api/v1/admin/orders：全站订单分页（阶段 8b，契约 12.6）。
+//
+// 筛选：status（6 态）/ type（new / renew）/ member_id（本地会员 ID）/ trade_no（模糊匹配）；
+// 视图 = 会员端订单视图 + 会员概要（member）。查看类接口：admin / finance / support 均可读
+// （客服协助会员查询是日常；重试交付仍仅 admin）。非法筛选取值一律 40001；
+// 分页口径全站统一（page 缺省 1、page_size 缺省 20 / 上限 100，契约 1.3）。
+func (h *orderHandler) listAdminOrders(c *gin.Context) {
+	page, pageSize, ok := pagingParams(c)
+	if !ok {
+		return
+	}
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "" && !model.IsValidOrderStatus(status) {
+		response.Fail(c, response.CodeInvalidParam, msgOrderStatusInvalid)
+		return
+	}
+	orderType := strings.TrimSpace(c.Query("type"))
+	if orderType != "" && !model.IsValidOrderType(orderType) {
+		response.Fail(c, response.CodeInvalidParam, msgOrderTypeInvalid)
+		return
+	}
+	memberID, err := parseUint64Query("member_id", c.Query("member_id"))
+	if err != nil {
+		failRuleError(c, err)
+		return
+	}
+
+	ctx := c.Request.Context()
+	items, total, err := h.store.ListOrders(ctx, store.OrderFilter{
+		MemberID: memberID,
+		Status:   status,
+		TradeNo:  strings.TrimSpace(c.Query("trade_no")),
+		Type:     orderType,
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+
+	views, err := h.newAdminOrderViews(ctx, items)
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+	response.Success(c, adminOrderListView{Items: views, Page: page, PageSize: pageSize, Total: total})
+}
+
+// getAdminOrder 处理 GET /api/v1/admin/orders/:id：管理端订单详情（阶段 8b，契约 12.6）。
+//
+// 返回**全字段**订单视图（含交付信息 host_id / provision_error / delivered_at 与关联实例）+ 会员概要。
+// 与会员端不同，管理端不看归属（只按 ID 查）；订单不存在 → 404，:id 非正整数 → 40001。
+func (h *orderHandler) getAdminOrder(c *gin.Context) {
+	id, ok := orderIDParam(c)
+	if !ok {
+		return
+	}
+
+	ctx := c.Request.Context()
+	order, err := h.store.OrderByID(ctx, id)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		response.Fail(c, response.CodeNotFound, msgOrderMissing)
+		return
+	case err != nil:
+		failDB(c, h.logger, err)
+		return
+	}
+
+	member, err := h.store.MemberByID(ctx, order.MemberID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// 会员行缺失（异常数据）不阻断订单展示：member 输出 null。
+		member = nil
+	case err != nil:
+		failDB(c, h.logger, err)
+		return
+	}
+	response.Success(c, newAdminOrderView(order, member, h.logger))
+}
+
+// newAdminOrderViews 批量组装管理端订单视图：会员概要按当页订单的会员 ID 一次查出（避免 N+1）。
+func (h *orderHandler) newAdminOrderViews(ctx context.Context, orders []model.Order) ([]adminOrderView, error) {
+	ids := make([]uint64, 0, len(orders))
+	seen := make(map[uint64]bool, len(orders))
+	for i := range orders {
+		if id := orders[i].MemberID; !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+
+	members := make(map[uint64]*model.Member, len(ids))
+	if len(ids) > 0 {
+		found, err := h.store.MembersByIDs(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		for i := range found {
+			members[found[i].ID] = &found[i]
+		}
+	}
+
+	views := make([]adminOrderView, 0, len(orders))
+	for i := range orders {
+		views = append(views, newAdminOrderView(&orders[i], members[orders[i].MemberID], h.logger))
+	}
+	return views, nil
+}
+
+// newAdminOrderView 组装管理端订单视图（会员缺失时为 null，订单其余字段照常输出）。
+func newAdminOrderView(order *model.Order, member *model.Member, logger *slog.Logger) adminOrderView {
+	view := adminOrderView{orderView: newOrderView(order, logger)}
+	if member != nil {
+		view.Member = &adminOrderMemberView{
+			ID:       member.ID,
+			Username: member.Username,
+			Nickname: member.Nickname,
+			Email:    member.Email,
+			Status:   member.Status,
+		}
+	}
+	return view
 }
 
 // normalizeOrderConfig 归一化下单配置：值接受 JSON 字符串或整数（配置项 id 的数字写法）。

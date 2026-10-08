@@ -25,6 +25,8 @@ export const paths = {
   admin: '/admin',
   adminProducts: '/admin/products',
   adminOrders: '/admin/orders',
+  /** 订单详情（阶段 8b 新增接口 GET /admin/orders/:id）。 */
+  adminOrderDetail: (id: number | string) => `/admin/orders/${id}`,
   adminMembers: '/admin/members',
   adminInstances: '/admin/instances',
   /** 实例详情（阶段 8 新增接口 GET /admin/instances/:id）。 */
@@ -50,7 +52,7 @@ export const consoleNavItems = [
 export const adminNavItems = [
   { to: paths.admin, label: '仪表盘', end: true, page: 'dashboard', description: '全站关键指标' },
   { to: paths.adminProducts, label: '商品', end: false, page: 'products', description: '定价、上下架与导入' },
-  { to: paths.adminOrders, label: '订单', end: false, page: 'orders', description: '交付处置与重试' },
+  { to: paths.adminOrders, label: '订单', end: false, page: 'orders', description: '订单查询与交付处置' },
   { to: paths.adminMembers, label: '会员', end: false, page: 'members', description: '会员资料与余额流水' },
   { to: paths.adminInstances, label: '实例', end: false, page: 'instances', description: '实例状态与操作' },
   { to: paths.adminTickets, label: '工单', end: false, page: 'tickets', description: '客服工单处理' },

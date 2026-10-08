@@ -2026,9 +2026,51 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 4. **极端并发超用**是已知边界：两个并发回调都读到 `used_count < max_uses` 时，条件更新保证只有一个
    成功自增，另一个「超用但已付款」——按契约照常交付，只记 WARN（不退款、不阻断）。
 
-### 12.6 管理端接口（对账）
+### 12.6 管理端接口（订单查看与对账）
 
-两个只读列表，用于财务对账；`admin` 与 `finance` 可查，`support` 返回 `403`。
+**订单列表 / 详情**（阶段 8b 新增）为**查看类**接口：`admin` / `finance` / `support` **均可读**
+（客服协助会员查询是日常）；**重试交付仍仅 `admin`**（契约 14.4）。
+**充值单 / 流水**两个只读列表用于财务对账：`admin` 与 `finance` 可查，`support` 返回 `403`。
+
+#### `GET /api/v1/admin/orders`（阶段 8b）
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理端 token（admin / finance / support 均可） |
+| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选：6 态枚举）、`type`（可选：`new` / `renew`）、`member_id`（可选，本地会员 ID）、`trade_no`（可选，**模糊匹配**：不区分大小写的包含匹配，与会员/工单搜索口径一致） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`（新建在前 = id 降序，**含全站数据**） |
+| 错误码 | `40001`（分页越界、`status` / `type` 取值非法、`member_id` 非正整数）、`401` |
+
+`items` 元素 = **会员端订单对象（12.4，字段完全相同）** + `member`（会员概要）：
+
+```json
+{
+  "items": [{
+    "id": 103, "trade_no": "O20261008141000DEMO7B", "member_id": 11,
+    "product_id": 7, "product_name": "香港二区 CN2 A型", "cycle": "monthly", "qty": 1,
+    "config": {"11": "111"}, "amount": "22.00", "discount_amount": "0.00", "final_amount": "22.00",
+    "coupon_code": "", "status": "active", "type": "renew", "pay_channel": "balance",
+    "channel_trade_no": "", "pay_time": "2026-10-08T06:10:40Z", "host_id": 40011,
+    "instance_id": 101, "provision_error": "", "delivered_at": "2026-10-08T06:10:45Z",
+    "created_at": "2026-10-08T06:10:35Z", "updated_at": "2026-10-08T06:10:45Z",
+    "member": {"id": 11, "username": "demo7a", "nickname": "demo7a",
+               "email": "demo7a@example.com", "status": "active"}
+  }],
+  "page": 1, "page_size": 20, "total": 12
+}
+```
+
+`member` 是**会员概要**（身份类字段：`id` / `username` / `nickname` / `email` / `status`，
+不含余额等与订单无关的信息）；会员行缺失（异常数据）时输出 `null`，订单其余字段照常返回。
+会员概要按当页订单的会员 ID **一次批量查出**（不产生 N+1）。
+
+#### `GET /api/v1/admin/orders/:id`（阶段 8b）
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理端 token（admin / finance / support 均可） |
+| 成功 | HTTP 200，`data` = **单个订单对象**（结构同列表元素：订单全字段 + `member`），含交付信息 `host_id` / `provision_error` / `delivered_at` 与关联实例 `instance_id` |
+| 错误码 | `40001`（`:id` 非正整数）、`401`、`404 订单不存在`（管理端**不按归属**过滤：不存在即 404） |
 
 #### `GET /api/v1/admin/recharges`
 
@@ -2052,6 +2094,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | --- | --- | --- | --- | --- |
 | `GET/PUT /api/v1/admin/settings/payment/epay` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/admin/settings/upstream` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET /api/v1/admin/orders`、`GET /api/v1/admin/orders/:id`（阶段 8b，查看类） | ✓ | ✓ | ✓ | ✗（`401`） |
 | `GET /api/v1/admin/recharges`、`GET /api/v1/admin/ledger` | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/instances`（阶段 5a）、`GET /api/v1/admin/instances/:id`（阶段 8 新增） | ✓ | ✓ | ✓ | ✗（`401`） |
 | `POST /api/v1/admin/orders/:id/retry-delivery`（阶段 5a，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
@@ -2076,7 +2119,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `40002` | 参数校验失败：周期不可售、未知配置项/取值、优惠码不存在或无效、订单状态不允许支付/取消/**重试交付**、余额不足、渠道未启用或配置不完整、`pay_type` 不受支持、`enabled=true` 缺必填设置项、超时越界 |
 | `401` | 未携带/无效 token（会员接口用管理员 token 访问同样 401） |
 | `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance；**重试交付接口非 admin；实例 suspend / unsuspend 非 admin（阶段 5b）**） |
-| `404` | 商品不存在或已下架、订单不存在或非本人、**实例不存在或非本人**、优惠码不存在（校验接口） |
+| `404` | 商品不存在或已下架、订单不存在或非本人（会员端；管理端订单详情只看 ID，不存在即 `订单不存在`，阶段 8b）、**实例不存在或非本人**、优惠码不存在（校验接口） |
 | `409` | （阶段 4 未新用） |
 | `500` | 库内设置值损坏等内部错误 |
 | `50001` | 本地库读写失败 |
@@ -2664,6 +2707,10 @@ cancelled                                provisioning ──上游开通成功�
 | 成功 | HTTP 200，`data` 为**最新订单对象**：交付成功 `status=active` + `host_id`；交付执行失败 `status=failed` + `provision_error`（仍按 200 返回，便于管理员据状态处置或再次重试） |
 | 错误码 | `401`、`403`、`40001`（ID 非法）、`404`（订单不存在）、`40002`（订单尚未支付 / 正在交付中 / 已交付完成 / 已取消）、`50001` |
 | 说明 | **同步**执行一次完整交付（认领 → 上游开通 → 回读 → 落库）；`paid`（未触发过）与 `failed` 可重试；`provisioning` / `active` / `pending` / `cancelled` 不可重试 |
+
+> 管理端**订单列表 / 详情**（阶段 8b 补齐：`GET /admin/orders`、`GET /admin/orders/:id`，
+> 查看类接口三角色均可读）契约见 12.6；本节的 `retry-delivery` 仍是**唯一**会真实调用上游的
+> 管理端订单接口（仅 `admin`）。
 
 ### 14.5 真机实测与差异记录（2026-10-08，生产上游）
 
@@ -3573,6 +3620,7 @@ status = active
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v14 | 阶段 8b（补阶段 8 缺口：**管理端订单接口**）——**新增 `GET /api/v1/admin/orders`**（全站订单分页：`page` / `page_size` + `status`（6 态）/ `type`（`new` / `renew`）/ `member_id` / `trade_no`（**模糊匹配**，不区分大小写包含匹配）筛选；视图 = **会员端订单视图（12.4）字段完全相同** + `member` 会员概要（`id` / `username` / `nickname` / `email` / `status`，按当页会员 ID 批量查出；会员行缺失输出 `null`））与 **新增 `GET /api/v1/admin/orders/:id`**（订单全字段 + 会员概要 + 交付信息 `host_id` / `provision_error` / `delivered_at` 与关联实例 `instance_id`；不存在 `404 订单不存在`、ID 非法 `40001`）；**权限定稿**：两个查看类接口 **admin / finance / support 均可读**（客服协助会员查询是日常），**重试交付保持仅 admin**（14.4 不变，仅补一条交叉引用）；**契约 12.6 扩写**为「管理端接口（订单查看与对账）」并给出响应示例，**12.7 矩阵**补一行、**12.8 的 `404` 行**注明管理端只看 ID；阶段 8 的已知缺口（后台订单页只有「重试交付工作台」、仪表盘订单指标标注缺失）在本批消除——后台 `/admin/orders` 升级为**列表（筛选/分页）+ 详情（时间线 / 交付信息 / 会员 / 继续处置）**，仪表盘接入订单总数 / 待支付 / 交付失败与最近订单；**真机冒烟（32 项全通过）**：三角色可读列表与详情、会员 token 与匿名 `401`、`status` / `type` / `member_id` / `trade_no` 筛选逐条口径断言（开发库 12 单：new 9 / renew 3）、组合筛选、6 类 `40001` 负例、详情会员概要 `demo7a` 与交付字段（`host_id=40011` / `instance_id=101` / `delivered_at`）、404 与 retry-delivery 的 `403`（finance / support）/ `401`（会员） |
 | 2026-10-08 | v13 | 阶段 8（管理后台前端 + 两处后端补充）：**新增 `GET /api/v1/admin/instances/:id`**（管理端实例详情——字段与会员端 `GET /instances/:id` 同口径（摘要 + `assigned_ips` / `port` / `username` / `password` / `updated_at`），额外回带 `member_id`；权限沿用管理端实例**列表**口径（admin / finance / support 均可读），ID 非法 `40001`、不存在 `404`；见 14.4 与 12.7 矩阵同步更新）；**契约 16.3 一致性修正**——会员工单详情 `GET /tickets/:id` 与 `GET /admin/tickets/:id` 的成功 `data` 统一为**嵌套** `{ticket, messages}`（此前实现把工单字段平铺在 `data` 上，与契约的 `ticket + messages` 写法不符；本批改实现对齐契约，会员端与管理端同步，前端类型/页面/测试一并更新），16.3 增补结构说明；**本批不含其他后端改动**；管理后台前端（`/admin/*`：登录、仪表盘、商品、订单、会员、实例、工单、设置、通知）按 6.4 / 10.5 / 12.7 / 15.3 / 16.3 / 17.3 的角色矩阵落地界面可见性（无权限的入口隐藏或禁用 + 403 统一提示），**页面不写契约**；已知缺口（不在本批范围）：管理端**订单列表/详情接口不存在**（`GET /admin/orders`、`GET /admin/orders/:id`），后台订单页只提供按订单 ID 的「重试交付」工作台 |
 | 2026-10-08 | v12 | 阶段 6b：新增第 17 节「通知体系」——**迁移 0011**（新建 `notifications` / `email_logs` 两表 + 给 `instances` 扩 `expiry_reminded_due` 列，**不改 0001–0010**）；**站内通知**（会员端 / 管理端同构的 8 个接口：列表（`unread` 筛选 + 回带未读数）/ 未读计数 / 单条已读（**幂等**，不覆盖首次 `read_at`）/ 全部已读；权限定稿：**个人收件箱**——会员仅本人（他人的与不存在的统一 `404`），管理端三类角色各读本人收件箱（通知不属于工单域））；**邮件 SMTP**（设置键 `email.smtp`：enabled/host/port/username/password/from/from_name/encryption(`none`/`starttls`/`ssl`，端口按加密方式取缺省 25/587/465，口令三态脱敏；`POST /admin/settings/email/test` 同步发测试邮件，未配置 `40002`、失败 `50004`；发送器**只用标准库 net/smtp**（`ssl` 用 crypto/tls 建连再 `smtp.NewClient`，无外部依赖）；`email_logs` 同步留痕、error 已脱敏）；**事件接线定稿 9 个事件**（`order_delivered`/`order_failed`/`renew_succeeded`/`instance_suspended`/`instance_terminated`/`ticket_created`/`ticket_replied`(双向同名)/`ticket_closed`/`expiry_reminder`；**事务提交后异步触发、失败只记日志**；管理端站内按在职 admin+support **逐个账号扇出**、邮件发 `settings.site.admin_email`；**内部备注不产生任何通知**、**会员自行关闭不通知客服**）；**到期提醒**（设置键 `notifications`：站内/邮件总开关 + 到期提醒开关与天数，缺省全开、提前 7 天；扫描窗口 `(now, now+N 天]` 且 `status=active`、无在途取消申请；**去重锚点定稿为 `instances.expiry_reminded_due`**——先原子认领再投递，每到期周期**只提醒一次**，续费/同步推进到期时间后**自动重新武装**；该阶段**不需要上游**，在扫描首段执行）；**接线点**：`internal/notify`（新包，事件入口 + SMTP 发送 + 留痕）、delivery/scheduler 通过窄接口 `Notifier` 解耦、router 工单 handler 4 处挂点接线；**顺手修**：`internal/auth` 的篡改 token 用例改为确定性构造（原写法有约 0.1% 概率构造出与原值相同的 token）；**真机实测（17.7）**——开发库（迁移 0010→0011）+ mini SMTP 收信器（标准库 socket）：测试邮件、工单创建/会员回复/客服公开回复/客服关闭四类事件（内部备注与重复关闭零通知）、会员与支持各自收件箱、finance 零扇出、越权 404 与跨端 401、口令仅回显掩码（响应与日志无明文）、到期提醒三轮（首轮投递 → 去重不重复 → 开关关闭不产生 → 重新武装再投递），通知 8 条 / 邮件 8 封全 success；同步更新 12.1（新增两个设置键）/12.7（角色矩阵补通知三行）/错误码表（新增 `50004`）|
 | 2026-10-08 | v11 | 阶段 6a：新增第 16 节「工单系统」——**迁移 0010**（新建 `tickets` / `ticket_messages` 两表，**不改 0001–0009**）；**状态机定稿**（`open` 待客服 ↔ `replied` 待会员 → `closed` 终态；会员回复回 `open`、管理员公开回复转 `replied`、**内部备注不改状态**只推进 `last_reply_at`、关闭**幂等**（重复关闭 `already_closed=true` 且不覆盖 `closed_at`）、`closed` 后回复一律 `40002`）；**单号前缀 `T`**（复用 12.2.5 规则与 `createWithTradeNo`）；**限流定稿**（未关闭工单上限 20，超限 `40002`，并发允许瞬时超出）；**字段约束**（`subject` 5-100 / `content` 1-5000 字符，裁剪首尾空白后按 rune 计，纯空白拒绝）；**接口**（会员端 `POST/GET /tickets`、`GET /tickets/:id`、`POST /tickets/:id/reply|close`；管理端 `GET /admin/tickets`（status/category/member_id/keyword 筛选）、`GET /admin/tickets/:id`、`POST /admin/tickets/:id/reply|close`）；**权限定稿**（工单域为客服域：**admin + support 全权，finance 一律 403**；会员端仅本人，他人工单统一 404）；**内部备注不泄漏**（`internal=true` 的消息绝不进会员端响应）；同步更新 12.7（角色矩阵补工单两行）；**真机实测（16.5）**——开发库（迁移 0009→0010）全流程中文内容演练：工单号 `T20261008121849W0QLH7` 全生命周期（提单 → 会员回复 → 内部备注（状态保持 open）→ support 公开回复（转 replied）→ 会员回复（回 open）→ 关闭 → 关闭后回复 40002 → 重复关闭 `already_closed=true` 且 `closed_at` 不覆盖）、内部备注对会员端零泄漏、finance 四接口全 403、越权关联实例 404、第 21 单 40002 且关闭一单后放行、库内消息流与 6b 挂点日志逐条对应；通知体系（站内通知 + 邮件 SMTP + 到期提醒）留**阶段 6b**，本批只在工单事件处预留挂点 |

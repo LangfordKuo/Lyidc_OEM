@@ -19,6 +19,7 @@ import AdminInstances from '../pages/admin/AdminInstances'
 import AdminLogin from '../pages/admin/AdminLogin'
 import AdminMembers from '../pages/admin/AdminMembers'
 import AdminNotifications from '../pages/admin/AdminNotifications'
+import AdminOrderDetail from '../pages/admin/AdminOrderDetail'
 import AdminOrders from '../pages/admin/AdminOrders'
 import AdminProducts from '../pages/admin/AdminProducts'
 import AdminSettings from '../pages/admin/AdminSettings'
@@ -90,6 +91,7 @@ export const routes: RouteObject[] = [
               { index: true, element: <AdminDashboard /> },
               { path: 'products', element: <AdminProducts /> },
               { path: 'orders', element: <AdminOrders /> },
+              { path: 'orders/:id', element: <AdminOrderDetail /> },
               { path: 'members', element: <AdminMembers /> },
               { path: 'instances', element: <AdminInstances /> },
               { path: 'instances/:id', element: <AdminInstanceDetail /> },

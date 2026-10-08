@@ -304,6 +304,12 @@ func New(opts Options) *gin.Engine {
 			// 重试交付会真实调用上游开通（可能扣上游余额），仅 admin 角色（契约 14.4）。
 			adminGroup.GET("/instances", instances.listAdminInstances)
 			adminGroup.GET("/instances/:id", instances.getAdminInstance)
+
+			// 订单（阶段 8b，契约 12.6，补阶段 8 缺口）：列表/详情为**查看类**接口，
+			// admin / finance / support 均可读（客服协助会员查询是日常）；
+			// 重试交付保持**仅 admin**（真实调用上游开通、可能扣上游余额，契约 14.4）。
+			adminGroup.GET("/orders", orders.listAdminOrders)
+			adminGroup.GET("/orders/:id", orders.getAdminOrder)
 			adminGroup.POST("/orders/:id/retry-delivery",
 				requireAdminRole(model.RoleAdmin), orders.retryDelivery)
 
