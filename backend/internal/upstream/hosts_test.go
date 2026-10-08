@@ -1,0 +1,150 @@
+package upstream
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"testing"
+)
+
+// realHostInfoBody 是 GET /cart/hostinfo 的结构样例（字段取自上游 hostInfo 返回定义）。
+const realHostInfoBody = `{
+  "hosts": [
+    {"id": 88, "productid": 1, "domain": "hk-a.example.com", "dedicatedip": "203.0.113.10",
+     "assignedips": ["203.0.113.11"], "create_time": 1759881600, "nextduedate": "2026-11-08",
+     "billingcycle": "monthly", "billingcycle_zh": "月",
+     "firstpaymentamount": "20.00", "amount": "20.00", "port": 22,
+     "username": "root", "password": "secret", "initiative_renew": 1,
+     "domainstatus": "Active", "domainstatus_zh": ["已激活", "#00ff00"]}
+  ],
+  "currency": "¥"
+}`
+
+func TestHostsSendsHostIDArrayAndParsesRealPayload(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathCartHostInfo: func(_ int, _ *http.Request, _ url.Values) (int, string) {
+			return http.StatusOK, okBody(realHostInfoBody)
+		},
+	})
+	client := fake.client(t, nil)
+
+	list, err := client.Hosts(context.Background(), []int{88, 99}, true)
+	if err != nil {
+		t.Fatalf("Hosts() 失败: %v", err)
+	}
+	if len(list.Hosts) != 1 {
+		t.Fatalf("主机数量 = %d, 期望 1", len(list.Hosts))
+	}
+
+	host := list.Hosts[0]
+	if host.ID != 88 || host.ProductID != 1 || host.DomainStatus != "Active" {
+		t.Errorf("主机 = %+v, 期望 id=88 productid=1 domainstatus=Active", host)
+	}
+	if host.DedicatedIP != "203.0.113.10" || len(host.AssignedIPs) != 1 {
+		t.Errorf("IP = (%s, %v), 期望 dedicatedip=203.0.113.10 且 assignedips 展开为 1 项",
+			host.DedicatedIP, host.AssignedIPs)
+	}
+	if host.CreateTime != 1759881600 || host.NextDueDate != "2026-11-08" {
+		t.Errorf("时间字段 = (%d, %s), 期望 (1759881600, 2026-11-08)", host.CreateTime, host.NextDueDate)
+	}
+	if list.Currency != "¥" {
+		t.Errorf("货币符号 = %q, 期望 ¥", list.Currency)
+	}
+
+	calls := fake.requests(pathCartHostInfo)
+	if len(calls) != 1 {
+		t.Fatalf("调用次数 = %d, 期望 1", len(calls))
+	}
+	if got := calls[0].Query["hostid[]"]; len(got) != 2 || got[0] != "88" || got[1] != "99" {
+		t.Errorf("hostid[] = %v, 期望 [88 99]", got)
+	}
+	if got := calls[0].Query.Get("all"); got != "1" {
+		t.Errorf("all = %q, 期望 1", got)
+	}
+}
+
+func TestHostReturnsMatchingHostOrBusinessError(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathCartHostInfo: func(call int, _ *http.Request, _ url.Values) (int, string) {
+			if call == 1 {
+				return http.StatusOK, okBody(realHostInfoBody)
+			}
+			return http.StatusOK, okBody(`{"hosts":[],"currency":"¥"}`)
+		},
+	})
+	client := fake.client(t, nil)
+
+	host, err := client.Host(context.Background(), 88)
+	if err != nil {
+		t.Fatalf("Host(88) 失败: %v", err)
+	}
+	if host.ID != 88 {
+		t.Errorf("Host(88).ID = %d, 期望 88", host.ID)
+	}
+
+	if _, err := client.Host(context.Background(), 77); !errors.Is(err, ErrBusiness) {
+		t.Fatalf("主机不存在时错误 = %v, 期望 ErrBusiness", err)
+	}
+	if _, err := client.Host(context.Background(), 0); !errors.Is(err, ErrBusiness) {
+		t.Fatalf("hostID=0 时错误 = %v, 期望 ErrBusiness", err)
+	}
+}
+
+func TestCreditParsesNullAndAmount(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathCartCredit: func(call int, _ *http.Request, _ url.Values) (int, string) {
+			if call == 1 {
+				// 未登录时上游返回 credit=null（实测行为）。
+				return http.StatusOK, okBody(`{"credit":null,"currency":{"id":1,"code":"CNY","prefix":"¥","suffix":"元"}}`)
+			}
+			return http.StatusOK, okBody(`{"credit":"100.00","currency":{"id":1,"code":"CNY","prefix":"¥","suffix":"元"}}`)
+		},
+	})
+	client := fake.client(t, nil)
+
+	credit, err := client.Credit(context.Background())
+	if err != nil {
+		t.Fatalf("Credit() 失败: %v", err)
+	}
+	if credit.Credit != "" {
+		t.Errorf("credit=null 应解析为空串，实际 %q", credit.Credit)
+	}
+	if credit.Currency.Code != "CNY" || credit.Currency.Prefix != "¥" {
+		t.Errorf("货币 = %+v, 期望 code=CNY prefix=¥", credit.Currency)
+	}
+
+	credit, err = client.Credit(context.Background())
+	if err != nil {
+		t.Fatalf("第二次 Credit() 失败: %v", err)
+	}
+	if credit.Credit != "100.00" {
+		t.Errorf("credit = %q, 期望 100.00（金额保留原始字符串精度）", credit.Credit)
+	}
+}
+
+func TestSummaryBusinessErrorWhenAPIClosed(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathCartSummary: func(call int, _ *http.Request, _ url.Values) (int, string) {
+			if call == 1 {
+				// 上游未开启资源 API / 账号未开通 API 时的真实返回。
+				return http.StatusOK, failBody(400, "暂未开通API功能")
+			}
+			return http.StatusOK, okBody(`{"api_password":"MaskedKey1234","api_open":1,"agent_count":2,
+				"host_count":3,"active_count":2,"api_count":10,"ratio":"50.00%","up":1}`)
+		},
+	})
+	client := fake.client(t, nil)
+
+	if _, err := client.Summary(context.Background()); !errors.Is(err, ErrBusiness) {
+		t.Fatalf("API 未开通时错误 = %v, 期望 ErrBusiness", err)
+	}
+
+	summary, err := client.Summary(context.Background())
+	if err != nil {
+		t.Fatalf("Summary() 失败: %v", err)
+	}
+	if summary.APIOpen != 1 || summary.AgentCount != 2 || summary.APICount != 10 {
+		t.Errorf("概览 = %+v, 期望 api_open=1 agent_count=2 api_count=10", summary)
+	}
+}

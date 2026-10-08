@@ -29,3 +29,18 @@ log:
   level: "info"
   # 日志格式：text | json
   format: "text"
+
+upstream:
+  # 上游「魔方财务系统」对接配置（阶段 2，契约见 docs/api-contract.md 第 8、9 节）。
+  # 三项全部留空 = 不启用上游对接：服务照常启动，仅 /api/v1/admin/upstream/health 报告未配置。
+  # 接口地址：上游魔方财务系统的访问地址（带 http(s)://，不要以 / 结尾），如 https://lyew.com
+  base_url: ""
+  # 上游账号：手机号或邮箱。
+  # 注意：上游对 username 有 4-20 字符的硬校验，超过 20 字符的邮箱会被上游拒绝（见契约 8.5）。
+  username: ""
+  # API 密钥：上游前台「安全中心 → API」生成的 12 位密钥（不是登录密码）。
+  # 安全要求：真实密钥只写在本地 config.yaml（已 gitignore）或由系统设置下发，
+  #          禁止写入本示例文件、任何入库文件、日志与工单。
+  api_key: ""
+  # 单次上游请求超时（秒），缺省 5，取值 1-120。
+  timeout_seconds: 5

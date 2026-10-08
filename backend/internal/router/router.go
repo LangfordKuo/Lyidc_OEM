@@ -15,6 +15,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
 // PingFunc 探测依赖组件（数据库）连通性；返回 nil 表示正常。
@@ -32,7 +33,15 @@ type Options struct {
 	DB *gorm.DB
 	// JWT 是 token 签发/校验配置；零值回退到开发默认密钥与 7 天有效期。
 	JWT config.JWTConfig
+	// Upstream 是上游客户端（阶段 2）；nil 表示未配置上游，
+	// /api/v1/admin/upstream/health 会返回 connected=false + error="上游未配置"。
+	Upstream *upstream.Client
+	// UpstreamTimeout 是上游探活的整体超时，缺省 5s。
+	UpstreamTimeout time.Duration
 }
+
+// defaultUpstreamProbeTimeout 是上游探活缺省超时。
+const defaultUpstreamProbeTimeout = 5 * time.Second
 
 // New 创建 gin 引擎并注册全部路由。
 func New(opts Options) *gin.Engine {
@@ -78,6 +87,13 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/members", admins.listMembers)
 			adminGroup.PUT("/members/:id/status",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), admins.updateMemberStatus)
+
+			// 上游探活：只读调用上游验证连通性（未配置上游时返回 connected=false）。
+			upstreamGroup := adminGroup.Group("/upstream")
+			{
+				upstreamGroup.GET("/health",
+					upstreamHealthHandler(opts.Upstream, opts.UpstreamTimeout))
+			}
 		}
 	}
 

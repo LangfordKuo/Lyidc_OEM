@@ -19,6 +19,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/router"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -55,11 +56,31 @@ func main() {
 		logger.Info("数据库连接成功", "dsn", config.MaskDSN(cfg.Database.DSN))
 	}
 
+	upstreamClient, err := upstream.New(upstream.Config{
+		BaseURL:  cfg.Upstream.BaseURL,
+		Username: cfg.Upstream.Username,
+		APIKey:   cfg.Upstream.APIKey,
+		Timeout:  cfg.Upstream.Timeout(),
+		Logger:   logger,
+	})
+	if err != nil {
+		logger.Error("上游客户端初始化失败", "error", err)
+		os.Exit(1)
+	}
+	if missing := cfg.Upstream.MissingFields(); len(missing) > 0 {
+		logger.Warn("上游配置不完整，上游对接不可用", "missing", missing)
+	} else if cfg.Upstream.Enabled() {
+		logger.Info("上游对接已启用",
+			"base_url", upstreamClient.BaseURL(), "api_key", upstreamClient.MaskedAPIKey())
+	}
+
 	engine := router.New(router.Options{
-		Logger: logger,
-		Ping:   db.PingFunc(gdb),
-		DB:     gdb,
-		JWT:    cfg.JWT,
+		Logger:          logger,
+		Ping:            db.PingFunc(gdb),
+		DB:              gdb,
+		JWT:             cfg.JWT,
+		Upstream:        upstreamClient,
+		UpstreamTimeout: cfg.Upstream.Timeout(),
 	})
 
 	srv := &http.Server{

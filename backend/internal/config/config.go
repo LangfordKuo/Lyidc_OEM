@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,11 @@ const (
 	DefaultJWTExpireHours = 168
 	// MaxJWTExpireHours 是 token 有效期上限（8760 小时 = 1 年），防止误配成超长有效期。
 	MaxJWTExpireHours = 8760
+
+	// DefaultUpstreamTimeoutSeconds 是上游请求缺省超时（秒）。
+	DefaultUpstreamTimeoutSeconds = 5
+	// MaxUpstreamTimeoutSeconds 是上游请求超时上限（秒），防止误配成近乎不超时。
+	MaxUpstreamTimeoutSeconds = 120
 )
 
 // EnvConfigPath 是显式指定配置文件路径的环境变量名。
@@ -47,9 +53,66 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
 	Log      LogConfig      `yaml:"log"`
+	Upstream UpstreamConfig `yaml:"upstream"`
 
 	// SourcePath 记录实际加载的配置文件路径，为空表示使用缺省值。
 	SourcePath string `yaml:"-"`
+}
+
+// UpstreamConfig 是上游「魔方财务系统」对接配置（阶段 2，见 docs/api-contract.md 第 8 节）。
+//
+// 全部留空表示不启用上游对接：服务可正常启动，只有 /api/v1/admin/upstream/health 会报告未配置。
+type UpstreamConfig struct {
+	// BaseURL 上游地址（如 https://lyew.com），不带结尾斜杠。
+	BaseURL string `yaml:"base_url"`
+	// Username 上游账号：手机号或邮箱。
+	//
+	// 注意：上游对 username 有 4-20 字符的硬校验，超过 20 字符的邮箱会被拒绝（见契约 8.5）。
+	Username string `yaml:"username"`
+	// APIKey 上游前台「安全中心 → API」生成的密钥（12 位随机串，不是登录密码）。
+	//
+	// 安全约定：真实密钥只写在本地 config.yaml（已 gitignore）或由系统设置下发，
+	// 禁止写进 config.example.yaml 等任何入库文件。
+	APIKey string `yaml:"api_key"`
+	// TimeoutSeconds 单次上游请求超时（秒），缺省 5，取值 1-120。
+	TimeoutSeconds int `yaml:"timeout_seconds"`
+}
+
+// Timeout 返回上游请求超时。
+func (u UpstreamConfig) Timeout() time.Duration {
+	seconds := u.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = DefaultUpstreamTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// Enabled 判断上游是否配置齐全（地址 + 账号 + 密钥）。
+func (u UpstreamConfig) Enabled() bool {
+	return strings.TrimSpace(u.BaseURL) != "" &&
+		strings.TrimSpace(u.Username) != "" &&
+		strings.TrimSpace(u.APIKey) != ""
+}
+
+// MissingFields 返回已开始配置但缺失的字段名，便于启动时给出明确告警。
+// 完全未配置（三项都空）时返回 nil。
+func (u UpstreamConfig) MissingFields() []string {
+	if strings.TrimSpace(u.BaseURL) == "" &&
+		strings.TrimSpace(u.Username) == "" &&
+		strings.TrimSpace(u.APIKey) == "" {
+		return nil
+	}
+	var missing []string
+	if strings.TrimSpace(u.BaseURL) == "" {
+		missing = append(missing, "upstream.base_url")
+	}
+	if strings.TrimSpace(u.Username) == "" {
+		missing = append(missing, "upstream.username")
+	}
+	if strings.TrimSpace(u.APIKey) == "" {
+		missing = append(missing, "upstream.api_key")
+	}
+	return missing
 }
 
 // JWTConfig 是 JWT 签发与校验配置。
@@ -105,6 +168,9 @@ func Default() Config {
 		Log: LogConfig{
 			Level:  DefaultLogLevel,
 			Format: DefaultLogFormat,
+		},
+		Upstream: UpstreamConfig{
+			TimeoutSeconds: DefaultUpstreamTimeoutSeconds,
 		},
 	}
 }
@@ -199,6 +265,10 @@ func (c Config) Validate() error {
 			c.JWT.ExpireHours, MaxJWTExpireHours))
 	}
 
+	if err := c.Upstream.validate(); err != nil {
+		errs = append(errs, err...)
+	}
+
 	if _, err := ParseLogLevel(c.Log.Level); err != nil {
 		errs = append(errs, err)
 	}
@@ -209,6 +279,32 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// validate 校验上游配置。允许完全留空（不启用上游对接）。
+func (u UpstreamConfig) validate() []error {
+	var errs []error
+
+	if base := strings.TrimSpace(u.BaseURL); base != "" {
+		parsed, err := url.Parse(base)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("upstream.base_url %q 非法: %w", base, err))
+		case parsed.Scheme != "http" && parsed.Scheme != "https":
+			errs = append(errs, fmt.Errorf("upstream.base_url %q 必须以 http:// 或 https:// 开头", base))
+		case parsed.Host == "":
+			errs = append(errs, fmt.Errorf("upstream.base_url %q 缺少主机名", base))
+		}
+	}
+	if u.TimeoutSeconds < 0 || u.TimeoutSeconds > MaxUpstreamTimeoutSeconds {
+		errs = append(errs, fmt.Errorf("upstream.timeout_seconds %d 非法（应在 1-%d 之间，0 表示使用缺省 %d）",
+			u.TimeoutSeconds, MaxUpstreamTimeoutSeconds, DefaultUpstreamTimeoutSeconds))
+	}
+	if strings.TrimSpace(u.APIKey) != "" && strings.TrimSpace(u.Username) == "" {
+		errs = append(errs, errors.New("upstream.api_key 已配置但 upstream.username 为空（上游登录需要账号）"))
+	}
+
+	return errs
 }
 
 // SlogLevel 返回日志级别；解析失败时回退到 info。
