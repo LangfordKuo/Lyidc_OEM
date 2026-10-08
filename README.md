@@ -2,8 +2,8 @@
 
 岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
-后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + HeroUI（Tailwind CSS v4）。
-接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v9）。
+后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v14）。
 
 ## 快速部署
 
@@ -94,7 +94,8 @@ MySQL 不可达时整体跳过。
 
 ## 阶段进度
 
-已完成阶段 0–8b：脚手架与 CI → 账号体系 → 上游对接 → 商品计费（含优惠码）→ 支付财务 →
-安装向导 → 订单交付与自动开通 → 实例操作与续费 → 通知体系 → 前端官网/会员区/管理后台 →
-阶段 9 交付自动化（Release 包 + GHCR 镜像 + 部署文档）。
+已完成阶段 0–9：脚手架与 CI → 账号体系 → 上游对接 → 商品计费（含优惠码）→ 支付财务 →
+安装向导 → 订单交付与自动开通 → 实例操作与续费 → 通知体系 → 管理后台 → 交付自动化
+（Release 包 + GHCR 镜像 + 部署文档）。前端（官网/会员区/管理后台）已在阶段 9 后整体
+重写为 shadcn/ui（R1–R3）。
 后续：实例终止流程收敛、`provisioning` 悬挂订单对账等。

@@ -13,7 +13,10 @@
 # 数据与配置：/app/data（容器工作目录；安装向导把 config.yaml 写在这里，故挂卷持久化）。
 
 # ---------- 构建阶段 ----------
-FROM golang:1.25-alpine AS builder
+# --platform=$BUILDPLATFORM：构建阶段固定在**原生构建机架构**（CI 的 amd64）上执行，
+# 由 Go 用 GOARCH 交叉编译出目标架构二进制。若不这样写，buildx 多架构构建 arm64 时会
+# 用 QEMU 全量模拟编译，耗时从分钟级膨胀到小时级（实测曾卡死 4 小时+）。
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 # 交叉编译的目标平台由 buildx 注入（--platform linux/arm64 或构建矩阵）。
 # 必须写在 FROM 之后、COPY 之前：这两个 ARG 在 FROM 行引用会要求 --build-arg 显式传入。
