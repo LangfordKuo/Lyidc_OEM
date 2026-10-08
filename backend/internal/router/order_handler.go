@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/payment"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
@@ -24,20 +25,23 @@ const (
 	msgPaymentNotConfigured = "支付渠道未配置或未启用（请联系管理员在后台设置中填写并启用）"
 )
 
-// orderHandler 处理订单接口：创建（含优惠码抵扣）/ 列表 / 详情 / 发起支付 / 取消。
+// orderHandler 处理订单接口：创建（含优惠码抵扣）/ 列表 / 详情 / 发起支付 / 取消 /
+// 管理员重试交付（阶段 5a）。
 //
-// 交付边界（契约 12.3 / 12.9）：本批只做「创建 + 支付 + 落状态」，**上游开通交付留阶段 5**，
-// 因此下单与支付链路都不调用上游。
+// 交付边界（契约 14.3）：下单与支付链路只在**入账事务提交后**触发交付（异步，不阻塞响应）；
+// 上游开通由 internal/delivery 完成，本 handler 不做任何上游调用（重试交付除外，见 retryDelivery）。
 type orderHandler struct {
-	store    *store.Store
-	payments *payment.Registry
-	logger   *slog.Logger
+	store      *store.Store
+	payments   *payment.Registry
+	deliveries DeliveryTrigger
+	logger     *slog.Logger
 }
 
 // createOrderRequest 是 POST /api/v1/orders 请求体。
 //
-// Config 的键与值都是**上游配置项 ID（upstream_id）**：键为该商品可配置项的
-// upstream_id，值为所选可选值的 upstream_id；值接受 JSON 字符串或整数写法。
+// Config 的键与值都是**上游配置项的本地 ID**：键为该商品可配置项的 id（`options[].id`），
+// 值为所选可选值的 id（`values[].id`）；值接受 JSON 字符串或整数写法。
+// （口径依据见 order_rule.go validateOrderConfig 的说明与契约 14.5。）
 type createOrderRequest struct {
 	ProductID  uint64                     `json:"product_id"`
 	Cycle      string                     `json:"cycle"`
@@ -69,6 +73,9 @@ type orderView struct {
 	PayChannel     string            `json:"pay_channel"`
 	ChannelTradeNo string            `json:"channel_trade_no"`
 	PayTime        *string           `json:"pay_time"`
+	HostID         *int              `json:"host_id"`
+	ProvisionError string            `json:"provision_error"`
+	DeliveredAt    *string           `json:"delivered_at"`
 	CreatedAt      string            `json:"created_at"`
 	UpdatedAt      string            `json:"updated_at"`
 }
@@ -247,7 +254,8 @@ func (h *orderHandler) listOrders(c *gin.Context) {
 	}
 	status := strings.TrimSpace(c.Query("status"))
 	if status != "" && !model.IsValidOrderStatus(status) {
-		response.Fail(c, response.CodeInvalidParam, "status 只能是 pending / paid / cancelled")
+		response.Fail(c, response.CodeInvalidParam,
+			"status 只能是 pending / paid / provisioning / active / failed / cancelled")
 		return
 	}
 
@@ -375,6 +383,8 @@ func (h *orderHandler) payOrderWithBalance(c *gin.Context, order *model.Order) {
 
 	h.logger.Info("订单余额支付成功", "order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 		"member_id", order.MemberID, "amount", string(result.Order.FinalAmount))
+	// 阶段 5a：入账事务已提交，在此触发交付（不阻塞本次响应，契约 14.3）。
+	h.deliveries.Trigger(result.Order.ID)
 	response.Success(c, payOrderView{
 		Order: newOrderView(result.Order, h.logger),
 		Pay:   payView{Channel: model.PayChannelBalance, Paid: true, BalanceAfter: balanceAfter},
@@ -457,7 +467,42 @@ func (h *orderHandler) cancelOrder(c *gin.Context) {
 	response.Success(c, newOrderView(order, h.logger))
 }
 
-// normalizeOrderConfig 归一化下单配置：值接受 JSON 字符串或整数（配置项 upstream_id 的数字写法）。
+// retryDelivery 处理 POST /api/v1/admin/orders/:id/retry-delivery：管理员重试交付（仅 admin 角色）。
+//
+// 同步执行一次完整交付（契约 14.3）：成功返回 active 订单；交付执行失败时订单已置
+// failed 并记录脱敏原因，仍按 200 返回最新订单视图（供管理员据此处置或再次重试）。
+// 订单状态不允许交付（未支付 / 交付中 / 已交付 / 已取消）返回 40002。
+func (h *orderHandler) retryDelivery(c *gin.Context) {
+	id, ok := orderIDParam(c)
+	if !ok {
+		return
+	}
+
+	order, err := h.deliveries.Deliver(c.Request.Context(), id, true)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		response.Fail(c, response.CodeNotFound, msgOrderMissing)
+		return
+	case errors.Is(err, delivery.ErrNotClaimable):
+		response.Fail(c, response.CodeValidationFailed,
+			retryDeliveryMessage(order.Status)+"，无法重试交付")
+		return
+	case errors.Is(err, delivery.ErrProvisionFailed):
+		h.logger.Warn("管理员重试交付失败（订单已置 failed，可再次重试）",
+			"order_id", order.ID, "trade_no", order.TradeNo, "error", err)
+		response.Success(c, newOrderView(order, h.logger))
+		return
+	case err != nil:
+		failDB(c, h.logger, err)
+		return
+	}
+
+	h.logger.Info("管理员重试交付成功", "order_id", order.ID, "trade_no", order.TradeNo,
+		"member_id", order.MemberID, "host_id", order.HostID)
+	response.Success(c, newOrderView(order, h.logger))
+}
+
+// normalizeOrderConfig 归一化下单配置：值接受 JSON 字符串或整数（配置项 id 的数字写法）。
 func normalizeOrderConfig(raw map[string]json.RawMessage) (map[string]string, error) {
 	config := make(map[string]string, len(raw))
 	for key, value := range raw {
@@ -473,7 +518,7 @@ func normalizeOrderConfig(raw map[string]json.RawMessage) (map[string]string, er
 				continue
 			}
 		}
-		return nil, fmt.Errorf("%w: config 的键与值都必须是配置项 upstream_id（字符串或整数写法）",
+		return nil, fmt.Errorf("%w: config 的键与值都必须是配置项 id（字符串或整数写法）",
 			errFinanceFormat)
 	}
 	return config, nil
@@ -508,6 +553,9 @@ func newOrderView(order *model.Order, logger *slog.Logger) orderView {
 		PayChannel:     order.PayChannel,
 		ChannelTradeNo: order.ChannelTradeNo,
 		PayTime:        formatTimePtr(order.PayTime),
+		HostID:         order.HostID,
+		ProvisionError: order.ProvisionError,
+		DeliveredAt:    formatTimePtr(order.DeliveredAt),
 		CreatedAt:      formatTime(order.CreatedAt),
 		UpdatedAt:      formatTime(order.UpdatedAt),
 	}

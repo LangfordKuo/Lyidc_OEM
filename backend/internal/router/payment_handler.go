@@ -29,13 +29,14 @@ const epayReturnPage = `<!DOCTYPE html>
 
 // paymentHandler 处理支付回调与同步跳转（渠道 → 本服务）。
 //
-// 职责边界（契约 12.2.3）：回调只做「验签 → 金额校验 → 单事务入账 → 应答纯文本 success / fail」；
-// 订单交付（上游开通）留阶段 5，本批在订单转 paid 后不触发任何上游调用。
+// 职责边界（契约 12.2.3 / 14.3）：回调只做「验签 → 金额校验 → 单事务入账 → 应答纯文本
+// success / fail」；订单交付（上游开通）在**入账事务提交后**触发（异步，不阻塞应答）。
 type paymentHandler struct {
-	store    *store.Store
-	payments *payment.Registry
-	reader   *settings.Reader
-	logger   *slog.Logger
+	store      *store.Store
+	payments   *payment.Registry
+	reader     *settings.Reader
+	deliveries DeliveryTrigger
+	logger     *slog.Logger
 }
 
 // epayNotify 处理 POST/GET /api/v1/payments/epay/notify（易支付异步通知）。
@@ -116,6 +117,8 @@ func (h *paymentHandler) applyOrderPayment(ctx context.Context, n *payment.Notif
 	case store.OutcomeApplied:
 		h.logger.Info("易支付回调：订单已支付", "order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 			"channel_trade_no", n.TradeNo, "amount", string(result.Order.FinalAmount))
+		// 阶段 5a：入账事务已提交，触发交付（不阻塞回调应答，契约 14.3）。
+		h.deliveries.Trigger(result.Order.ID)
 	case store.OutcomeAlreadyPaid:
 		h.logger.Info("易支付回调：订单已是已支付状态（幂等，不重复处理）",
 			"order_id", result.Order.ID, "trade_no", result.Order.TradeNo)

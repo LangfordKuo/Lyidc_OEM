@@ -12,6 +12,7 @@ import (
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
@@ -21,6 +22,17 @@ import (
 
 // PingFunc 探测依赖组件（数据库）连通性；返回 nil 表示正常。
 type PingFunc func(ctx context.Context) error
+
+// DeliveryTrigger 是订单交付能力（契约 14.3）：支付成功后的自动触发与管理员重试。
+//
+// 生产实现是 internal/delivery.Service（自动触发默认异步）；测试可注入
+// Async=false 的 Service 使交付同步完成，从而确定性地断言落库结果。
+type DeliveryTrigger interface {
+	// Trigger 是支付成功（在线回调 / 余额支付）后的自动交付入口，不阻塞调用方。
+	Trigger(orderID uint64)
+	// Deliver 同步执行一次交付（管理员重试接口）；allowFailed 为 true 时交付失败的订单可重试。
+	Deliver(ctx context.Context, orderID uint64, allowFailed bool) (*model.Order, error)
+}
 
 // Options 是路由构造参数。
 type Options struct {
@@ -39,6 +51,8 @@ type Options struct {
 	Upstream upstream.Provider
 	// UpstreamTimeout 是上游探活的整体超时，缺省 5s。
 	UpstreamTimeout time.Duration
+	// Delivery 是订单交付器；nil 时构造默认实现（自动交付异步执行、管理员重试用当前上游设置）。
+	Delivery DeliveryTrigger
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -69,6 +83,11 @@ func New(opts Options) *gin.Engine {
 	if upstreamProvider == nil {
 		upstreamProvider = newUpstreamProvider(settingsReader, opts.Logger)
 	}
+	// 阶段 5a：支付成功后的自动交付（异步 goroutine，不阻塞回调响应，契约 14.3）。
+	deliveries := opts.Delivery
+	if deliveries == nil {
+		deliveries = delivery.New(st, upstreamProvider, delivery.Options{Async: true, Logger: opts.Logger})
+	}
 
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
@@ -78,9 +97,12 @@ func New(opts Options) *gin.Engine {
 		logger:   opts.Logger,
 	}
 	coupons := &couponHandler{store: st, logger: opts.Logger}
-	orders := &orderHandler{store: st, payments: payments, logger: opts.Logger}
+	orders := &orderHandler{store: st, payments: payments, deliveries: deliveries, logger: opts.Logger}
 	finance := &financeHandler{store: st, payments: payments, logger: opts.Logger}
-	paymentCallbacks := &paymentHandler{store: st, payments: payments, reader: settingsReader, logger: opts.Logger}
+	paymentCallbacks := &paymentHandler{
+		store: st, payments: payments, reader: settingsReader, deliveries: deliveries, logger: opts.Logger,
+	}
+	instances := &instanceHandler{store: st, logger: opts.Logger}
 	adminSettings := &settingsHandler{store: st, reader: settingsReader, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
@@ -121,6 +143,10 @@ func New(opts Options) *gin.Engine {
 			memberAPI.GET("/orders/:id", orders.getOrder)
 			memberAPI.POST("/orders/:id/pay", orders.payOrder)
 			memberAPI.POST("/orders/:id/cancel", orders.cancelOrder)
+
+			// 实例（阶段 5a）：仅本人；列表不含敏感字段，详情含主机账号密码（含敏感字段仅本人可见）。
+			memberAPI.GET("/instances", instances.listMyInstances)
+			memberAPI.GET("/instances/:id", instances.getMyInstance)
 
 			memberAPI.POST("/recharges", finance.createRecharge)
 			memberAPI.GET("/recharges", finance.listRecharges)
@@ -165,6 +191,12 @@ func New(opts Options) *gin.Engine {
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), finance.listAdminRecharges)
 			adminGroup.GET("/ledger",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), finance.listAdminLedger)
+
+			// 实例（阶段 5a）：查看类所有角色可调用（不含敏感字段）；
+			// 重试交付会真实调用上游开通（可能扣上游余额），仅 admin 角色（契约 14.4）。
+			adminGroup.GET("/instances", instances.listAdminInstances)
+			adminGroup.POST("/orders/:id/retry-delivery",
+				requireAdminRole(model.RoleAdmin), orders.retryDelivery)
 
 			// 商品与计费（阶段 3a）：所有角色可查看；导入/改定价/上下架/改分组要求 admin 或 finance。
 			adminGroup.GET("/products", products.listProducts)

@@ -29,7 +29,7 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 
 	// 未知配置项 → 40002。
 	rec, envelope := doAPI(t, engine, http.MethodPost, "/api/v1/orders", token, map[string]any{
-		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"999": 201},
+		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"999": 111},
 	})
 	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
 		t.Fatalf("未知配置项应 40002：HTTP %d, body=%s", rec.Code, rec.Body.String())
@@ -37,7 +37,7 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 
 	// 隐藏取值（upstream_id=203）不在会员可见范围内 → 40002。
 	rec, envelope = doAPI(t, engine, http.MethodPost, "/api/v1/orders", token, map[string]any{
-		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"101": 203},
+		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"11": 113},
 	})
 	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
 		t.Fatalf("隐藏取值应 40002：HTTP %d, body=%s", rec.Code, rec.Body.String())
@@ -51,11 +51,11 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 		t.Fatalf("不可售周期应 40002：HTTP %d, body=%s", rec.Code, rec.Body.String())
 	}
 
-	// 数字写法的配置项也被接受（{"101": 201} 整数）。
+	// 数字写法的配置项也被接受（{"11": 111} 整数）。
 	order := createOrder(t, engine, token, map[string]any{
 		"product_id":  product.ID,
 		"cycle":       "annual",
-		"config":      map[string]any{"101": 201},
+		"config":      map[string]any{"11": 111},
 		"coupon_code": "cash20", // 大小写不敏感
 	})
 	if order.Amount != "200.00" || order.DiscountAmount != "20.00" || order.FinalAmount != "180.00" {
@@ -67,7 +67,7 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 	if order.CouponCode != "CASH20" || order.ProductName != "阶段4测试商品" || order.Cycle != "annual" || order.Qty != 1 {
 		t.Fatalf("订单快照错误: %+v", order)
 	}
-	if order.Config["101"] != "201" {
+	if order.Config["11"] != "111" {
 		t.Fatalf("配置快照错误: %+v", order.Config)
 	}
 	if !strings.HasPrefix(order.TradeNo, model.OrderTradeNoPrefix) {
@@ -132,7 +132,7 @@ func TestOrderCreateParameterErrors(t *testing.T) {
 	}{
 		{"商品 ID 非正整数", map[string]any{"product_id": 0, "cycle": "annual"}, http.StatusBadRequest, response.CodeInvalidParam},
 		{"周期非法", map[string]any{"product_id": product.ID, "cycle": "weekly"}, http.StatusBadRequest, response.CodeInvalidParam},
-		{"配置值类型非法", map[string]any{"product_id": product.ID, "cycle": "annual", "config": map[string]any{"101": true}},
+		{"配置值类型非法", map[string]any{"product_id": product.ID, "cycle": "annual", "config": map[string]any{"11": true}},
 			http.StatusBadRequest, response.CodeInvalidParam},
 		{"商品不存在", map[string]any{"product_id": 999999, "cycle": "annual"}, http.StatusNotFound, response.CodeNotFound},
 	}
@@ -178,7 +178,7 @@ func TestOrderOnlinePayAndNotify(t *testing.T) {
 
 	token, _ := memberTokenFor(t, engine, "payuser")
 	order := createOrder(t, engine, token, map[string]any{
-		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"101": 201},
+		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"11": 111},
 		"coupon_code": coupon.Code,
 	})
 

@@ -185,8 +185,8 @@ func (s *Store) CancelOrder(ctx context.Context, id, memberID uint64) (*model.Or
 // PayOrderWithBalance 用余额支付订单：单事务内锁订单与会员行 → 扣款 → 订单转 paid →
 // 写流水（type=order_pay，amount 为负）→ 优惠码条件自增。
 //
-// 余额不足返回 ErrInsufficientBalance；订单已支付/已取消分别返回
-// OutcomeAlreadyPaid / OutcomeSkipped（不视为错误，调用方按状态给提示）。
+// 余额不足返回 ErrInsufficientBalance；订单已入账（paid 及其后的交付态）返回
+// OutcomeAlreadyPaid、其余非 pending 状态返回 OutcomeSkipped（都不视为错误，调用方按状态给提示）。
 func (s *Store) PayOrderWithBalance(ctx context.Context, orderID, memberID uint64) (OrderPaymentResult, error) {
 	db, err := s.session(ctx)
 	if err != nil {
@@ -199,11 +199,12 @@ func (s *Store) PayOrderWithBalance(ctx context.Context, orderID, memberID uint6
 		if err != nil {
 			return err
 		}
-		if order.Status == model.OrderStatusPaid {
+		// 已入账（paid 及其后的交付态）→ 幂等；非 pending 的其余状态（如已取消）→ 不处理。
+		if model.IsOrderSettled(order.Status) {
 			result = OrderPaymentResult{Order: order, Outcome: OutcomeAlreadyPaid}
 			return nil
 		}
-		if order.Status == model.OrderStatusCancelled {
+		if order.Status != model.OrderStatusPending {
 			result = OrderPaymentResult{Order: order, Outcome: OutcomeSkipped}
 			return nil
 		}
@@ -249,8 +250,10 @@ func (s *Store) PayOrderWithBalance(ctx context.Context, orderID, memberID uint6
 // CompleteOrderPayment 处理渠道回调的订单入账：单事务内锁订单 → pending 转 paid →
 // 记录 pay_channel / channel_trade_no / pay_time → 优惠码条件自增。
 //
-// 幂等：已 paid 返回 OutcomeAlreadyPaid（不再处理）；已 cancelled 返回 OutcomeSkipped
-// （不处理，调用方按契约记 WARN 并答复成功）。金额一致性由调用方在进入本方法前校验。
+// 幂等：已入账（paid 及其后的交付态，model.IsOrderSettled）返回 OutcomeAlreadyPaid——
+// 重复回调不重复入账、不重复计数、不重复触发交付（契约 14.1）；
+// 其余非 pending 状态（如已取消）返回 OutcomeSkipped（不处理，调用方按契约记 WARN 并答复成功）。
+// 金额一致性由调用方在进入本方法前校验。
 func (s *Store) CompleteOrderPayment(ctx context.Context, in OrderPaymentInput) (OrderPaymentResult, error) {
 	db, err := s.session(ctx)
 	if err != nil {
@@ -263,11 +266,12 @@ func (s *Store) CompleteOrderPayment(ctx context.Context, in OrderPaymentInput) 
 		if err != nil {
 			return err
 		}
-		if order.Status == model.OrderStatusPaid {
+		// 已入账（paid 及其后的交付态）→ 幂等；非 pending 的其余状态（如已取消）→ 不处理。
+		if model.IsOrderSettled(order.Status) {
 			result = OrderPaymentResult{Order: order, Outcome: OutcomeAlreadyPaid}
 			return nil
 		}
-		if order.Status == model.OrderStatusCancelled {
+		if order.Status != model.OrderStatusPending {
 			result = OrderPaymentResult{Order: order, Outcome: OutcomeSkipped}
 			return nil
 		}

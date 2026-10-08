@@ -95,6 +95,24 @@ func IsValidCycle(cycle string) bool {
 	return false
 }
 
+// UpstreamCycle 把本地周期名映射为上游字段名（开通下单的 billingcycle 参数与
+// 上游价格行字段名）。上游是副词形态（annually / semiannually / biennially / triennially），
+// 本地周期名去掉 -ly；monthly / quarterly 两边同名。未知周期原样返回（交由上游校验）。
+func UpstreamCycle(cycle string) string {
+	switch cycle {
+	case CycleSemiAnnually:
+		return "semiannually"
+	case CycleAnnually:
+		return "annually"
+	case CycleBiennially:
+		return "biennially"
+	case CycleTriennially:
+		return "triennially"
+	default:
+		return cycle
+	}
+}
+
 // Parse 解析并校验定价规则。空串与 null 视为缺省规则（上游价）。
 //
 // 严格模式：出现未知字段（例如 markup_percent 拼写错误）直接报错，避免「少写一个字母 → 静默不加价」

@@ -365,3 +365,21 @@ func TestParseUpstreamPrices(t *testing.T) {
 		t.Fatal("非法 JSON 期望报错")
 	}
 }
+
+func TestUpstreamCycle(t *testing.T) {
+	cases := map[string]string{
+		CycleMonthly:      "monthly",
+		CycleQuarterly:    "quarterly",
+		CycleSemiAnnually: "semiannually",
+		CycleAnnually:     "annually",
+		CycleBiennially:   "biennially",
+		CycleTriennially:  "triennially",
+		"":                "",
+		"weekly":          "weekly",
+	}
+	for local, want := range cases {
+		if got := UpstreamCycle(local); got != want {
+			t.Errorf("UpstreamCycle(%q) = %q, 期望 %q", local, got, want)
+		}
+	}
+}

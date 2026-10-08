@@ -41,7 +41,7 @@ type migrationResult struct {
 	TableCount int64 `json:"table_count"`
 }
 
-// runMigrations 用内嵌迁移文件（0001-0006）建表，返回实际应用的版本。
+// runMigrations 用内嵌迁移文件（0001 起全部）建表，返回实际应用的版本。
 //
 // 复用与 cmd/migrate 完全相同的迁移执行方式（golang-migrate + migrations.FS），
 // 不复制任何迁移 SQL（契约 13.3）。

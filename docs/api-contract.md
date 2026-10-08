@@ -1008,8 +1008,10 @@ curl -s https://lyew.com/cart/credit
 
 约定：
 
-1. `config_groups[].options[].upstream_id` / `values[].upstream_id` 是阶段 4 下单时
-   `configoption[<upstream_id>]` 的键，会员端**保留下发**（商品级的上游 ID 仍不下发）。
+1. `config_groups[].options[].id` / `values[].id` 是下单 `config`（进而交付 `configoption`）的
+   键与值——**阶段 5a 真机实测口径**（见 14.5 第 1 条：上游直连下单按本地 id 取配置）；
+   `upstream_id` 为上游「代理模式」映射字段（本项目真实数据恒为 0），会员端**保留下发**
+   仅作透传展示（商品级的上游 ID 仍不下发）。
 2. 会员端**过滤掉上游标记为隐藏**（`hidden != 0`）的可配置项与可选值；管理端不做过滤。
 3. `name` 是上游文案原文（形如 `area|区域`、`1|HK^香港`），阶段 3a 不做文案清洗。
 4. `description` 是上游原文，含 HTML 实体转义（`&lt;li&gt;`）与换行，前端如需渲染 HTML 需自行反转义。
@@ -1473,8 +1475,9 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 会员端接口（12.4）、优惠码应用口径（12.5）、管理端对账接口（12.6）、角色矩阵（12.7）、错误码（12.8）、
 业务边界（12.9）、暂不支持清单（12.10）。
 
-> **本阶段业务链路不调用上游**：下单与支付只操作本地库（创建订单 / 落支付状态 / 记账），
-> 上游开通与交付留**阶段 5**（触发点已在订单转 `paid` 的事务内预留注释）。
+> **支付链路与交付链路的边界（阶段 5a 起）**：下单与支付入账只操作本地库（创建订单 / 落支付状态 / 记账），
+> 交付（上游开通）在**入账事务提交后**触发、**不阻塞回调应答**，时序与幂等见**第 14 节**。
+> 本节订单相关的状态机与接口表述已按阶段 5a 同步更新（订单状态扩为 6 态、视图新增交付字段）。
 
 ### 12.1 设置机制（后台管理设置）
 
@@ -1745,16 +1748,19 @@ form 参数：
 | `member_id` / `product_id` | int | 下单会员与本地商品 |
 | `product_name` | string | 商品名快照（商品改名后订单仍显示下单时的名称） |
 | `cycle` / `qty` | string / int | 计费周期（6 周期之一）与数量（**本批固定 1**） |
-| `config_json` | string | 所选配置项快照 `{"<配置项 upstream_id>": "<所选值 upstream_id>"}`（供阶段 5 拼装上游下单参数） |
+| `config_json` | string | 所选配置项快照 `{"<配置项 id>": "<所选值 id>"}`（阶段 5a 起交付时原样拼 `configoption`，口径见 14.5 第 1 条） |
 | `amount` / `discount_amount` / `final_amount` | string | 原价 / 优惠码折扣额 / 应付金额（定点小数字符串，`final = amount − discount`） |
 | `coupon_id` / `coupon_code` | int \| null / string | 所用优惠码快照（未用码：NULL / 空串） |
-| `status` | string | `pending` / `paid` / `cancelled` |
+| `status` | string | `pending` / `paid` / `provisioning` / `active` / `failed` / `cancelled`（阶段 5a 扩为 6 态，完整状态机见 14.1） |
 | `pay_channel` / `channel_trade_no` / `pay_time` | string / string / string \| null | 支付渠道（`epay` / `balance`）、渠道单号、支付时间（UTC） |
+| `host_id` | int \| null | 上游主机 ID（阶段 5a 交付成功后写入；未交付为 `null`） |
+| `provision_error` | string | 最近一次交付失败原因（脱敏，最多 500 字符；成功时清空，空串表示无错误） |
+| `delivered_at` | string \| null | 交付完成时间（UTC；未交付为 `null`） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
 
-状态机：`pending → paid`（在线支付回调 / 余额支付）、`pending → cancelled`（本人取消）。
-**没有** `paid → refunded`，**没有**自动超时关闭（12.10）。
-交付相关列（`host_id` 等）由**阶段 5** 迁移 ALTER 添加。
+状态机（阶段 5a 扩为 6 态，流转规则与幂等锚点见 14.1）：`pending → paid`（在线支付回调 / 余额支付）、
+`pending → cancelled`（本人取消）、`paid → provisioning → active / failed`（自动交付）、
+`failed → provisioning`（管理员重试）。**没有** `paid → refunded`，**没有**自动超时关闭（12.10）。
 
 **充值单（`recharges`）**
 
@@ -1791,14 +1797,15 @@ form 参数：
 | 请求体 | `product_id`（必填）、`cycle`（必填，6 周期之一）、`config`（可选）、`coupon_code`（可选，空串 = 不用码） |
 | 成功 | HTTP 200，`data` 为订单对象（含金额明细） |
 
-`config` 的键与值都是**上游配置项 ID（`upstream_id`）**：键为该商品可配置项的 `upstream_id`，
-值为所选可选值的 `upstream_id`；值接受 **JSON 字符串或整数**写法（服务端统一按字符串快照）。
+`config` 的键与值都是**上游配置项的本地 ID**：键为该商品可配置项的 `id`（`options[].id`），
+值为所选可选值的 `id`（`values[].id`）；值接受 **JSON 字符串或整数**写法（服务端统一按字符串快照）。
 只接受该商品**会员可见**的项与值（上游标记 `hidden` 的项/值按「未知」处理）。
+（键值口径的阶段 5a 真机实测依据见 14.5 第 1 条；`upstream_id` 不再作为下单键值。）
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
   -H 'Authorization: Bearer <member-token>' -H 'Content-Type: application/json' \
-  -d '{"product_id":1,"cycle":"annual","config":{"101":201},"coupon_code":"CASH20"}'
+  -d '{"product_id":1,"cycle":"annual","config":{"11":111},"coupon_code":"CASH20"}'
 ```
 
 ```json
@@ -1813,7 +1820,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
     "product_name": "香港二区 CN2 A型",
     "cycle": "annual",
     "qty": 1,
-    "config": {"101": "201"},
+    "config": {"11": "111"},
     "amount": "200.00",
     "discount_amount": "20.00",
     "final_amount": "180.00",
@@ -1822,6 +1829,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
     "pay_channel": "",
     "channel_trade_no": "",
     "pay_time": null,
+    "host_id": null,
+    "provision_error": "",
+    "delivered_at": null,
     "created_at": "2026-10-08T14:30:15Z",
     "updated_at": "2026-10-08T14:30:15Z"
   }
@@ -1845,7 +1855,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 
 | 项目 | 说明 |
 | --- | --- |
-| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选：`pending` / `paid` / `cancelled`） |
+| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选：`pending` / `paid` / `provisioning` / `active` / `failed` / `cancelled`） |
 | 成功 | HTTP 200，`data` = `{items, page, page_size, total}`，**新建在前**（id 降序），只含本人订单 |
 | 错误码 | `40001`（分页越界、`status` 取值非法） |
 
@@ -1897,7 +1907,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `:id` 非正整数 | `40001` / 400 | `订单 ID 必须为正整数` |
 | 订单不存在 / 非本人 | `404` / 404 | `订单不存在` |
 | `channel` 取值非法 | `40002` / 400 | `channel 只能是 epay（在线支付）或 balance（余额支付）` |
-| 订单已是 `paid` / `cancelled` | `40002` / 400 | `订单已支付，无法发起支付` / `订单已取消，无法发起支付` |
+| 订单已入账（`paid` 及交付态 `provisioning` / `active` / `failed`）/ `cancelled` | `40002` / 400 | `订单已支付，无法发起支付` / `订单正在交付中，无法发起支付` / `订单已交付，无法发起支付` / `订单交付失败，无法发起支付` / `订单已取消，无法发起支付` |
 | 渠道未启用或配置不完整 | `40002` / 400 | `支付渠道未配置或未启用（请联系管理员在后台设置中填写并启用）` |
 | 渠道不支持该 `pay_type` | `40002` / 400 | `支付方式不受支持: epay 支持 alipay / wxpay` |
 | 渠道拒绝 / 响应异常 / 网络失败 | `50002` / 500 | `支付渠道下单失败：<渠道 msg 摘要>`（不含商户密钥） |
@@ -2028,7 +2038,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `GET/PUT /api/v1/admin/settings/payment/epay` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/admin/settings/upstream` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/recharges`、`GET /api/v1/admin/ledger` | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `GET /api/v1/admin/instances`（阶段 5a） | ✓ | ✓ | ✓ | ✗（`401`） |
+| `POST /api/v1/admin/orders/:id/retry-delivery`（阶段 5a，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `POST/GET /api/v1/orders`、`GET /api/v1/orders/:id`、`POST /api/v1/orders/:id/pay`、`POST /api/v1/orders/:id/cancel` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `GET /api/v1/instances`、`GET /api/v1/instances/:id`（阶段 5a） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST/GET /api/v1/recharges`、`GET /api/v1/finance/balance`、`GET /api/v1/finance/ledger` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `POST\|GET /api/v1/payments/epay/notify`、`GET /api/v1/payments/epay/return` | 公开（无鉴权，验签是凭证） | 公开 | 公开 | 公开 |
 
@@ -2037,10 +2050,10 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | code | 含义与典型场景 |
 | --- | --- |
 | `40001` | 参数错误：分页越界、`status`/`type` 取值非法、`member_id` 非正整数、金额写法非法、URL 非法、设置请求体为空、订单/商品 ID 非法、`config` 键值类型不符 |
-| `40002` | 参数校验失败：周期不可售、未知配置项/取值、优惠码不存在或无效、订单状态不允许支付/取消、余额不足、渠道未启用或配置不完整、`pay_type` 不受支持、`enabled=true` 缺必填设置项、超时越界 |
+| `40002` | 参数校验失败：周期不可售、未知配置项/取值、优惠码不存在或无效、订单状态不允许支付/取消/**重试交付**、余额不足、渠道未启用或配置不完整、`pay_type` 不受支持、`enabled=true` 缺必填设置项、超时越界 |
 | `401` | 未携带/无效 token（会员接口用管理员 token 访问同样 401） |
-| `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance） |
-| `404` | 商品不存在或已下架、订单不存在或非本人、优惠码不存在（校验接口） |
+| `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance；**重试交付接口非 admin**） |
+| `404` | 商品不存在或已下架、订单不存在或非本人、**实例不存在或非本人**、优惠码不存在（校验接口） |
 | `409` | （阶段 4 未新用） |
 | `500` | 库内设置值损坏等内部错误 |
 | `50001` | 本地库读写失败 |
@@ -2048,14 +2061,17 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 
 ### 12.9 业务边界（本批实现约定）
 
-1. **业务链路不调用上游**：下单、支付、入账全程只操作本地库；上游开通/交付留阶段 5
-   （触发点在订单转 `paid` 的事务内已预留注释）。
+1. **下单与支付入账只操作本地库；交付在入账事务提交后触发**（阶段 5a 起）：在线回调与余额支付
+   在应答前不调用上游，上游开通在**提交后**异步执行（时序见 14.3），回调应答不被上游耗时拖慢。
 2. **库存不做强校验**：导入库存是上游快照（`stock_qty`），本批下单不校验库存、不预占；
-   防超卖由阶段 5 的开通环节（上游下单/开通接口）最终保证。
+   防超卖由**交付环节**（上游开通接口）最终保证。
 3. **数量固定 1**：`qty` 恒为 1，请求体不接受 `qty`。
-4. **时间**：`pay_time` / `paid_at` 取服务端处理回调的时间（UTC），渠道通知不含可靠支付时间。
+4. **时间**：`pay_time` / `paid_at` 取服务端处理回调的时间（UTC），渠道通知不含可靠支付时间；
+   `delivered_at` 取交付落库时间（UTC）。
 5. **幂等锚点**：订单/充值单的 `status` 转换在行级锁（`SELECT … FOR UPDATE`）下进行，
-   重复回调、并发回调都不会重复入账或重复计数。
+   重复回调、并发回调都不会重复入账或重复计数；订单的「已入账」集合为
+   `paid` / `provisioning` / `active` / `failed`（`model.IsOrderSettled`），这些状态下重复回调
+   一律幂等返回，**不会重复触发交付**（14.1 / 14.3）。
 6. **未配置即明确报错**：渠道未配置时支付类接口返回 `40002` 并给出可操作提示；
    上游未配置时探活返回 `connected=false`、导入返回明确错误；**其余功能不受影响**。
 
@@ -2069,7 +2085,8 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
    后续新增只需加 Provider + 设置键 + 路由。
 5. **易支付真机联调**：本批以 mock 网关完成全链路验证，真机联调与差异记录另行安排（12.2.6）。
 6. **充值单继续支付**：不提供「对既有 `pending` 充值单再次下单」的接口（失败时重新创建）。
-7. **订单交付**：上游开通、主机绑定、续费与升级留阶段 5（本批 `paid` 只是状态）。
+7. **订单交付的后续能力**：上游开通与主机绑定已在阶段 5a 落地（第 14 节）；
+   续费、开关机/重装/暂停、到期处理与上游主机状态同步留**阶段 5b**（instances 已预留状态枚举与字段）。
 8. **前台支付页**：本批返回渠道 `payurl` 与二维码等字段，前端展示页面由后续前端批次实现。
 
 ## 13. 站点安装向导（阶段 4+）
@@ -2408,10 +2425,203 @@ HTML/CSS/JS 全部由后端 `go:embed` 内嵌，**不依赖前端构建产物**�
 6. **配置文件语法错误时服务不启动**：加载链仍然报错退出（既有行为），无法通过浏览器修复——此时需人工修正或删除该文件。
 7. **前端页面由后续前端批次实现**：本批完成页只给纯文本说明（`admin_console` + `admin_console_hint`），实际管理后台页面在前端构建产物部署后可用。
 
-## 14. 变更记录
+## 14. 订单交付与自动开通（阶段 5a）
+
+本节描述：订单状态机扩展（14.1）、实例表（14.2）、自动交付时序与幂等/失败/重试（14.3）、
+接口契约与角色矩阵（14.4）。数据结构由**迁移 0007** 引入（orders ALTER + instances 建表）。
+
+> 交付链路 = 支付成功 →（自动触发 / 管理员重试）→ **上游开通（`CreateHost`）** → 实例落库 →
+> 会员/管理端可查。续费、服务操作（开关机/重装/暂停）、到期处理与上游主机状态同步留**阶段 5b**
+> （instances 的状态枚举与上游同步字段已预留，本批不产生非 `active` 状态）。
+
+### 14.1 订单状态机扩展（迁移 0007）
+
+`orders.status` 扩为 6 态（迁移 0007 ALTER ENUM；新增列 `host_id` / `provision_error` /
+`delivered_at` 见 12.3）：
+
+```
+pending ──支付成功（在线回调 / 余额支付）──▶ paid
+   │                                          │
+   │  本人取消（仅 pending 可取消）             │ 交付认领（自动触发；失败后可由管理员重试）
+   ▼                                          ▼
+cancelled                                provisioning ──上游开通成功──▶ active
+                                              │
+                                              └──上游开通失败──▶ failed
+                                                                   │
+                                          管理员重试：failed → provisioning → …
+```
+
+| 流转 | 触发 | 说明 |
+| --- | --- | --- |
+| `pending → paid` | 在线支付回调 / 余额支付 | 单事务入账（第 12 节口径不变） |
+| `pending → cancelled` | 本人取消 | 仅 `pending`；`paid` 及之后不可取消 |
+| `paid → provisioning` | 交付认领（`BeginDelivery`） | 行锁 + 状态条件；认领即清空 `provision_error` |
+| `provisioning → active` | 上游开通成功 | 写 `host_id` / `delivered_at`，插入实例（同一事务） |
+| `provisioning → failed` | 上游开通失败 | 写 `provision_error`（脱敏，按字符截断 500） |
+| `failed → provisioning` | 管理员重试交付 | `POST /api/v1/admin/orders/:id/retry-delivery`（仅 admin） |
+
+**幂等锚点（入账）**：`paid` / `provisioning` / `active` / `failed` 都视为「已入账」
+（`model.IsOrderSettled`）。这些状态下重复回调 / 重复余额支付一律按 `OutcomeAlreadyPaid` 幂等返回：
+不重复入账、不重复计优惠码、**不重复触发交付**；其余非 `pending` 状态（如 `cancelled`）
+返回 `OutcomeSkipped`（不处理，回调仍按成功应答）。
+
+**对既有接口的影响**：订单视图新增 `host_id` / `provision_error` / `delivered_at`；
+订单列表 `status` 过滤支持 6 态；发起支付/取消的状态提示按 6 态给出（12.4）。
+
+### 14.2 instances 表（迁移 0007）
+
+订单交付成功后的主机记录；订单 ↔ 实例**本期一对一**（唯一键 `uk_instances_order`），
+上游主机 ID 全局唯一（唯一键 `uk_instances_host`）。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 本地实例 ID（对外主键） |
+| `member_id` / `order_id` | int | 所属会员 / 来源订单（订单快照） |
+| `host_id` | int | 上游主机 ID（`hostinfo` 的 `hosts[].id`） |
+| `product_id` / `product_name` | int / string | 本地商品 ID 与商品名快照（订单快照） |
+| `name` | string | 主机名（开通时提交上游的 `host`：`oem-` + 订单号小写） |
+| `billing_cycle` | string | 计费周期（本地 6 周期之一） |
+| `next_due_date` | string \| null | 到期时间（UTC；开通后从上游 `nextduedate` 回读，回读失败留 `null`） |
+| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；**本期只写 `active`**，后三者由阶段 5b 维护 |
+| `upstream_status` | string | 上游 `domainstatus` 原文（如 `Active`；同步字段） |
+| `dedicated_ip` | string | 上游主 IPv4（未回读为空串） |
+| `assigned_ips` | string | 上游附加 IP（库内逗号分隔原文；接口输出为数组） |
+| `port` | int | 上游端口（`0` 表示未返回） |
+| `username` / `password` | string | 主机账号 / 密码（**敏感字段**，规则见下） |
+| `created_at` / `updated_at` | string | RFC3339（UTC）；`created_at` 为交付完成时刻 |
+
+**敏感字段可见性规则**：`username` / `password`（及 `port` / `assigned_ips`）**仅会员本人**
+在实例详情接口可见（等价于「在面板查看主机密码」）；实例列表（会员端与管理端）一律不含；
+**任何日志不写密码**（交付日志只记订单号与主机 ID）；管理端本期不提供实例详情接口。
+
+### 14.3 自动交付时序与幂等、失败、重试
+
+**时序（在线回调 / 余额支付两支共用）**：
+
+```
+① 入账事务（本地库）：订单 → paid（+ 支付字段 / 优惠码计数）      ← 回调应答前完成
+② 事务提交后触发交付（Trigger）：不阻塞回调应答（默认异步 goroutine）
+③ 认领（事务）：行锁订单 + 状态条件 → provisioning               ← 幂等锚点
+④ 上游开通：CreateHost（clear → add_to_shop → settle → apply_credit）
+⑤ 回读：hostinfo 取 nextduedate / domainstatus / IP / 端口 / 账号密码
+⑥ 落库（事务）：插入实例 + 订单 → active（host_id / delivered_at）
+```
+
+**触发点（三处）**：在线支付回调入账成功（`OutcomeApplied`）；余额支付成功（`OutcomeApplied`）；
+管理员重试交付（同步执行）。**认领失败（重复触发 / 状态不允许）直接返回现状订单，不重复开通。**
+
+**开通参数拼装**（对齐 8.3 的开通参数表）：
+
+| 参数 | 取值 |
+| --- | --- |
+| `pid` | `products.upstream_pid`（订单快照商品） |
+| `billingcycle` | `pricing.UpstreamCycle(orders.cycle)`（本地 `semiannual`/`annual`/… → 上游 `semiannually`/`annually`/…；`monthly` / `quarterly` 同名） |
+| `host` | `oem-` + 订单号小写（如 `oem-o20261008143015k7q2zp`，可回溯订单） |
+| `password` | 自动生成 16 位随机密码（大写/小写/数字/特殊四类字符齐备，`crypto/rand`） |
+| `configoption[<配置项 id>]` | `orders.config_json` 快照原样（键为配置项 id、值为所选值 id，见 12.3 与 14.5 第 1 条） |
+| `qty` | `orders.qty`（本批恒 1） |
+| `currencyid` | 由上游 `/cart/clear` 的 `user.currency` 决定（客户端自动处理） |
+
+**幂等与防并发**：同一订单同一时刻只有一个交付在执行——`BeginDelivery` 在事务内行锁订单，
+仅 `paid`（管理员重试时 `failed` 也可）可转 `provisioning`；重复回调、重复触发、并发重试
+都会拿到「不可认领」的现状订单而直接返回。
+
+**超时**：单次交付整体上限 120s（覆盖多次上游调用）；交付结果落库用独立 10s 超时
+（上游已开通时即使主超时耗尽也必须落库）。
+
+**失败与重试**：
+
+1. 认领后任何失败（上游未配置/未启用、上游报错、配置快照损坏、生成密码失败等）→ 订单 `failed` +
+   `provision_error`（脱敏、截断 500 字符）；管理员修复后在重试接口触发 `failed → provisioning → …`。
+2. **回读失败不算交付失败**：主机已开通且上游可能已扣费，若 `hostinfo` 回读失败，
+   实例照常落库（`host_id` 已确定，同步字段留空），**避免重试造成重复开通扣费**。
+3. **已知边界**：进程在 `provisioning` 时崩溃会留下「交付中」悬挂订单（本批无自动恢复，
+   留人工核对/后续批次加对账）；上游已开通但落库失败时订单停在 `provisioning` 并记 ERROR 日志
+   （宁可留痕人工核对，也不静默覆盖状态）。
+
+**可测性设计**：交付能力以 `router.DeliveryTrigger` 接口注入（`Trigger` 自动触发 / `Deliver` 同步执行）；
+生产默认 `internal/delivery.Service`（自动触发异步），集成测试注入 `Async=false` 的同一实现，
+使「回调 → 交付 → 落库」在应答返回前确定完成；另有一条异步路径用例验证「回调先应答、
+交付随后完成」的最终一致。
+
+### 14.4 接口契约（实例与重试交付）
+
+#### `GET /api/v1/instances`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token；仅本人 |
+| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选：`active` / `suspended` / `cancelled` / `terminated`） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`（新建在前）；`items` 为实例摘要（**不含敏感字段**） |
+| 错误码 | `401`、`40001`（分页越界、`status` 非法） |
+
+实例摘要字段：`id` / `order_id` / `host_id` / `product_id` / `product_name` / `name` /
+`billing_cycle` / `next_due_date` / `status` / `upstream_status` / `dedicated_ip` / `created_at`。
+
+#### `GET /api/v1/instances/:id`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token；仅本人（他人实例与不存在统一 `404 实例不存在`） |
+| 成功 | HTTP 200，`data` = 实例摘要 + `assigned_ips`（数组）/ `port` / `username` / `password` / `updated_at` |
+| 错误码 | `401`、`40001`（ID 非法）、`404` |
+
+#### `GET /api/v1/admin/instances`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（`admin` / `finance` / `support` 均可） |
+| 查询参数 | `page` / `page_size`、`member_id`（可选，正整数）、`status`（可选，4 态之一） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`；`items` 比会员端摘要多 `member_id`，**不含敏感字段** |
+| 错误码 | `401`、`40001`（分页越界、`member_id` 非正整数、`status` 非法） |
+
+#### `POST /api/v1/admin/orders/:id/retry-delivery`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin` 角色**（`finance` / `support` 返回 `403`） |
+| 请求体 | 无 |
+| 成功 | HTTP 200，`data` 为**最新订单对象**：交付成功 `status=active` + `host_id`；交付执行失败 `status=failed` + `provision_error`（仍按 200 返回，便于管理员据状态处置或再次重试） |
+| 错误码 | `401`、`403`、`40001`（ID 非法）、`404`（订单不存在）、`40002`（订单尚未支付 / 正在交付中 / 已交付完成 / 已取消）、`50001` |
+| 说明 | **同步**执行一次完整交付（认领 → 上游开通 → 回读 → 落库）；`paid`（未触发过）与 `failed` 可重试；`provisioning` / `active` / `pending` / `cancelled` 不可重试 |
+
+### 14.5 真机实测与差异记录（2026-10-08，生产上游）
+
+本批对生产上游完成真机全链路演练（测试会员下单 20.00 → mock 渠道支付入账 → 自动交付 →
+上游回读核对 → 提交终止申请），差异与新发现如下（不回写 8.5 / 10.6 的历史实测条目）：
+
+1. **直连下单的 `configoption` 键值必须用上游本地 id（本批修正口径）**：
+   上游直连下单接口（`app/home/controller/CartController.php`）以
+   **配置项 id（`product_config_options.id`）为键、选项值 id（`product_config_options_sub.id`）为值**
+   取配置（`filterConfigOptions` 与 `addToShop` 两处均为 `where id = <键>` 查询）；
+   `upstream_id` 是上游**作为下游代理**时的映射字段（`app/common/logic/Host.php` 才用它，
+   且过滤 `upstream_id > 0`）。生产数据佐证：阶段 3a 导入的真实商品配置项 `upstream_id` **全为 0**，
+   阶段 4 真机订单快照即出现 `{"0":"0"}`；对上游 `add_to_shop` 实测：传入键 `86`（配置项 id）
+   或键 `0`（upstream_id），上游都返回「添加成功」——**未识别的键被静默忽略**
+   （用户选择丢失且不报错）。
+   处置：下单 `config` 与订单 `config_json` 口径修正为 `{"<配置项 id>": "<所选值 id>"}`
+   （12.3 / 12.4 已同步，会员端视图本就下发 `options[].id` / `values[].id`，无前端改动）；
+   交付按同口径拼 `configoption`；`upstream_id` 继续透传仅作展示。
+2. **开通成功的回读对账（逐项一致）**：本次开通主机（`host_id=10922`）上游回读与本地实例一致——
+   `domain` = 提交的 `oem-<订单号小写>`、`domainstatus=Active`、`nextduedate`（unix 秒
+   `1794135325`）与 `instances.next_due_date`（`2026-11-08T10:55:25Z`）完全相等、
+   `dedicatedip` / `billingcycle` / `username=root` 一致；上游账单 `amount` / `firstpaymentamount`
+   均为 20.00（真实扣费）。
+3. **`hostinfo` 回读字段实测**：`port=0`、`assignedips=[""]`（含空项，接口输出已过滤为空数组）、
+   `password` 回传（与开通提交的 16 位密码一致）；`host_option_config`（`all=1`）为空。
+4. **本批真机未覆盖「带配置项开通」**：演练商品（上游 pid 15）配置项的 `upstream_id` 全为 0，
+   按 id 口径选值需要前端按新口径下单，本批以集成测试覆盖参数拼装
+   （断言 `configoption[<配置项 id>]` 与 `cart_data[configoptions][<配置项 id>]`），
+   真机行为留待 5b 服务操作（重装选系统等）顺带复核。
+5. **终止申请（RequestCancel）**：返回 `status=202` + `pending=true` +
+   `data.cancel_request_id=432`，主机 `domainstatus` 保持 `Active`（上游异步处理，同 8.5 第 13 条）；
+   本地实例状态本批**不同步**（服务操作与状态同步留 5b）。
+
+## 15. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v8 | 阶段 5a：新增第 14 节「订单交付与自动开通」——**订单状态机扩为 6 态**（`pending → paid → provisioning → active / failed`，`cancelled` 仅 `pending`；迁移 0007 ALTER ENUM 并新增 `host_id` / `provision_error` / `delivered_at` 列；**入账幂等集合扩为交付态**：`paid`/`provisioning`/`active`/`failed` 重复回调一律幂等、不重复触发交付）；**instances 表**（订单↔实例一对一 + 上游主机 ID 唯一；订单快照字段、上游同步字段（到期时间/domainstatus/IP/端口/账号密码）、状态枚举（本期只写 `active`，后三者留 5b）；敏感字段仅会员本人详情可见、不进列表与日志）；**自动交付时序**（入账提交后触发、不阻塞回调；认领行锁幂等；`CreateHost` 开通参数拼装（pid/周期映射/host 生成/16 位随机密码/`configoption` 快照）；回读失败不阻断交付；失败置 `failed` + 脱敏原因；超时与落库兜底；进程崩溃悬挂为已知边界；可测性以 `DeliveryTrigger` 注入同步实现）；**接口**（会员端 `GET /instances`、`GET /instances/:id`；管理端 `GET /admin/instances`、`POST /admin/orders/:id/retry-delivery`（仅 admin，同步执行、失败仍 200 返回订单供处置））；同步更新 12.3（状态机与列）/12.4（订单视图三字段与状态提示）/12.7（角色矩阵）/12.8（错误码）/12.9（边界第 1、5 条）/12.10（第 7 条改为已落地+5b 范围）；**真机实测差异（14.5）**——下单/交付 `configoption` 键值口径修正为上游本地 id（上游源码与生产数据佐证：真实商品 `upstream_id` 恒为 0 且未识别键被静默忽略），10.3/12.3/12.4/14.3 同步；**真机全链路演练**（订单 O20261008105520T0J03J → host 10922 → 回读核对一致 → 终止申请 cancel_request_id=432）；变更记录移到第 15 节 |
 | 2026-10-08 | v7 | 阶段 4+：新增第 13 节「站点安装向导」——**安装状态机**（无 DSN / 库不可达（含修复模式与 `db=down`）/ 表缺失 / 无管理员 / 存量库自动补标记五种场景 + 续装态 `site_missing`/`pending`；`install.progress` 区分「向导走了一半」与「存量库」；任意步刷新页面或重启进程后按 `state`+`progress` 落回正确步骤，不回退不错位）；**安装模式请求分发**（`/install` 与安装 API 放行、`/api/v1/health` 照常、其它 API `503`+`50301`、浏览器导航 `302` 跳转；装完后 `/install` 永久关闭，重访为「系统已安装」提示页，安装 API 一律 `50302`）；**安装页与 9 个安装 API**（内嵌 HTML/CSS/JS 不依赖前端构建产物、字段校验、自动建库、连接失败按 MySQL 错误码给处置建议）；**默认管理员替换策略**（复用迁移 0003 行改写、库内不得残留默认哈希行、禁用 `admin/admin123456` 组合）；**配置文件合并写入规范**（生效路径、保留既有键与注释、原子替换、0600、只写部署级参数）；**并发与一次性保护**（进程内写锁 + `installed` 条件插入）；**免重启热切换**（同锁内换数据库句柄/JWT 密钥/引擎，`restart_required` 恒 false）；**安全边界**（无鉴权的风险与「装完即关」缓解、密钥不回显不落日志）；错误码新增 `50301`/`50302`/`50303`；**安装页「重启续装」两处 UI 修复**（`status` 新增 `admin_username`/`site_name` 供完成页摘要展示库内实况、第 2 步提交后按最新状态落位而非固定跳第 3 步）；12.1 的 settings 键补充 `site`/`installed`/`install.progress`；变更记录移到第 14 节 |
 | 2026-10-08 | v6 | 阶段 4：新增第 12 节「支付与财务」——**后台设置机制**（settings 表 + `GET/PUT /admin/settings/payment/epay` 与 `/admin/settings/upstream`，密钥三态与脱敏、审计、读时校验按内容失效的生效方式、渠道可插拔扩展方式）；**易支付渠道**（彩虹标准协议：下单/签名/回调验签/同步跳转/`out_trade_no` 策略/应答口径/错误分支矩阵）；**订单与充值单/余额/流水**（数据模型与状态机、会员端下单/支付（epay + balance）/取消/充值/余额/流水接口、回调入账幂等与金额校验、管理端对账接口、角色矩阵）；**优惠码应用口径**（下单抵扣 + 支付成功条件自增 `used_count` + 极端并发超用不阻断）；更新 8.6（上游参数来源=后台设置，`config.yaml` 的 `upstream` 段停用）、第 9 节（探活按设置取参、掩码口径说明）、11.1/11.6（折扣应用已实现与并发边界）、错误码表新增 `50002`；变更记录移章（v6 时位于第 13 节，v7 起为第 14 节） |
 | 2026-10-08 | v5 | 阶段 3b：计费周期 4 → 6（新增 `biennial` / `triennial`，上游字段 `biennially` / `triennially` 映射与中文显示名入契约；`upstream_prices_json`、`pricing_json.fixed`、会员端 `prices` 同步扩为 6 键）；新增第 11 节「优惠码」（coupons 数据模型、管理端 CRUD、公开校验接口 `GET /coupons/:code/validate`、折扣计算口径与 reason 枚举、暂不支持清单）；变更记录补记 v4 |

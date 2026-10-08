@@ -171,6 +171,9 @@ func notifyAck(t *testing.T, engine http.Handler, values url.Values) string {
 
 // newStage4Engine 构造阶段 4 集成测试引擎：真实数据库 + 假支付/假上游（由设置驱动）。
 // logs 非 nil 时同时把服务端日志写入该缓冲（用于断言日志不含密钥明文）。
+//
+// 阶段 5a 起支付成功会触发交付：此处注入 noopDeliverer，保持阶段 4 用例
+// 「支付后订单停留在 paid」的原断言（交付链路由 newStage5Engine 的专门用例覆盖）。
 func newStage4Engine(t *testing.T, gdb *gorm.DB, logs *bytes.Buffer) *gin.Engine {
 	t.Helper()
 	var handler io.Writer = io.Discard
@@ -178,9 +181,10 @@ func newStage4Engine(t *testing.T, gdb *gorm.DB, logs *bytes.Buffer) *gin.Engine
 		handler = logs
 	}
 	return New(Options{
-		Logger: slog.New(slog.NewTextHandler(handler, nil)),
-		DB:     gdb,
-		JWT:    config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		Logger:   slog.New(slog.NewTextHandler(handler, nil)),
+		DB:       gdb,
+		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		Delivery: noopDeliverer{},
 	})
 }
 
@@ -207,8 +211,9 @@ func seedEpaySetting(t *testing.T, gdb *gorm.DB, gatewayURL, notifyURL string) {
 // seededProductPIDs 为测试商品分配互不重复的上游商品 ID（uk_products_upstream_pid）。
 var seededProductPIDs atomic.Int64
 
-// seedOrderProduct 写库创建一个已上架商品：固定价 month 100.00 / annual 200.00，
-// 含一个会员可见可配置项（upstream_id=101，可选值 201/202）。
+// seedOrderProduct 写库创建一个已上架商品：固定价 monthly 100.00 / annual 200.00，
+// 含一个会员可见可配置项（配置项 id=11，可见取值 id=111/112、隐藏取值 id=113；
+// upstream_id 为 101 / 201-203——真实数据恒为 0，仅作透传展示，不参与下单与交付口径）。
 func seedOrderProduct(t *testing.T, gdb *gorm.DB, status string) *model.Product {
 	t.Helper()
 

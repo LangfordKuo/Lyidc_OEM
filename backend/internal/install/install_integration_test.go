@@ -248,11 +248,11 @@ func TestInstallFullFlow(t *testing.T) {
 	rec, envelope = doRequest(t, supervisor, http.MethodGet, PathEnvironment, nil, nil)
 	env := decodeData[environmentView](t, envelope)
 	expectSuccess(t, rec, envelope, "环境检查")
-	if !env.OK || len(env.Runtime.Migrations) != 6 {
+	if !env.OK || len(env.Runtime.Migrations) != 7 {
 		t.Fatalf("环境检查结果异常: ok=%t migrations=%d", env.OK, len(env.Runtime.Migrations))
 	}
-	if env.Runtime.Migrations[5].Name != "0006_create_finance_and_orders" {
-		t.Errorf("最后一个迁移 = %s", env.Runtime.Migrations[5].Name)
+	if env.Runtime.Migrations[6].Name != "0007_create_instances_and_delivery" {
+		t.Errorf("最后一个迁移 = %s", env.Runtime.Migrations[6].Name)
 	}
 
 	// —— 第 2 步：测试连接 + 保存 ——
@@ -280,7 +280,7 @@ func TestInstallFullFlow(t *testing.T) {
 	rec, envelope = doRequest(t, supervisor, http.MethodPost, PathInitialize, map[string]any{}, nil)
 	initResult := decodeData[initView](t, envelope)
 	expectSuccess(t, rec, envelope, "初始化建表")
-	if initResult.FromVersion != 0 || initResult.ToVersion != 6 || len(initResult.Applied) != 6 {
+	if initResult.FromVersion != 0 || initResult.ToVersion != 7 || len(initResult.Applied) != 7 {
 		t.Fatalf("迁移结果异常: %+v", initResult.migrationResult)
 	}
 	if initResult.State != string(StateAdminMissing) || initResult.FirstStep != 4 {
