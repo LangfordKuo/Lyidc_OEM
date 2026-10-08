@@ -19,7 +19,6 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/router"
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -56,31 +55,16 @@ func main() {
 		logger.Info("数据库连接成功", "dsn", config.MaskDSN(cfg.Database.DSN))
 	}
 
-	upstreamClient, err := upstream.New(upstream.Config{
-		BaseURL:  cfg.Upstream.BaseURL,
-		Username: cfg.Upstream.Username,
-		APIKey:   cfg.Upstream.APIKey,
-		Timeout:  cfg.Upstream.Timeout(),
-		Logger:   logger,
-	})
-	if err != nil {
-		logger.Error("上游客户端初始化失败", "error", err)
-		os.Exit(1)
-	}
-	if missing := cfg.Upstream.MissingFields(); len(missing) > 0 {
-		logger.Warn("上游配置不完整，上游对接不可用", "missing", missing)
-	} else if cfg.Upstream.Enabled() {
-		logger.Info("上游对接已启用",
-			"base_url", upstreamClient.BaseURL(), "api_key", upstreamClient.MaskedAPIKey())
-	}
+	// 支付渠道参数与上游对接参数都在后台设置（settings 表）里，由 router 按当前设置动态构造：
+	// 启动时不做读取（数据库可能不可用），管理员改完设置下一次调用即生效（契约 12.1）。
+	logger.Info("支付与上游参数由后台设置承载", "settings_api", "/api/v1/admin/settings",
+		"keys", []string{"payment.epay", "upstream"})
 
 	engine := router.New(router.Options{
-		Logger:          logger,
-		Ping:            db.PingFunc(gdb),
-		DB:              gdb,
-		JWT:             cfg.JWT,
-		Upstream:        upstreamClient,
-		UpstreamTimeout: cfg.Upstream.Timeout(),
+		Logger: logger,
+		Ping:   db.PingFunc(gdb),
+		DB:     gdb,
+		JWT:    cfg.JWT,
 	})
 
 	srv := &http.Server{

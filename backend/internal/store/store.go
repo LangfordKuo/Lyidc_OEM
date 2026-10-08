@@ -26,17 +26,27 @@ var (
 	ErrDuplicate = errors.New("唯一键冲突")
 	// ErrCouponCodeTaken 表示优惠码 code 唯一键冲突（大小写不敏感，对应 code=409）。
 	ErrCouponCodeTaken = errors.New("优惠码已存在")
+	// ErrTradeNoTaken 表示本地单号（orders.trade_no / recharges.trade_no）唯一键冲突，
+	// 调用方应重新生成单号并重试。
+	ErrTradeNoTaken = errors.New("本地单号已存在")
+	// ErrInsufficientBalance 表示余额不足以支付该订单。
+	ErrInsufficientBalance = errors.New("余额不足")
+	// ErrStateConflict 表示记录当前状态不允许该操作（如取消已支付订单）；
+	// 调用方应回读记录状态给出具体提示。
+	ErrStateConflict = errors.New("记录状态不允许该操作")
 )
 
 // mysqlDuplicateEntry 是 MySQL 唯一键冲突错误码。
 const mysqlDuplicateEntry = 1062
 
-// 唯一索引名（见 backend/migrations/0002、0003、0005）。
+// 唯一索引名（见 backend/migrations/0002、0003、0005、0006）。
 const (
-	indexMembersUsername = "uk_members_username"
-	indexMembersEmail    = "uk_members_email"
-	indexAdminsUsername  = "uk_admins_username"
-	indexCouponsCode     = "uk_coupons_code"
+	indexMembersUsername  = "uk_members_username"
+	indexMembersEmail     = "uk_members_email"
+	indexAdminsUsername   = "uk_admins_username"
+	indexCouponsCode      = "uk_coupons_code"
+	indexOrdersTradeNo    = "uk_orders_trade_no"
+	indexRechargesTradeNo = "uk_recharges_trade_no"
 )
 
 // Store 是阶段 1 的数据访问入口。
@@ -70,6 +80,9 @@ func mapDuplicateError(err error) error {
 		return ErrUsernameTaken
 	case strings.Contains(mysqlErr.Message, indexCouponsCode):
 		return ErrCouponCodeTaken
+	case strings.Contains(mysqlErr.Message, indexOrdersTradeNo),
+		strings.Contains(mysqlErr.Message, indexRechargesTradeNo):
+		return ErrTradeNoTaken
 	default:
 		return fmt.Errorf("%w: %s", ErrDuplicate, mysqlErr.Message)
 	}

@@ -130,7 +130,8 @@ func prepareTestDatabase(dsn string) error {
 	return nil
 }
 
-// resetBusinessTables 清空业务表（账号 + 商品目录），保证用例之间互不影响。
+// resetBusinessTables 清空业务表（账号 + 商品目录 + 订单/财务 + 后台设置），
+// 保证用例之间互不影响。
 func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 	t.Helper()
 	statements := []string{
@@ -139,11 +140,18 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM products",
 		"DELETE FROM product_groups",
 		"DELETE FROM coupons",
+		"DELETE FROM orders",
+		"DELETE FROM recharges",
+		"DELETE FROM ledger",
+		"DELETE FROM settings",
 		"ALTER TABLE members AUTO_INCREMENT = 1",
 		"ALTER TABLE admins AUTO_INCREMENT = 1",
 		"ALTER TABLE products AUTO_INCREMENT = 1",
 		"ALTER TABLE product_groups AUTO_INCREMENT = 1",
 		"ALTER TABLE coupons AUTO_INCREMENT = 1",
+		"ALTER TABLE orders AUTO_INCREMENT = 1",
+		"ALTER TABLE recharges AUTO_INCREMENT = 1",
+		"ALTER TABLE ledger AUTO_INCREMENT = 1",
 	}
 	for _, statement := range statements {
 		if err := gdb.Exec(statement).Error; err != nil {

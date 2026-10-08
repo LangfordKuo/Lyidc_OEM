@@ -14,6 +14,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
@@ -33,9 +34,9 @@ type Options struct {
 	DB *gorm.DB
 	// JWT 是 token 签发/校验配置；零值回退到开发默认密钥与 7 天有效期。
 	JWT config.JWTConfig
-	// Upstream 是上游客户端（阶段 2）；nil 表示未配置上游，
-	// /api/v1/admin/upstream/health 会返回 connected=false + error="上游未配置"。
-	Upstream *upstream.Client
+	// Upstream 是上游客户端提供者；**nil 时按后台设置（settings 表 upstream 键）动态构造**
+	// （生产默认路径）。测试可注入 upstream.StaticProvider 指向假上游。
+	Upstream upstream.Provider
 	// UpstreamTimeout 是上游探活的整体超时，缺省 5s。
 	UpstreamTimeout time.Duration
 }
@@ -58,15 +59,29 @@ func New(opts Options) *gin.Engine {
 
 	st := store.New(opts.DB)
 	tokens := auth.NewTokenManager(opts.JWT)
+	mw := &middleware{store: st, tokens: tokens}
+
+	// 阶段 4：支付渠道与上游客户端都按后台设置动态构造（契约 12.1），
+	// 管理员改完设置下一次调用即生效；未配置时对应功能返回明确业务错误，其余功能不受影响。
+	settingsReader := settings.NewReader(st)
+	payments := newPaymentRegistry(settingsReader, opts.Logger)
+	upstreamProvider := opts.Upstream
+	if upstreamProvider == nil {
+		upstreamProvider = newUpstreamProvider(settingsReader, opts.Logger)
+	}
+
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
 	products := &productHandler{
 		store:    st,
-		upstream: opts.Upstream,
+		upstream: upstreamProvider,
 		logger:   opts.Logger,
 	}
 	coupons := &couponHandler{store: st, logger: opts.Logger}
-	mw := &middleware{store: st, tokens: tokens}
+	orders := &orderHandler{store: st, payments: payments, logger: opts.Logger}
+	finance := &financeHandler{store: st, payments: payments, logger: opts.Logger}
+	paymentCallbacks := &paymentHandler{store: st, payments: payments, reader: settingsReader, logger: opts.Logger}
+	adminSettings := &settingsHandler{store: st, reader: settingsReader, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
 	{
@@ -89,8 +104,29 @@ func New(opts Options) *gin.Engine {
 		apiV1.GET("/products/:id", products.getMemberProduct)
 
 		// 优惠码校验（阶段 3b）：公开只读接口，供下单前试算折扣；
-		// 折扣的应用（扣减金额、使用记账）留到订单/支付阶段。
+		// 折扣的应用（扣减金额、使用记账）阶段 4 已在下单/支付链路兑现（契约 12.5）。
 		apiV1.GET("/coupons/:code/validate", coupons.validateCoupon)
+
+		// 支付回调与同步跳转（阶段 4）：渠道 → 本服务，无需鉴权——验签与金额校验是唯一凭证。
+		// notify_url 由管理员在后台设置里填写（推荐 <系统域名>/api/v1/payments/epay/notify）。
+		apiV1.POST("/payments/epay/notify", paymentCallbacks.epayNotify)
+		apiV1.GET("/payments/epay/notify", paymentCallbacks.epayNotify)
+		apiV1.GET("/payments/epay/return", paymentCallbacks.epayReturn)
+
+		// 订单与财务（阶段 4）：需要会员 token；全部只操作**本人**数据。
+		memberAPI := apiV1.Group("", mw.requireMember())
+		{
+			memberAPI.POST("/orders", orders.createOrder)
+			memberAPI.GET("/orders", orders.listOrders)
+			memberAPI.GET("/orders/:id", orders.getOrder)
+			memberAPI.POST("/orders/:id/pay", orders.payOrder)
+			memberAPI.POST("/orders/:id/cancel", orders.cancelOrder)
+
+			memberAPI.POST("/recharges", finance.createRecharge)
+			memberAPI.GET("/recharges", finance.listRecharges)
+			memberAPI.GET("/finance/balance", finance.getBalance)
+			memberAPI.GET("/finance/ledger", finance.listLedger)
+		}
 
 		// 管理端：登录开放，其余需要管理员 token；
 		// 改状态类接口额外要求角色为 admin 或 finance（support 返回 403）。
@@ -103,12 +139,32 @@ func New(opts Options) *gin.Engine {
 			adminGroup.PUT("/members/:id/status",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), admins.updateMemberStatus)
 
-			// 上游探活：只读调用上游验证连通性（未配置上游时返回 connected=false）。
+			// 上游探活：按当前后台设置只读调用上游验证连通性（未配置时返回 connected=false）。
 			upstreamGroup := adminGroup.Group("/upstream")
 			{
 				upstreamGroup.GET("/health",
-					upstreamHealthHandler(opts.Upstream, opts.UpstreamTimeout))
+					upstreamHealthHandler(upstreamProvider, opts.UpstreamTimeout))
 			}
+
+			// 后台设置（阶段 4）：承载 payment.epay 与 upstream 两个键；**仅 admin 角色，含读取**
+			// （finance / support 一律 403）；密钥永不回显明文（契约 12.1）。
+			settingsGroup := adminGroup.Group("/settings")
+			{
+				settingsGroup.GET("/payment/epay",
+					requireAdminRole(model.RoleAdmin), adminSettings.getEpaySettings)
+				settingsGroup.PUT("/payment/epay",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateEpaySettings)
+				settingsGroup.GET("/upstream",
+					requireAdminRole(model.RoleAdmin), adminSettings.getUpstreamSettings)
+				settingsGroup.PUT("/upstream",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateUpstreamSettings)
+			}
+
+			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。
+			adminGroup.GET("/recharges",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), finance.listAdminRecharges)
+			adminGroup.GET("/ledger",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), finance.listAdminLedger)
 
 			// 商品与计费（阶段 3a）：所有角色可查看；导入/改定价/上下架/改分组要求 admin 或 finance。
 			adminGroup.GET("/products", products.listProducts)

@@ -28,25 +28,33 @@ type upstreamHealthData struct {
 }
 
 // upstreamHealthHandler 处理 GET /api/v1/admin/upstream/health：
-// 向上游发起一次只读调用（登录 + 查余额）验证连通性。
+// 按**当前后台设置**取上游客户端，发起一次只读调用（登录 + 查余额）验证连通性。
 //
 // 探活失败属于业务结果而非接口错误，因此始终返回 HTTP 200 + code=0，
 // data.connected=false 并附带 error 说明；管理员 token 无效仍由中间件返回 401。
-func upstreamHealthHandler(client *upstream.Client, timeout time.Duration) gin.HandlerFunc {
+func upstreamHealthHandler(provider upstream.Provider, timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		data := upstreamHealthData{
 			CheckedAt: time.Now().UTC().Format(time.RFC3339),
 		}
 
-		if client == nil {
+		if provider == nil {
 			data.Error = upstreamErrorNotConfigured
 			response.Success(c, data)
 			return
 		}
-		data.BaseURL = client.BaseURL()
-		data.APIKeyMasked = client.MaskedAPIKey()
-
-		if !client.Enabled() {
+		client, enabled, err := provider.Current(c.Request.Context())
+		if err != nil {
+			// 设置读取/构造失败（含未配置）：不发起请求，按未配置口径答复。
+			data.Error = upstreamProbeError(err)
+			response.Success(c, data)
+			return
+		}
+		if client != nil {
+			data.BaseURL = client.BaseURL()
+			data.APIKeyMasked = client.MaskedAPIKey()
+		}
+		if !enabled {
 			data.Error = upstreamErrorNotConfigured
 			response.Success(c, data)
 			return
@@ -59,12 +67,12 @@ func upstreamHealthHandler(client *upstream.Client, timeout time.Duration) gin.H
 		defer cancel()
 
 		start := time.Now()
-		err := client.Probe(ctx)
+		probeErr := client.Probe(ctx)
 		data.LatencyMS = time.Since(start).Milliseconds()
 
-		if err != nil {
+		if probeErr != nil {
 			data.Connected = false
-			data.Error = upstreamProbeError(err)
+			data.Error = upstreamProbeError(probeErr)
 			response.Success(c, data)
 			return
 		}

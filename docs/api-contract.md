@@ -2,7 +2,8 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v3（阶段 0 建立；阶段 1 新增认证与账号；阶段 2 新增上游对接与上游探活）
+> 版本：v6（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 阶段 3b 六周期 + 优惠码；**阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付**）
 
 ## 1. 通用约定
 
@@ -85,6 +86,7 @@
 | `409` | 资源冲突 | 唯一键重复（用户名、邮箱）、状态冲突 |
 | `500` | 服务器内部错误 | 未预期的服务端异常 |
 | `50001` | 数据库错误 | 连接失败、SQL 执行失败 |
+| `50002` | 支付渠道调用失败 | 渠道不可达、渠道拒绝下单、渠道响应异常（阶段 4，见 12.2） |
 
 预留区间：`40001-40099` 为参数/校验类错误，`50001-50099` 为服务端具体故障；新增错误码必须同步更新本表与 `backend/internal/response/codes.go`。
 
@@ -705,17 +707,27 @@ curl -s https://lyew.com/cart/credit
 15. **`/cart/hostinfo` 必须带 `hostid[]`**：实测不带该参数时上游返回**空列表**（不是「账号下全部主机」），带 `hostid[]=<id>` 才返回对应主机。上游文档把该参数标为必填，但未说明缺省时返回空——接入方需自行维护上游主机 ID 清单（本阶段由我方订单表承担，见后续阶段）。
 16. **资金消耗核对**：测试账号在上游的余额从 `10000.00` 降到 `9960.00`，与「开通 20.00 + 续费 20.00」一致，说明 `apply_credit` 的扣费链路真实生效。
 
-### 8.6 配置项（`backend/config.yaml` → `upstream`）
+### 8.6 配置项（阶段 4 起：**由后台设置承载，不再走 `config.yaml`**）
 
-| 配置键 | 类型 | 说明 |
+上游对接参数自阶段 4 起迁移到「后台管理设置」（settings 表 + 管理端接口，见 12.1），
+**改完立即生效、无需重启**；`backend/config.yaml` 的 `upstream` 段已停用并删除（`config` 包不再解析该段）。
+本文件只保留部署级参数（监听地址、数据库连接、JWT 密钥、日志等级）。
+
+| 设置字段（键 `upstream`） | 类型 | 说明 |
 | --- | --- | --- |
-| `upstream.base_url` | string | 上游地址（含 `http(s)://`，不带结尾斜杠），如 `https://lyew.com` |
-| `upstream.username` | string | 上游账号（手机号/邮箱）。**上游登录必需**，故在任务给定的 `base_url/api_key/timeout_seconds` 之外额外增加此项 |
-| `upstream.api_key` | string | API 密钥；**真实密钥只允许写在本地 `config.yaml`（已 gitignore）**，`config.example.yaml` 留空并注明由系统设置下发 |
-| `upstream.timeout_seconds` | int | 单次上游请求超时，缺省 5，取值 1-120 |
+| `base_url` | string | 上游地址（含 `http(s)://`，不带结尾斜杠），如 `https://lyew.com` |
+| `username` | string | 上游账号（**必须是注册手机号**，上游对 username 有 4-20 字符硬校验，见 8.5 第 1 条） |
+| `api_key` | string | 上游 API 密钥（12 位随机串，不是登录密码）；写入后接口只回 `api_key_configured` 与掩码，**绝不回显明文** |
+| `timeout_seconds` | int | 单次上游请求超时，缺省 5，取值 1-120 |
 
-三项（`base_url` / `username` / `api_key`）全空表示不启用上游对接：服务照常启动，仅探活接口返回 `connected=false`。
-只配了其中一部分时启动会打印 `上游配置不完整` 告警并列出缺失键。
+读取/写入接口：`GET` / `PUT /api/v1/admin/settings/upstream`（仅 `admin` 角色，见 12.1）。
+三项（`base_url` / `username` / `api_key`）全空表示不启用上游对接：服务照常启动，仅上游相关功能按「未配置」处理
+（探活返回 `connected=false` + `error="上游未配置"`，商品导入返回明确错误），**其余功能不受影响**。
+只填了一部分时同样按未配置处理，但设置接口仍能看到已填字段（便于管理员分步填写）。
+
+**生效方式**：上游客户端按当前设置**动态构造**——每次使用都读一次 settings（主键查询，开销极小），
+设置内容未变时复用现有客户端（**保留其 JWT 缓存**，不重复登录），内容变化时立即重建客户端并丢弃旧 JWT
+缓存（契约 12.1）。因此不存在「启动时读一次」的陈旧配置。
 
 ## 9. 管理端上游探活接口（阶段 2）
 
@@ -729,7 +741,8 @@ curl -s https://lyew.com/cart/credit
 | 鉴权 | 管理员 token（`aud=admin`），与 `/api/v1/admin/profile` 一致 |
 | 请求参数 | 无 |
 | 上游调用 | 登录 + 读取余额（只读，不产生写操作） |
-| 超时 | 取配置 `upstream.timeout_seconds`，缺省 5s |
+| 上游参数 | **按当前后台设置动态读取**（键 `upstream`，见 8.6 / 12.1）；未配置时不发起请求 |
+| 超时 | 探活整体超时缺省 5s（客户端单次请求超时取设置里的 `timeout_seconds`，缺省 5s） |
 
 成功（HTTP 200，下为 2026-10-08 对生产上游的实测响应）：
 
@@ -750,9 +763,9 @@ curl -s https://lyew.com/cart/credit
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `connected` | bool | 上游只读调用是否成功 |
-| `base_url` | string | 上游地址（来自配置，非密） |
+| `base_url` | string | 上游地址（来自后台设置，非密） |
 | `latency_ms` | int | 本次探活耗时（毫秒） |
-| `api_key_masked` | string | 脱敏后的 API 密钥，仅保留首 4 位与后 3 位；未配置时为空串 |
+| `api_key_masked` | string | 脱敏后的 API 密钥，**仅保留首 4 位与后 3 位**（如 `1sXR****ZG5`）；未配置时为空串。注意与设置接口的掩码口径不同（12.1），两者都不含明文 |
 | `checked_at` | string | 探测完成时间（RFC3339，UTC） |
 
 失败（HTTP 200，`connected=false`；探活失败属业务结果而非接口错误）：
@@ -774,9 +787,13 @@ curl -s https://lyew.com/cart/credit
 
 约定：
 
-1. 上游未配置（`upstream.base_url` 或 `api_key` 为空）时不发起请求，直接返回 `connected=false` 与 `error="上游未配置"`。
+1. 上游未配置（后台设置里 `base_url` / `username` / `api_key` 任一为空）时不发起请求，直接返回
+   `connected=false` 与 `error="上游未配置"`（此时仍回带已填写的 `base_url`，便于管理员排查）。
 2. 探活失败**不返回 5xx**，便于前端把它当作状态展示而不是错误弹窗；管理员 token 无效仍按第 1.1 节返回 `401`。
-3. 密钥只以脱敏形式出现在响应与日志中（`1sXR****ZG5`），完整密钥仅存在于本地 `config.yaml`。
+3. 密钥只以脱敏形式出现在响应与日志中（`1sXR****ZG5`），完整密钥只存在于 settings 表与本进程内存
+   （阶段 4 起不再写配置文件）。
+4. 探活每次都主动登录一次（验证鉴权链路可用），因此它**不反映**客户端的 JWT 缓存状态；普通业务调用
+   （如商品导入）才复用缓存中的 JWT。
 
 ## 10. 商品与计费（阶段 3a 交付；阶段 3b 起计费周期扩为 6 个）
 
@@ -1232,7 +1249,8 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 ## 11. 优惠码（阶段 3b）
 
 优惠码的**规则与校验**在阶段 3b 交付：管理端 CRUD + 会员端公开校验接口。
-折扣的**应用**（下单抵扣、使用记账、新购/续费区分）留到订单/支付阶段（见 11.6）。
+折扣的**应用**在阶段 4 交付：下单时抵扣并入金额（`POST /api/v1/orders`），**支付成功时**才计入
+`used_count`（原子条件自增，防超用）。完整口径见 11.6 与 12.5。
 
 ### 11.1 数据模型（coupons 表）
 
@@ -1246,7 +1264,7 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 | `starts_at` | string \| null | 生效时间（RFC3339 UTC）；`null` = 立即生效 |
 | `expires_at` | string \| null | 过期时间（RFC3339 UTC）；`null` = 永不过期；**`now > expires_at` 判过期**（边界为闭区间：等于过期时间时仍有效） |
 | `max_uses` | int | 最大使用次数，`0` = 不限 |
-| `used_count` | int | 已使用次数（默认 0）；**本阶段只读不增**，扣减与并发控制留订单阶段 |
+| `used_count` | int | 已使用次数（默认 0）；**阶段 4 起由支付成功触发原子条件自增**（下单不计数、取消不回退，防超用，见 12.5） |
 | `status` | string | `on` 启用 / `off` 停用（默认 `on`）；**不提供 DELETE —— 停用即 `status=off`** |
 | `comment` | string | 备注（管理端可见，≤ 255 字符，可空） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -1428,18 +1446,636 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 | `POST /api/v1/admin/coupons` | ✓ | ✓ | ✗（`403`） |
 | `PUT /api/v1/admin/coupons/:id` | ✓ | ✓ | ✗（`403`） |
 
-### 11.6 暂不支持的能力（留到订单/支付阶段）
+### 11.6 折扣应用口径（阶段 4 已实现）与仍不支持的能力
 
-1. **商品范围限定**：优惠码目前只按「周期」限定适用范围，不区分商品/分组（全站通用）。
+**折扣应用（阶段 4 交付，实现口径见 12.5）**：
+
+| 环节 | 行为 |
+| --- | --- |
+| 下单（`POST /api/v1/orders`） | 复用本节 11.2 的判定顺序与折扣计算；不通过 → **统一 40002 + 明确 message**（`优惠码不存在` / `优惠码已停用` / `优惠码尚未生效` / `优惠码已过期` / `优惠码使用次数已用尽` / `优惠码不适用于该周期`）。通过 → 折扣并入订单金额，并快照 `coupon_id` / `coupon_code` / `discount_amount` |
+| 支付成功（在线支付回调 / 余额支付） | 在同一事务内对 `used_count` 做**原子条件自增**：`UPDATE coupons SET used_count = used_count + 1 WHERE id = ? AND (max_uses = 0 OR used_count < max_uses)`；影响行数为 0（极端并发下已超用）时**只记 WARN 日志、不阻断入账** |
+| 下单未支付 / 取消订单 | **不占用次数**（只有支付成功才计数），因此取消订单无需回退 `used_count` |
+
+`used_count` 是**全站总次数**口径：不同会员共用同一个计数器；单笔订单只计 1 次（本批 `qty` 固定 1）。
+
+**仍不支持的能力**：
+
+1. **商品范围限定**：优惠码只按「周期」限定适用范围，不区分商品/分组（全站通用）。
 2. **每人限用**：没有「每个会员限用 N 次」的约束（`max_uses` 是全站总次数上限）。
-3. **使用记账**：`used_count` 本阶段**只读不增**——没有核销记录表，也没有下单抵扣链路；
-   扣减与并发控制（防超用）留到订单阶段与订单事务一并实现。
-4. **新购/续费区分**：优惠码不区分首购与续费场景。
+3. **核销明细**：`used_count` 只有计数，没有「哪张订单用了哪个码」的独立核销表
+   （订单表本身有 `coupon_id` / `coupon_code` 快照，可按订单追溯）。
+4. **新购/续费区分**：优惠码不区分首购与续费场景（本批只能新购——见 12.10）。
 
-## 12. 变更记录
+## 12. 支付与财务（阶段 4）
+
+本节描述：后台设置机制（12.1）、易支付渠道协议（12.2）、订单/充值单/流水的数据模型与状态机（12.3）、
+会员端接口（12.4）、优惠码应用口径（12.5）、管理端对账接口（12.6）、角色矩阵（12.7）、错误码（12.8）、
+业务边界（12.9）、暂不支持清单（12.10）。
+
+> **本阶段业务链路不调用上游**：下单与支付只操作本地库（创建订单 / 落支付状态 / 记账），
+> 上游开通与交付留**阶段 5**（触发点已在订单转 `paid` 的事务内预留注释）。
+
+### 12.1 设置机制（后台管理设置）
+
+**总原则**：所有「用户可设置」的内容一律做进**后台管理设置**（`settings` 表 + 管理端接口），
+**不让用户改任何配置文件**；`backend/config.yaml` 只保留部署级参数
+（数据库连接、监听端口、JWT 密钥、日志等级）。阶段 4 把**易支付参数**与**上游对接参数**一并迁入本机制。
+
+**数据模型（`settings` 表，迁移 0006）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream` |
+| `value` | text | 设置值（JSON 文本），结构与键一一对应 |
+| `updated_by` | int \| null | 最后修改的管理员 ID（审计用；NULL = 没有接口写入记录） |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+表是**通用设计**：后续阶段的站点/邮件等设置直接复用，无需再建表。
+
+**生效方式（最终选型）：读时校验、按内容失效。** 不采用「启动时读一次」，也不采用固定 TTL 缓存：
+
+1. 每次使用都读一次 settings（单一主键查询，开销可忽略）；
+2. 调用方（支付渠道工厂 / 上游客户端管理器）以**设置 JSON 原文**为内容指纹：
+   指纹未变 → 复用现有实例（上游客户端据此**保留 JWT 缓存**，避免每次调用都重新登录）；
+   指纹变化 → 立即重建实例（上游客户端**丢弃旧配置与旧 JWT 缓存**）。
+
+因此后台改完设置**下一次调用即生效**：既不需要重启，也没有「短缓存窗口」。
+集成测试对此有断言（换地址后旧上游不再被调用；只改密钥后业务调用会在新密钥下重新登录）。
+
+**渠道可插拔（扩展方式）**：新增支付渠道 = ①新增一个 `payment.Provider` 实现（下单/验签/应答）；
+②在注册表登记工厂 `Register("<渠道名>", factory)`（工厂按当前设置构造实例）；
+③新增设置键与管理端接口（复用 12.1 的机制）；
+④注册回调路由（如 `/api/v1/payments/<渠道>/notify`）。业务代码只依赖 `Provider` 抽象与
+`Registry.Get(ctx, name)`，不直接依赖具体渠道实现。
+
+**密钥安全**
+
+1. `key`（易支付商户密钥）与 `api_key`（上游密钥）只存 settings 表与本进程内存；
+2. **任何接口响应都不回显明文**，只给 `*_configured`（布尔）与掩码；
+3. 掩码有两处口径（都只暴露前缀，不含完整密钥）：
+   - **设置接口（本节）**：`MaskSecret` = 首 4 位 + `****`（如 `1sXR****`）；不足 8 位时只给 `****`；
+   - **上游探活接口（第 9 节，沿用阶段 2 口径）**：首 4 位 + `****` + 末 3 位（如 `1sXR****ZG5`）。
+4. 日志与错误信息同样不含明文（集成测试对响应与日志均有断言）。
+
+#### `GET /api/v1/admin/settings/payment/epay`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin` 角色**（`finance` / `support` 返回 `403`，**读取同样受限**） |
+| 成功 | HTTP 200，`data` 为易支付设置视图 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "enabled": true,
+    "gateway": "https://pay.example.com",
+    "pid": "1001",
+    "key_configured": true,
+    "key_masked": "1sXR****",
+    "notify_url": "https://oem.example.com/api/v1/payments/epay/notify",
+    "notify_url_recommended": "http://127.0.0.1:8080/api/v1/payments/epay/notify",
+    "return_url": "https://oem.example.com/pay/result",
+    "updated_by": 1,
+    "updated_at": "2026-10-08T09:42:33Z"
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 渠道是否启用；启用时 `gateway` / `pid` / `key` / `notify_url` 必须齐全 |
+| `key_configured` / `key_masked` | 是否已配置商户密钥 / 密钥掩码（**绝不回显明文**；未配置时 `false` / 空串） |
+| `notify_url_recommended` | 按当前请求 Host 推导的推荐回调地址（只做提示，不校验可达性） |
+| `updated_by` / `updated_at` | 最后修改的管理员 ID 与时间；从未写入时为 `null` |
+
+推荐值：`notify_url` = `http(s)://<系统域名>/api/v1/payments/epay/notify`；
+`return_url` = 前端支付结果页（本服务在其上做最简 302，见 12.2.4）。
+
+#### `PUT /api/v1/admin/settings/payment/epay`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 同上（仅 `admin`） |
+| 请求体 | `enabled` / `gateway` / `pid` / `key` / `notify_url` / `return_url`，**均可选但至少提供一个**；键缺席或 `null` = 不修改 |
+| 成功 | HTTP 200，`data` 为更新后的设置视图（含审计字段） |
+
+**密钥三态语义**（`key`，`upstream.api_key` 同款）：**省略 = 保持不变、提供新值 = 替换、空串 = 清空**。
+
+```bash
+# 1) 首次启用（含密钥）
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/settings/payment/epay \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"gateway":"https://pay.example.com","pid":"1001","key":"<商户密钥>",
+       "notify_url":"https://oem.example.com/api/v1/payments/epay/notify"}'
+
+# 2) 只改 return_url（省略 key → 密钥保持不变）
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/settings/payment/epay \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"return_url":"https://oem.example.com/pay/result"}'
+
+# 3) 清空密钥并停用（只清 key 而保留 enabled=true 会被拒绝）
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/settings/payment/epay \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"enabled":false,"key":""}'
+```
+
+校验按**合并后的最终值**执行：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | 未提供任何字段（`至少提供一个字段：enabled / gateway / pid / key / notify_url / return_url`）；URL 字段不是合法 `http(s)` 或缺少主机名（`gateway 必须以 http:// 或 https:// 开头，收到 "..."`） |
+| `40002` | 400 | `enabled=true` 时必填项缺失，message 列出缺失项：`enabled=true 时以下字段不能为空：gateway、pid、key、notify_url` |
+| `403` | 403 | 角色不是 `admin` |
+| `500` | 500 | 库内该键的值损坏（只可能由手工改库导致） |
+| `50001` | 500 | 读写本地库失败 |
+
+#### `GET /api/v1/admin/settings/upstream`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，仅 `admin` 角色 |
+| 成功 | HTTP 200，`data` 为上游设置视图 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "base_url": "https://lyew.com",
+    "username": "16650492239",
+    "api_key_configured": true,
+    "api_key_masked": "1sXR****",
+    "timeout_seconds": 10,
+    "updated_by": 1,
+    "updated_at": "2026-10-08T09:42:33Z"
+  }
+}
+```
+
+`api_key_configured` / `api_key_masked` 语义同支付 `key`；`timeout_seconds` 未配置时输出缺省 5。
+字段语义与「配一半」时的行为见 8.6。
+
+#### `PUT /api/v1/admin/settings/upstream`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 同上（仅 `admin`） |
+| 请求体 | `base_url` / `username` / `api_key` / `timeout_seconds`，**均可选但至少提供一个**；`api_key` 三态语义同支付 `key` |
+| 成功 | HTTP 200，`data` 为更新后的设置视图 |
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | 未提供任何字段；`base_url` 不是合法 `http(s)` 地址 |
+| `40002` | 400 | `timeout_seconds` 不在 1-120：`timeout_seconds 需为 1-120 之间的整数，收到 0` |
+| `403` | 403 | 角色不是 `admin` |
+| `500` / `50001` | 500 | 值损坏 / 库操作失败 |
+
+**生效承诺**：PUT 之后，下一次上游调用必须使用新参数——**包括只改 `api_key`**（地址不变、密钥变了）的情况：
+此时客户端被重建、旧 JWT 缓存失效，会在新参数下重新登录。探活接口按当前设置取参数（8.6 / 第 9 节）。
+
+### 12.2 易支付渠道（epay）
+
+按**彩虹易支付标准协议**实现。本批对 **mock 网关**完成全链路联调（下单/验签/回调/幂等/金额校验），
+真机联调另行安排（12.10）。如遇平台变体差异，按阶段 2「实测差异」的模式记入 12.2.6。
+
+渠道参数全部来自 12.1 的 `payment.epay` 设置：`gateway` / `pid` / `key` / `notify_url` / `return_url`。
+
+#### 12.2.1 下单（`POST {gateway}/mapi.php`）
+
+form 参数：
+
+| 参数 | 取值 |
+| --- | --- |
+| `pid` | 设置里的商户 ID |
+| `type` | 支付方式：`alipay` / `wxpay`；取请求的 `pay_type`，缺省 `alipay`；**其他取值返回 `40002`** |
+| `out_trade_no` | **本地单号**（`O…` 订单 / `R…` 充值单，见 12.2.5） |
+| `notify_url` | 设置里的 `notify_url` |
+| `return_url` | **本服务的 return 端点**：由 `notify_url` 推导（结尾 `/notify` → `/return`；否则取 scheme+host + `/api/v1/payments/epay/return`）；`notify_url` 为空时不传 |
+| `name` | 支付标题：订单为「商品名 + 周期」（按字符截断到 64），充值为 `余额充值` |
+| `money` | 应付金额（定点小数字符串）：订单为 `final_amount`（已扣优惠码），充值为充值金额 |
+| `sign` | 见 12.2.2 |
+| `sign_type` | 固定 `MD5` |
+
+成功响应（渠道 JSON）：
+
+```json
+{"code":1,"trade_no":"2026100822001","payurl":"https://pay.example.com/pay/xxx"}
+```
+
+- `code` 兼容数字 `1` 与字符串 `"1"`；`code != 1` → 渠道拒绝 → **`50002`**（message 带渠道 `msg` 摘要）；
+- 缺 `payurl` → 渠道响应异常 → **`50002`**；
+- 响应体读取上限 64 KiB、日志只记前 200 字节（异常保护，且都是脱敏内容）；
+- `qrcode` / `urlscheme` 等额外字段原样放进响应的 `pay.extra`。
+
+#### 12.2.2 签名（下单与回调验签**共用同一实现**）
+
+1. 取全部业务参数，**剔除 `sign` 与 `sign_type`**，跳过值为空的参数；
+2. 按参数名 **ASCII 升序**排序，拼成 `a=1&b=2` 形式（原值直接拼接，不做 URL 编码）；
+3. 末尾**直接拼接商户 KEY**（不加密钥名），MD5 后取**小写**十六进制。
+
+验签用常量时间比较、大小写不敏感（签名统一输出小写）。
+
+#### 12.2.3 异步回调
+
+#### `POST|GET /api/v1/payments/epay/notify`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | **无需 token**——验签 + 金额校验是唯一凭证（渠道无法携带我方 token） |
+| 请求参数 | `pid`、`trade_no`、`out_trade_no`、`type`、`name`、`money`、`trade_status`、`sign`、`sign_type` |
+| 成功应答 | HTTP 200 + **纯文本** `success` |
+| 失败应答 | HTTP 200 + **纯文本** `fail`（渠道按其策略重试） |
+
+处理顺序与应答口径（**逐条对齐，实现与测试均以此为准**）：
+
+| # | 条件 | 应答 | 副作用 |
+| --- | --- | --- | --- |
+| 1 | 渠道不可用（`payment.epay` 未启用 / 不完整 / 值损坏） | `fail` | 记 WARN（无密钥无法验签） |
+| 2 | 缺少必要参数、`pid` 与本地设置不一致、`sign_type` 非 MD5、**验签失败** | `fail` | 记 WARN |
+| 3 | `trade_status != TRADE_SUCCESS` | `success` | 记 WARN，不处理（非成功状态不是错误，也无需重试；状态变化时渠道会再通知一次） |
+| 4 | `out_trade_no` 前缀不可识别（既非 `O` 也非 `R`）、或本地查不到对应订单/充值单 | `fail` | 记 WARN（本地单在发起支付前就已创建，查不到属异常，保留重试以留下痕迹） |
+| 5 | `money` 与本地单金额**不一致**（按整数分比较；任一侧解析失败也算不一致） | `fail` | 记 WARN，**不入账** |
+| 6 | 订单已是 `paid` | `success` | 幂等：不重复处理、不重复计数 |
+| 7 | 订单已 `cancelled` | `success` | 记 WARN，**不处理**、不改状态（避免渠道无限重试；已付款但订单被取消的极端情况由运营对账处理） |
+| 8 | 订单 `pending` | `success` | **单事务**：`pending→paid`、记 `pay_channel=epay`/`channel_trade_no`/`pay_time`、优惠码条件自增 |
+| 9 | 充值单已是 `paid` | `success` | 幂等：不重复加款 |
+| 10 | 充值单已 `closed`（本批不产生该状态） | `success` | 记 WARN，不处理 |
+| 11 | 充值单 `pending` | `success` | **单事务**：`pending→paid`、记 `channel_trade_no`/`paid_at`、会员余额加款、写流水（`recharge`，余额前后准确） |
+| 12 | 落库异常 | `fail` | 记 ERROR（渠道重试） |
+
+金额比较对象：订单 = `final_amount`（应付金额，已扣优惠码）；充值单 = `amount`。
+并发安全：入账事务对订单/充值单行 `SELECT ... FOR UPDATE`，回调重复到达不会重复入账。
+
+#### 12.2.4 同步跳转（return）
+
+#### `GET /api/v1/payments/epay/return`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 无需 token |
+| 行为 | 最简实现：**302 到设置里的 `return_url`**；未配置（或设置读取失败）时 HTTP 200 + 简单提示页（`支付已完成，请返回商户页面查看订单状态。`） |
+| 说明 | 同步跳转**不参与入账**（以异步通知为准），因此不验签、不改状态，也不依赖渠道是否启用 |
+
+#### 12.2.5 out_trade_no 策略
+
+- 本地单号 = 渠道 `out_trade_no`，格式 `<前缀><UTC 时间 yyyyMMddHHmmss><6 位随机大写字母/数字>`
+  （如 `O20261008143015K7Q2ZP`）；前缀 `O` = 订单、`R` = 充值单，回调据此分派（12.2.3 第 4 条）。
+- 生成时若唯一键冲突自动换号重试（最多 5 次）。
+- **重复发起支付沿用同一 `out_trade_no`**（不换号）：即使渠道对同号重复下单有限制，也不会造成重复入账
+  （本地按 `pending→paid` 幂等，回调只可能命中同一张本地单）。
+  **若真机联调发现渠道对同号重复下单报错**，则改为「复用已建渠道单的 payurl」或「换新号 + 旧号作废」，
+  并把差异记入 12.2.6。
+
+#### 12.2.6 与标准协议的差异（本批为空）
+
+| # | 现象 | 处理 |
+| --- | --- | --- |
+| — | 本批对 mock 网关完成全链路联调，与彩虹易支付标准协议一致；真机联调待安排（12.10） | — |
+
+### 12.3 数据模型与状态机
+
+**订单（`orders`，迁移 0006）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` / `trade_no` | int / string | 本地主键与单号（`O…`，唯一，同时是渠道 `out_trade_no`） |
+| `member_id` / `product_id` | int | 下单会员与本地商品 |
+| `product_name` | string | 商品名快照（商品改名后订单仍显示下单时的名称） |
+| `cycle` / `qty` | string / int | 计费周期（6 周期之一）与数量（**本批固定 1**） |
+| `config_json` | string | 所选配置项快照 `{"<配置项 upstream_id>": "<所选值 upstream_id>"}`（供阶段 5 拼装上游下单参数） |
+| `amount` / `discount_amount` / `final_amount` | string | 原价 / 优惠码折扣额 / 应付金额（定点小数字符串，`final = amount − discount`） |
+| `coupon_id` / `coupon_code` | int \| null / string | 所用优惠码快照（未用码：NULL / 空串） |
+| `status` | string | `pending` / `paid` / `cancelled` |
+| `pay_channel` / `channel_trade_no` / `pay_time` | string / string / string \| null | 支付渠道（`epay` / `balance`）、渠道单号、支付时间（UTC） |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+状态机：`pending → paid`（在线支付回调 / 余额支付）、`pending → cancelled`（本人取消）。
+**没有** `paid → refunded`，**没有**自动超时关闭（12.10）。
+交付相关列（`host_id` 等）由**阶段 5** 迁移 ALTER 添加。
+
+**充值单（`recharges`）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` / `trade_no` | int / string | 本地主键与单号（`R…`，唯一，同时是渠道 `out_trade_no`） |
+| `member_id` / `amount` | int / string | 会员与充值金额（1.00 ~ 50000.00） |
+| `channel` | string | 支付渠道（本批仅 `epay`） |
+| `status` | string | `pending` / `paid` / `closed`（`closed` 本批不产生，留后续批次） |
+| `channel_trade_no` / `created_at` / `paid_at` / `expires_at` | string \| null | 渠道单号 / 创建时间 / 到账时间 / 过期时间（**本批不自动关闭**，`expires_at` 恒为 null） |
+
+**余额流水（`ledger`，只增不改）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` / `member_id` | int | 主键与会员 |
+| `type` | string | `recharge`（充值入账，正）/ `order_pay`（余额支付扣款，负）/ `refund`、`adjust`（预留，本批不产生） |
+| `amount` | string | **有符号**金额：入账为正、出账为负 |
+| `balance_before` / `balance_after` | string | 变动前后余额，恒满足 `balance_after = balance_before + amount` |
+| `ref_type` / `ref_id` | string / int | 关联单据类型（`recharge` / `order`）与 ID |
+| `note` / `created_at` | string | 备注（如「充值 R2026…」「订单支付 O2026…」）与时间（UTC） |
+
+**金额与时间口径**：数据库 `DECIMAL(14,2)`，接口一律输出定点小数字符串（两位小数），
+内部计算全部走**整数分**（无浮点误差）；时间列统一 UTC，接口输出 RFC3339 UTC。
+
+### 12.4 会员端接口（订单与财务）
+
+全部要求**会员 token**（`aud=member`），且只操作**本人**数据；未携带/无效 token → `401`。
+
+#### `POST /api/v1/orders`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `product_id`（必填）、`cycle`（必填，6 周期之一）、`config`（可选）、`coupon_code`（可选，空串 = 不用码） |
+| 成功 | HTTP 200，`data` 为订单对象（含金额明细） |
+
+`config` 的键与值都是**上游配置项 ID（`upstream_id`）**：键为该商品可配置项的 `upstream_id`，
+值为所选可选值的 `upstream_id`；值接受 **JSON 字符串或整数**写法（服务端统一按字符串快照）。
+只接受该商品**会员可见**的项与值（上游标记 `hidden` 的项/值按「未知」处理）。
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
+  -H 'Authorization: Bearer <member-token>' -H 'Content-Type: application/json' \
+  -d '{"product_id":1,"cycle":"annual","config":{"101":201},"coupon_code":"CASH20"}'
+```
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": 1,
+    "trade_no": "O20261008143015K7Q2ZP",
+    "member_id": 1,
+    "product_id": 1,
+    "product_name": "香港二区 CN2 A型",
+    "cycle": "annual",
+    "qty": 1,
+    "config": {"101": "201"},
+    "amount": "200.00",
+    "discount_amount": "20.00",
+    "final_amount": "180.00",
+    "coupon_code": "CASH20",
+    "status": "pending",
+    "pay_channel": "",
+    "channel_trade_no": "",
+    "pay_time": null,
+    "created_at": "2026-10-08T14:30:15Z",
+    "updated_at": "2026-10-08T14:30:15Z"
+  }
+}
+```
+
+校验顺序（依次判断，命中即返回）：
+
+| # | 条件 | code / HTTP | message |
+| --- | --- | --- | --- |
+| 1 | 请求体非合法 JSON、`product_id` 非正整数、`cycle` 非本地周期、`config` 键值类型不符 | `40001` / 400 | 见 12.8 |
+| 2 | 商品不存在**或已下架**（统一 404，不泄露存在性） | `404` / 404 | `商品不存在` |
+| 3 | 该周期无本地售价（不可售） | `40002` / 400 | `该商品在 <cycle> 周期不可售（无本地售价）` |
+| 4 | `config` 含未知配置项/未知取值（含隐藏项与隐藏值）或快照超 1024 字节 | `40002` / 400 | `未知的配置项 "..."（不在该商品的可配置项内）` / `配置项 "..." 不支持所选值 "..."` |
+| 5 | 优惠码不存在 / 无效 / 不适用于该周期 | `40002` / 400 | `优惠码不存在`、`优惠码已停用`、`优惠码尚未生效`、`优惠码已过期`、`优惠码使用次数已用尽`、`优惠码不适用于该周期` |
+| 6 | 落库失败（含单号冲突重试耗尽） | `50001` / 500 | — |
+
+**库存不做强校验**：导入库存是上游快照，防超卖由上游开通环节最终保证（12.9）。
+
+#### `GET /api/v1/orders`
+
+| 项目 | 说明 |
+| --- | --- |
+| 查询参数 | `page`（缺省 1）、`page_size`（缺省 20，1-100）、`status`（可选：`pending` / `paid` / `cancelled`） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`，**新建在前**（id 降序），只含本人订单 |
+| 错误码 | `40001`（分页越界、`status` 取值非法） |
+
+#### `GET /api/v1/orders/:id`
+
+本人订单详情（结构同下单返回）。
+**他人订单与不存在的订单统一返回 `404 订单不存在`**（不泄露存在性）；`:id` 非正整数 → `40001`。
+
+#### `POST /api/v1/orders/:id/pay`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `channel`（必填：`epay` 在线支付 / `balance` 余额支付）、`pay_type`（可选：`alipay` / `wxpay`，仅 `epay` 用） |
+| 成功 | HTTP 200，`data` = `{order, pay}` |
+
+在线支付 `{"channel":"epay","pay_type":"alipay"}`：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "order": { "...同下单返回，status 仍为 pending..." },
+    "pay": {
+      "channel": "epay",
+      "pay_type": "alipay",
+      "channel_trade_no": "2026100822001",
+      "payurl": "https://pay.example.com/pay/xxx"
+    }
+  }
+}
+```
+
+余额支付 `{"channel":"balance"}`：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "order": { "...status: paid, pay_channel: balance, pay_time: ..." },
+    "pay": { "channel": "balance", "paid": true, "balance_after": "50.00" }
+  }
+}
+```
+
+| 场景 | code / HTTP | message |
+| --- | --- | --- |
+| `:id` 非正整数 | `40001` / 400 | `订单 ID 必须为正整数` |
+| 订单不存在 / 非本人 | `404` / 404 | `订单不存在` |
+| `channel` 取值非法 | `40002` / 400 | `channel 只能是 epay（在线支付）或 balance（余额支付）` |
+| 订单已是 `paid` / `cancelled` | `40002` / 400 | `订单已支付，无法发起支付` / `订单已取消，无法发起支付` |
+| 渠道未启用或配置不完整 | `40002` / 400 | `支付渠道未配置或未启用（请联系管理员在后台设置中填写并启用）` |
+| 渠道不支持该 `pay_type` | `40002` / 400 | `支付方式不受支持: epay 支持 alipay / wxpay` |
+| 渠道拒绝 / 响应异常 / 网络失败 | `50002` / 500 | `支付渠道下单失败：<渠道 msg 摘要>`（不含商户密钥） |
+| 余额不足 | `40002` / 400 | `余额不足，请先充值或改用在线支付` |
+
+余额支付为**本地单事务**：余额扣款 → 写流水（`order_pay`，金额为负）→ 订单转 `paid` → 优惠码条件自增
+（余额不足时不产生任何写入）。**重复发起支付**：`pending` 订单可多次发起，`out_trade_no` 固定复用订单号。
+
+#### `POST /api/v1/orders/:id/cancel`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | 无 |
+| 成功 | HTTP 200，`data` 为更新后的订单对象（`status=cancelled`） |
+| 错误码 | `40001`（ID 非法）、`404`（不存在/非本人）、`40002`（`订单已支付，无法取消` / `订单已取消，无法取消`） |
+| 说明 | 仅本人 + 仅 `pending`；取消**不涉及优惠码回退**（下单不计数，见 12.5）；取消后再收到回调只告警、不改状态（12.2.3 第 7 条） |
+
+#### `POST /api/v1/recharges`
+
+| 项目 | 说明 |
+| --- | --- |
+| 请求体 | `amount`（必填，1.00 ~ 50000.00，两位小数）、`channel`（必填，本批仅 `epay`）、`pay_type`（可选） |
+| 成功 | HTTP 200，`data` = `{recharge, pay}` |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "recharge": {
+      "id": 1, "trade_no": "R20261008143500M3P8QT", "member_id": 1, "amount": "100.00",
+      "channel": "epay", "status": "pending", "channel_trade_no": null,
+      "created_at": "2026-10-08T14:35:00Z", "paid_at": null, "expires_at": null
+    },
+    "pay": {
+      "channel": "epay", "pay_type": "alipay",
+      "channel_trade_no": "2026100822002", "payurl": "https://pay.example.com/pay/yyy"
+    }
+  }
+}
+```
+
+| 场景 | code / HTTP | message |
+| --- | --- | --- |
+| `amount` 写法非法（非十进制 / 超两位小数 / 超上限） | `40001` / 400 | `amount 金额格式不正确（需为非负十进制数，最多两位小数）："..."` |
+| `amount` 越界 | `40002` / 400 | `amount 需在 1.00 ~ 50000.00 之间（两位小数），收到 "..."` |
+| `channel` 非 `epay` | `40002` / 400 | `channel 只能是 epay（本批仅支持易支付）` |
+| 渠道未配置 / 渠道故障 | `40002` / `50002` | 同订单支付 |
+
+**渠道下单失败时充值单保持 `pending`**（不回滚、不删除）：单号唯一且回调按 `paid` 幂等，因此
+①若渠道其实已建单，后续回调仍能正确入账；②若渠道未建单，该单不会被自动关闭（12.10），用户重新发起
+充值即可（生成新单号）。本批**不提供**「继续支付既有充值单」的接口。
+
+#### `GET /api/v1/recharges`
+
+本人充值单分页（新建在前）：查询参数 `page` / `page_size` / `status`（`pending` / `paid` / `closed`）；
+`data` = `{items, page, page_size, total}`，`items` 元素为充值单对象（结构同创建返回的 `recharge`）。
+
+#### `GET /api/v1/finance/balance`
+
+实时读库返回当前余额（不取鉴权中间件里的快照）：
+
+```json
+{ "code": 0, "message": "ok", "data": { "member_id": 1, "balance": "50.00" } }
+```
+
+#### `GET /api/v1/finance/ledger`
+
+本人余额流水分页（新建在前）：查询参数 `page` / `page_size` / `type`（可选：`recharge` / `order_pay` /
+`refund` / `adjust`）；`data` = `{items, page, page_size, total}`。
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [{
+      "id": 2, "member_id": 1, "type": "order_pay", "amount": "-200.00",
+      "balance_before": "250.00", "balance_after": "50.00",
+      "ref_type": "order", "ref_id": 1, "note": "订单支付 O20261008143015K7Q2ZP",
+      "created_at": "2026-10-08T14:40:00Z"
+    }],
+    "page": 1, "page_size": 20, "total": 1
+  }
+}
+```
+
+### 12.5 优惠码应用口径（兑现阶段 3b 遗留）
+
+| 环节 | 行为 |
+| --- | --- |
+| 下单 | 复用 11.2 的判定顺序与折扣计算（percent 四舍五入到分、fixed 封顶售价）；不通过 → **统一 40002 + 明确 message**；通过 → 折扣并入 `final_amount` 并快照 `coupon_id` / `coupon_code` / `discount_amount` |
+| 支付成功（在线回调 / 余额支付） | **同一事务内**对 `used_count` 做原子条件自增：`UPDATE coupons SET used_count = used_count + 1 WHERE id = ? AND (max_uses = 0 OR used_count < max_uses)`；影响行数为 0（极端并发超用）时**只记 WARN、不阻断入账**（订单照常转 `paid`） |
+| 下单未支付 / 已取消 | **不占用次数**（只有支付成功才计数），因此取消订单无需回退 `used_count` |
+
+口径说明：
+
+1. `used_count` 是**全站总次数**（所有会员共用），单笔订单只计 1 次（本批 `qty` 固定 1）。
+2. 优惠码大小写不敏感（沿用 3b 的列级排序规则）；订单快照保存库内原文。
+3. 已支付订单的金额不可变：优惠码后续被停用/删除不影响历史订单（订单只存快照）。
+4. **极端并发超用**是已知边界：两个并发回调都读到 `used_count < max_uses` 时，条件更新保证只有一个
+   成功自增，另一个「超用但已付款」——按契约照常交付，只记 WARN（不退款、不阻断）。
+
+### 12.6 管理端接口（对账）
+
+两个只读列表，用于财务对账；`admin` 与 `finance` 可查，`support` 返回 `403`。
+
+#### `GET /api/v1/admin/recharges`
+
+| 项目 | 说明 |
+| --- | --- |
+| 查询参数 | `page` / `page_size`、`member_id`（可选，本地会员 ID）、`status`（可选） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`（新建在前，含全站数据） |
+| 错误码 | `40001`（分页越界、`member_id` 非正整数、`status` 非法）、`403`（support） |
+
+#### `GET /api/v1/admin/ledger`
+
+| 项目 | 说明 |
+| --- | --- |
+| 查询参数 | `page` / `page_size`、`member_id`（可选）、`type`（可选：4 种取值） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}` |
+| 错误码 | `40001`（分页越界、`member_id` 非正整数、`type` 非法）、`403`（support） |
+
+### 12.7 角色权限矩阵（支付与财务部分）
+
+| 接口 | admin | finance | support | 会员 |
+| --- | --- | --- | --- | --- |
+| `GET/PUT /api/v1/admin/settings/payment/epay` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET/PUT /api/v1/admin/settings/upstream` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET /api/v1/admin/recharges`、`GET /api/v1/admin/ledger` | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `POST/GET /api/v1/orders`、`GET /api/v1/orders/:id`、`POST /api/v1/orders/:id/pay`、`POST /api/v1/orders/:id/cancel` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST/GET /api/v1/recharges`、`GET /api/v1/finance/balance`、`GET /api/v1/finance/ledger` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST\|GET /api/v1/payments/epay/notify`、`GET /api/v1/payments/epay/return` | 公开（无鉴权，验签是凭证） | 公开 | 公开 | 公开 |
+
+### 12.8 错误码汇总（阶段 4 新增场景）
+
+| code | 含义与典型场景 |
+| --- | --- |
+| `40001` | 参数错误：分页越界、`status`/`type` 取值非法、`member_id` 非正整数、金额写法非法、URL 非法、设置请求体为空、订单/商品 ID 非法、`config` 键值类型不符 |
+| `40002` | 参数校验失败：周期不可售、未知配置项/取值、优惠码不存在或无效、订单状态不允许支付/取消、余额不足、渠道未启用或配置不完整、`pay_type` 不受支持、`enabled=true` 缺必填设置项、超时越界 |
+| `401` | 未携带/无效 token（会员接口用管理员 token 访问同样 401） |
+| `403` | 角色不足（设置接口非 admin；财务对账接口非 admin/finance） |
+| `404` | 商品不存在或已下架、订单不存在或非本人、优惠码不存在（校验接口） |
+| `409` | （阶段 4 未新用） |
+| `500` | 库内设置值损坏等内部错误 |
+| `50001` | 本地库读写失败 |
+| `50002` | 支付渠道调用失败（渠道拒绝下单、响应异常、网络失败）；message 为脱敏后的渠道提示 |
+
+### 12.9 业务边界（本批实现约定）
+
+1. **业务链路不调用上游**：下单、支付、入账全程只操作本地库；上游开通/交付留阶段 5
+   （触发点在订单转 `paid` 的事务内已预留注释）。
+2. **库存不做强校验**：导入库存是上游快照（`stock_qty`），本批下单不校验库存、不预占；
+   防超卖由阶段 5 的开通环节（上游下单/开通接口）最终保证。
+3. **数量固定 1**：`qty` 恒为 1，请求体不接受 `qty`。
+4. **时间**：`pay_time` / `paid_at` 取服务端处理回调的时间（UTC），渠道通知不含可靠支付时间。
+5. **幂等锚点**：订单/充值单的 `status` 转换在行级锁（`SELECT … FOR UPDATE`）下进行，
+   重复回调、并发回调都不会重复入账或重复计数。
+6. **未配置即明确报错**：渠道未配置时支付类接口返回 `40002` 并给出可操作提示；
+   上游未配置时探活返回 `connected=false`、导入返回明确错误；**其余功能不受影响**。
+
+### 12.10 暂不支持的能力（留后续批次）
+
+1. **自动超时关闭**：`pending` 订单/充值单不会自动过期关闭（`orders` 无过期列，`recharges.expires_at`
+   恒为 null）；用户需手动取消订单。
+2. **主动查单补偿**：不主动向渠道查询订单状态，只依赖异步通知（渠道不回调时需人工对账）。
+3. **退款流程**：没有退款接口，流水类型 `refund` / `adjust` 为预留；`paid` 订单无终态出口。
+4. **其他支付渠道**：仅易支付（支付宝/微信两种 `pay_type`）；渠道抽象已就位（12.1 的扩展方式），
+   后续新增只需加 Provider + 设置键 + 路由。
+5. **易支付真机联调**：本批以 mock 网关完成全链路验证，真机联调与差异记录另行安排（12.2.6）。
+6. **充值单继续支付**：不提供「对既有 `pending` 充值单再次下单」的接口（失败时重新创建）。
+7. **订单交付**：上游开通、主机绑定、续费与升级留阶段 5（本批 `paid` 只是状态）。
+8. **前台支付页**：本批返回渠道 `payurl` 与二维码等字段，前端展示页面由后续前端批次实现。
+
+## 13. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v6 | 阶段 4：新增第 12 节「支付与财务」——**后台设置机制**（settings 表 + `GET/PUT /admin/settings/payment/epay` 与 `/admin/settings/upstream`，密钥三态与脱敏、审计、读时校验按内容失效的生效方式、渠道可插拔扩展方式）；**易支付渠道**（彩虹标准协议：下单/签名/回调验签/同步跳转/`out_trade_no` 策略/应答口径/错误分支矩阵）；**订单与充值单/余额/流水**（数据模型与状态机、会员端下单/支付（epay + balance）/取消/充值/余额/流水接口、回调入账幂等与金额校验、管理端对账接口、角色矩阵）；**优惠码应用口径**（下单抵扣 + 支付成功条件自增 `used_count` + 极端并发超用不阻断）；更新 8.6（上游参数来源=后台设置，`config.yaml` 的 `upstream` 段停用）、第 9 节（探活按设置取参、掩码口径说明）、11.1/11.6（折扣应用已实现与并发边界）、错误码表新增 `50002`；变更记录移到第 13 节 |
 | 2026-10-08 | v5 | 阶段 3b：计费周期 4 → 6（新增 `biennial` / `triennial`，上游字段 `biennially` / `triennially` 映射与中文显示名入契约；`upstream_prices_json`、`pricing_json.fixed`、会员端 `prices` 同步扩为 6 键）；新增第 11 节「优惠码」（coupons 数据模型、管理端 CRUD、公开校验接口 `GET /coupons/:code/validate`、折扣计算口径与 reason 枚举、暂不支持清单）；变更记录补记 v4 |
 | 2026-10-08 | v4 | 阶段 3a（补记）：新增第 10 节「商品与计费」（上游导入与幂等、`upstream_prices_json` 缓存、upstream/markup/fixed 三模式定价、上下架校验、会员端只读目录、管理端接口与角色矩阵、生产上游实测差异） |
 | 2026-10-08 | v3 | 阶段 2：新增第 8 节「上游对接」（鉴权机制、`{status,msg,data}` 与状态码映射、上游接口清单、实测示例、实测与文档不符之处/字段类型踩坑）与第 9 节「管理端上游探活接口」；本阶段对生产上游完成真机联调（开通/开关机/重启/重装/暂停/恢复/续费/取消申请） |

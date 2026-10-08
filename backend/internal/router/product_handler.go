@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
@@ -28,10 +30,28 @@ const (
 )
 
 // productHandler 处理商品与计费接口：管理端（导入/定价/上下架）与会员端（只读目录）。
+//
+// upstream 是**动态提供者**（阶段 4 起上游参数来自后台设置，契约 8.6 / 12.1），
+// 每次使用都取当前设置下的客户端，管理员改完设置下一次调用即生效。
 type productHandler struct {
 	store    *store.Store
-	upstream *upstream.Client
+	upstream upstream.Provider
 	logger   *slog.Logger
+}
+
+// upstreamClient 取当前设置下的上游客户端；未配置齐全时返回 upstream.ErrNotConfigured。
+func (h *productHandler) upstreamClient(ctx context.Context) (*upstream.Client, error) {
+	if h.upstream == nil {
+		return nil, upstream.ErrNotConfigured
+	}
+	client, enabled, err := h.upstream.Current(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, upstream.ErrNotConfigured
+	}
+	return client, nil
 }
 
 // updateProductRequest 是 PUT /admin/products/:id 请求体，字段均可选但至少提供一个。
@@ -516,9 +536,10 @@ func pricingRawJSON(raw json.RawMessage) (string, error) {
 }
 
 // failRuleError 把「格式/规则」两类业务校验错误映射为错误码：
-// 规则类（定价规则不成立、优惠码规则不成立等）→ 40002，其余格式类 → 40001。
+// 规则类（定价/优惠码/设置项/财务规则不成立）→ 40002，其余格式类 → 40001。
 func failRuleError(c *gin.Context, err error) {
-	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) {
+	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) ||
+		errors.Is(err, settings.ErrRule) || errors.Is(err, errFinanceRule) {
 		response.Fail(c, response.CodeValidationFailed, err.Error())
 		return
 	}

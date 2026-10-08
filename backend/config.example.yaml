@@ -30,17 +30,9 @@ log:
   # 日志格式：text | json
   format: "text"
 
-upstream:
-  # 上游「魔方财务系统」对接配置（阶段 2，契约见 docs/api-contract.md 第 8、9 节）。
-  # 三项全部留空 = 不启用上游对接：服务照常启动，仅 /api/v1/admin/upstream/health 报告未配置。
-  # 接口地址：上游魔方财务系统的访问地址（带 http(s)://，不要以 / 结尾），如 https://lyew.com
-  base_url: ""
-  # 上游账号：手机号或邮箱。
-  # 注意：上游对 username 有 4-20 字符的硬校验，超过 20 字符的邮箱会被上游拒绝（见契约 8.5）。
-  username: ""
-  # API 密钥：上游前台「安全中心 → API」生成的 12 位密钥（不是登录密码）。
-  # 安全要求：真实密钥只写在本地 config.yaml（已 gitignore）或由系统设置下发，
-  #          禁止写入本示例文件、任何入库文件、日志与工单。
-  api_key: ""
-  # 单次上游请求超时（秒），缺省 5，取值 1-120。
-  timeout_seconds: 5
+# 注意（阶段 4 起）：**上游对接参数与易支付参数不再来自配置文件**。
+# 所有「用户可设置」的内容一律由后台管理设置承载（settings 表 + 管理端接口），
+# 改完立即生效、无需重启：
+#   PUT /api/v1/admin/settings/upstream      —— 上游 base_url / username / api_key / timeout_seconds
+#   PUT /api/v1/admin/settings/payment/epay  —— 易支付 enabled / gateway / pid / key / notify_url / return_url
+# 本文件只保留部署级参数（监听地址、数据库连接、JWT 密钥、日志等级）。契约见 docs/api-contract.md 12.1。

@@ -55,15 +55,17 @@ type importFetchResult struct {
 //
 // 上游侧全程只读（GET /cart/all、GET /cart/get_product_config）。
 func (h *productHandler) importProducts(c *gin.Context) {
-	if h.upstream == nil || !h.upstream.Enabled() {
-		response.Fail(c, response.CodeInternalError, "上游未配置，无法导入商品")
+	client, err := h.upstreamClient(c.Request.Context())
+	if err != nil {
+		// 上游参数来自后台设置（upstream 键）：未配置齐全时明确提示，不发起任何请求。
+		response.Fail(c, response.CodeInternalError, "上游未配置，无法导入商品（请在后台设置中填写上游参数）")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), importTimeout)
 	defer cancel()
 
-	catalog, err := h.upstream.Products(ctx)
+	catalog, err := client.Products(ctx)
 	if err != nil {
 		h.logger.Error("商品导入失败：拉取上游目录失败", "error", err)
 		response.Fail(c, response.CodeInternalError, "上游商品目录拉取失败："+upstreamProbeError(err))
@@ -89,7 +91,7 @@ func (h *productHandler) importProducts(c *gin.Context) {
 		}
 	}
 
-	results := h.fetchProductDetails(ctx, jobs)
+	results := fetchProductDetails(ctx, client, jobs)
 
 	inputs := make([]store.ProductInput, 0, len(jobs))
 	failedPIDs := make([]int, 0)
@@ -140,7 +142,8 @@ func (h *productHandler) importProducts(c *gin.Context) {
 }
 
 // fetchProductDetails 以固定并发抓取全部商品详情，结果按 jobs 下标回填。
-func (h *productHandler) fetchProductDetails(ctx context.Context, jobs []importJob) []importFetchResult {
+// client 在导入开始时取一次（同一次导入全程用同一份设置下的客户端）。
+func fetchProductDetails(ctx context.Context, client *upstream.Client, jobs []importJob) []importFetchResult {
 	results := make([]importFetchResult, len(jobs))
 	if len(jobs) == 0 {
 		return results
@@ -154,7 +157,7 @@ func (h *productHandler) fetchProductDetails(ctx context.Context, jobs []importJ
 			defer waitGroup.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			results[job.index] = h.fetchProductDetail(ctx, job)
+			results[job.index] = fetchProductDetail(ctx, client, job)
 		}(jobs[i])
 	}
 	waitGroup.Wait()
@@ -162,8 +165,8 @@ func (h *productHandler) fetchProductDetails(ctx context.Context, jobs []importJ
 }
 
 // fetchProductDetail 抓取单个商品的上游详情，组装成落库输入。
-func (h *productHandler) fetchProductDetail(ctx context.Context, job importJob) importFetchResult {
-	raw, err := h.upstream.ProductConfigRaw(ctx, job.product.ID)
+func fetchProductDetail(ctx context.Context, client *upstream.Client, job importJob) importFetchResult {
+	raw, err := client.ProductConfigRaw(ctx, job.product.ID)
 	if err != nil {
 		return importFetchResult{err: err}
 	}

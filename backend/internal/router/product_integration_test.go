@@ -205,7 +205,7 @@ func newProductEngine(t *testing.T, gdb *gorm.DB, client *upstream.Client) *gin.
 		Logger:          silentLogger(),
 		DB:              gdb,
 		JWT:             config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-		Upstream:        client,
+		Upstream:        upstream.StaticProvider{C: client},
 		UpstreamTimeout: 5 * time.Second,
 	})
 }

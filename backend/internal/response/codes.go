@@ -29,6 +29,9 @@ const (
 	CodeInternalError = 500
 	// CodeDatabaseError 数据库故障。
 	CodeDatabaseError = 50001
+	// CodePaymentGateway 支付渠道调用失败（渠道不可达、渠道拒绝下单、响应异常）。
+	// 渠道返回的提示文案已脱敏，不含商户密钥（契约 12.2）。
+	CodePaymentGateway = 50002
 )
 
 // messages 是错误码到缺省提示的映射。
@@ -43,6 +46,7 @@ var messages = map[int]string{
 	CodeConflict:         "资源冲突",
 	CodeInternalError:    "服务器内部错误",
 	CodeDatabaseError:    "数据库错误",
+	CodePaymentGateway:   "支付渠道调用失败",
 }
 
 // Message 返回错误码的缺省提示；未登记的代码返回通用提示。
