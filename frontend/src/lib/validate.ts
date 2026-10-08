@@ -50,3 +50,73 @@ export const registerSchema = z
   })
 
 export type RegisterForm = z.infer<typeof registerSchema>
+
+// ---------------------------------------------------------------------------
+// 会员区：充值金额、实例密码、工单字段、取消原因的前端预校验。
+// 规则严格对齐契约，前端只做「提前提示」，最终以后端判定为准。
+// ---------------------------------------------------------------------------
+export const RECHARGE_MIN_CENTS = 100
+export const RECHARGE_MAX_CENTS = 5_000_000
+
+/** 充值金额：契约 12.4 —— 十进制、最多两位小数、1.00 ~ 50000.00。 */
+export function validateRechargeAmount(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入充值金额'
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return '金额格式不正确（最多两位小数）'
+  }
+  const cents = Math.round(Number(trimmed) * 100)
+  if (cents < RECHARGE_MIN_CENTS) {
+    return '充值金额不能低于 ¥1.00'
+  }
+  if (cents > RECHARGE_MAX_CENTS) {
+    return '充值金额不能超过 ¥50000.00'
+  }
+  return ''
+}
+
+/** 实例密码：契约 15.1 —— 8-64 个字符且同时包含字母与数字。 */
+export function validateInstancePassword(value: string): string {
+  if (!value) {
+    return '请输入密码，或选择由系统自动生成'
+  }
+  const length = [...value].length
+  if (length < 8) {
+    return '密码至少 8 个字符'
+  }
+  if (length > 64) {
+    return '密码最多 64 个字符'
+  }
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) {
+    return '密码需同时包含字母与数字'
+  }
+  return ''
+}
+
+/** 工单标题：契约 16.4 —— 裁剪首尾空白后 5-100 个字符。 */
+export function validateTicketSubject(value: string): string {
+  const length = [...value.trim()].length
+  if (length < 5 || length > 100) {
+    return `标题需为 5-100 个字符（当前 ${length}）`
+  }
+  return ''
+}
+
+/** 工单内容：契约 16.4 —— 裁剪首尾空白后 1-5000 个字符。 */
+export function validateTicketContent(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入工单内容'
+  }
+  if ([...trimmed].length > 5000) {
+    return '内容最多 5000 个字符'
+  }
+  return ''
+}
+
+/** 取消申请原因：契约 15.8.2 —— 会员端可空，最长 200 字符。 */
+export function validateCancelReason(value: string): string {
+  return [...value.trim()].length > 200 ? '原因最多 200 个字符' : ''
+}

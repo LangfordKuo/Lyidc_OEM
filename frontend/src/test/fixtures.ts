@@ -1,10 +1,18 @@
 import type {
   CouponValidation,
+  InstanceDetail,
+  InstanceLog,
+  InstanceSummary,
+  LedgerEntry,
   Member,
+  Notification,
   Order,
   ProductCatalog,
   ProductDetail,
   ProductSummary,
+  Recharge,
+  Ticket,
+  TicketMessage,
 } from '@/api/types'
 import type { CyclePrices } from '@/lib/cycles'
 
@@ -148,6 +156,135 @@ export function makeCouponValid(overrides: Partial<Extract<CouponValidation, { v
     price: '220.00',
     discount_amount: '22.00',
     final_amount: '198.00',
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 会员区：实例 / 工单 / 通知 / 充值（字段与契约 14.4 / 16.3 / 17.2 / 12.4 示例一致）
+// ---------------------------------------------------------------------------
+
+export function makeInstance(overrides: Partial<InstanceSummary> = {}): InstanceSummary {
+  // 到期时间默认取「10 天后」，避免测试随当前日期漂移出临期窗口。
+  const due = new Date(Date.now() + 10 * 86_400_000).toISOString()
+  return {
+    id: 101,
+    order_id: 11,
+    host_id: 10922,
+    product_id: 1,
+    product_name: '香港二区 CN2 A型',
+    name: 'oem-o20261008105520t0j03j',
+    billing_cycle: 'monthly',
+    next_due_date: due,
+    status: 'active',
+    upstream_status: 'Active',
+    dedicated_ip: '203.0.113.9',
+    cancel_status: 'none',
+    cancel_type: '',
+    cancel_request_id: 0,
+    cancel_requested_at: null,
+    created_at: '2026-10-08T10:55:40Z',
+    ...overrides,
+  }
+}
+
+export function makeInstanceDetail(overrides: Partial<InstanceDetail> = {}): InstanceDetail {
+  return {
+    ...makeInstance(),
+    assigned_ips: [],
+    port: 22,
+    username: 'root',
+    password: 'Abcd1234Efgh5678',
+    updated_at: '2026-10-08T11:00:00Z',
+    ...overrides,
+  }
+}
+
+export function makeInstanceLog(overrides: Partial<InstanceLog> = {}): InstanceLog {
+  return {
+    id: 1,
+    instance_id: 101,
+    actor_type: 'system',
+    actor_id: 0,
+    action: 'create',
+    status: 'success',
+    message: '开通完成，主机 ID 10922',
+    created_at: '2026-10-08T10:55:40Z',
+    ...overrides,
+  }
+}
+
+export function makeTicket(overrides: Partial<Ticket> = {}): Ticket {
+  return {
+    id: 1,
+    trade_no: 'T20261008201530K7Q2ZP',
+    subject: '主机无法连接，请协助排查',
+    category: 'technical',
+    status: 'open',
+    instance_id: null,
+    instance: null,
+    last_reply_at: '2026-10-08T12:15:30Z',
+    closed_at: null,
+    created_at: '2026-10-08T12:15:30Z',
+    updated_at: '2026-10-08T12:15:30Z',
+    ...overrides,
+  }
+}
+
+export function makeTicketMessage(overrides: Partial<TicketMessage> = {}): TicketMessage {
+  return {
+    id: 1,
+    author_type: 'member',
+    author_id: 1,
+    author_name: 'demo7a',
+    content: '从今天早上 9 点开始 SSH 就一直连不上（超时）。',
+    internal: false,
+    created_at: '2026-10-08T12:15:30Z',
+    ...overrides,
+  }
+}
+
+export function makeNotification(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: 1,
+    event: 'order_delivered',
+    title: '订单已开通：香港二区 CN2 A型',
+    content: '您的订单 O20261008143015K7Q2ZP 已开通完成，实例 oem-xxx。',
+    read: false,
+    read_at: null,
+    created_at: '2026-10-08T22:58:13Z',
+    ...overrides,
+  }
+}
+
+export function makeRecharge(overrides: Partial<Recharge> = {}): Recharge {
+  return {
+    id: 1,
+    trade_no: 'R20261008143500M3P8QT',
+    member_id: 1,
+    amount: '100.00',
+    channel: 'epay',
+    status: 'pending',
+    channel_trade_no: null,
+    created_at: '2026-10-08T14:35:00Z',
+    paid_at: null,
+    expires_at: null,
+    ...overrides,
+  }
+}
+
+export function makeLedgerEntry(overrides: Partial<LedgerEntry> = {}): LedgerEntry {
+  return {
+    id: 1,
+    member_id: 1,
+    type: 'recharge',
+    amount: '100.00',
+    balance_before: '180.00',
+    balance_after: '280.00',
+    ref_type: 'recharge',
+    ref_id: 1,
+    note: '充值 R20261008143500M3P8QT',
+    created_at: '2026-10-08T14:40:00Z',
     ...overrides,
   }
 }

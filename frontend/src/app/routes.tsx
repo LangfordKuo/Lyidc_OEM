@@ -1,8 +1,17 @@
 import type { RouteObject } from 'react-router-dom'
 
 import RequireAuth from '@/auth/RequireAuth'
+import ConsoleLayout from '@/components/layout/ConsoleLayout'
 import SiteLayout from '@/components/layout/SiteLayout'
 import Checkout from '@/pages/Checkout'
+import ConsoleNotifications from '@/pages/ConsoleNotifications'
+import ConsoleOrders from '@/pages/ConsoleOrders'
+import ConsoleOverview from '@/pages/ConsoleOverview'
+import ConsoleRecharge from '@/pages/ConsoleRecharge'
+import ConsoleServerDetail from '@/pages/ConsoleServerDetail'
+import ConsoleServers from '@/pages/ConsoleServers'
+import ConsoleTicketDetail from '@/pages/ConsoleTicketDetail'
+import ConsoleTickets from '@/pages/ConsoleTickets'
 import Home from '@/pages/Home'
 import Login from '@/pages/Login'
 import NotFound from '@/pages/NotFound'
@@ -11,7 +20,7 @@ import ProductDetail from '@/pages/ProductDetail'
 import Products from '@/pages/Products'
 import Register from '@/pages/Register'
 
-// 路由表：官网公共布局（SiteLayout）+ 需登录的结算页（RequireAuth 守卫）。
+// 路由表：官网公共布局（SiteLayout）+ 需登录的结算页/会员区（RequireAuth 守卫）。
 // 抽成数组便于测试用 createMemoryRouter 复用同一套路由。
 export const routes: RouteObject[] = [
   {
@@ -29,6 +38,25 @@ export const routes: RouteObject[] = [
         children: [{ index: true, element: <Checkout /> }],
       },
       { path: 'pay/result', element: <PayResult /> },
+      {
+        path: 'console',
+        element: <RequireAuth />,
+        children: [
+          {
+            element: <ConsoleLayout />,
+            children: [
+              { index: true, element: <ConsoleOverview /> },
+              { path: 'servers', element: <ConsoleServers /> },
+              { path: 'servers/:id', element: <ConsoleServerDetail /> },
+              { path: 'orders', element: <ConsoleOrders /> },
+              { path: 'recharge', element: <ConsoleRecharge /> },
+              { path: 'tickets', element: <ConsoleTickets /> },
+              { path: 'tickets/:id', element: <ConsoleTicketDetail /> },
+              { path: 'notifications', element: <ConsoleNotifications /> },
+            ],
+          },
+        ],
+      },
       { path: '*', element: <NotFound /> },
     ],
   },

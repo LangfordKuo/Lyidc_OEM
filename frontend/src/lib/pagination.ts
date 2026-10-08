@@ -1,6 +1,9 @@
 // 分页计算：商品目录接口一次返回全量上架商品，前端按固定每页条数切分。
 export const PRODUCT_PAGE_SIZE = 12
 
+/** 会员区列表每页条数：与后端缺省一致（契约 12.4 / 14.4 等分页接口 page_size 缺省 20）。 */
+export const CONSOLE_PAGE_SIZE = 20
+
 export function totalPages(total: number, pageSize: number = PRODUCT_PAGE_SIZE): number {
   if (!Number.isFinite(total) || !Number.isFinite(pageSize) || pageSize <= 0) {
     return 1
