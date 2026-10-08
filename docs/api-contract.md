@@ -2,9 +2,11 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v7（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v12（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
-> **阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑**）
+> 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
+> 实例操作与续费、取消/终止流程；阶段 6a 工单系统；
+> **阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线**）
 
 ## 1. 通用约定
 
@@ -88,6 +90,8 @@
 | `500` | 服务器内部错误 | 未预期的服务端异常 |
 | `50001` | 数据库错误 | 连接失败、SQL 执行失败 |
 | `50002` | 支付渠道调用失败 | 渠道不可达、渠道拒绝下单、渠道响应异常（阶段 4，见 12.2） |
+| `50003` | 上游调用失败 | 实例操作/续费回读等上游调用失败（阶段 5b，见 15.6）；message 为已脱敏的上游原因 |
+| `50004` | 邮件发送失败 | 管理端「发送测试邮件」发送失败（阶段 6b，见 17.3）；message 为已脱敏的 SMTP 原因，不含认证口令 |
 
 预留区间：`40001-40099` 为参数/校验类错误，`50001-50099` 为服务端具体故障；新增错误码必须同步更新本表与 `backend/internal/response/codes.go`。
 
@@ -1489,7 +1493,7 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节 |
+| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节；**阶段 6b 新增 `email.smtp`（邮件通道）与 `notifications`（通知开关与到期提醒天数），见第 17 节** |
 | `value` | text | 设置值（JSON 文本），结构与键一一对应 |
 | `updated_by` | int \| null | 最后修改的管理员 ID（审计用；NULL = 没有接口写入记录） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -2060,6 +2064,9 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `POST\|GET /api/v1/payments/epay/notify`、`GET /api/v1/payments/epay/return` | 公开（无鉴权，验签是凭证） | 公开 | 公开 | 公开 |
 | `POST/GET /api/v1/tickets`、`GET /api/v1/tickets/:id`、`POST /api/v1/tickets/:id/reply`、`/close`（阶段 6a） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `GET/POST /api/v1/admin/tickets`、`GET /api/v1/admin/tickets/:id`、`POST /api/v1/admin/tickets/:id/reply`、`/close`（阶段 6a，客服域） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `GET/PUT /api/v1/admin/settings/email/smtp`、`POST /api/v1/admin/settings/email/test`、`GET/PUT /api/v1/admin/settings/notifications`（阶段 6b，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET/POST /api/v1/notifications`、`/unread-count`、`/:id/read`、`/read-all`（阶段 6b） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `GET/POST /api/v1/admin/notifications`、`/unread-count`、`/:id/read`、`/read-all`（阶段 6b，个人收件箱） | ✓ | ✓ | ✓ | ✗（`401`） |
 
 ### 12.8 错误码汇总（阶段 4 新增场景）
 
@@ -3233,10 +3240,283 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 工单域**零上游调用**、零外部依赖。测试数据（会员 9 的 22 张工单与两套实例、`cs6a`/`fin6a` 两个
 测试管理员）留在开发库作证据，生产部署前按需清理。
 
-## 17. 变更记录
+## 17. 通知体系（阶段 6b）
+
+本阶段交付**站内通知 + 邮件 SMTP + 到期提醒 + 事件接线**。三条设计口径：
+
+1. **用户可设置的内容一律进后台设置**（`settings` 表 + 管理端接口）：SMTP 参数（`email.smtp`）与
+   通知开关（`notifications`）都在后台面板里改，改完立即生效，不需要重启、不需要编辑配置文件。
+2. **通知是旁路能力**：所有事件都在**业务事务提交之后**触发通知，生产实现内部异步执行
+   （独立超时 + panic 恢复），站内通知写库失败、邮件发送失败都**只记日志**，绝不影响业务结果。
+3. **不泄漏敏感内容**：通知正文只出现单号、商品名、实例名、到期时间与已脱敏的失败原因；
+   不含主机密码、IP、SMTP 口令。
+
+### 17.1 数据模型（迁移 0011）
+
+迁移 0011 **只新建两张表 + 给 `instances` 扩一列**，不改动 0001–0010 已应用的任何结构。
+
+**`notifications`（站内通知收件箱）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | bigint | 主键 |
+| `recipient_type` | enum(`member`,`admin`) | 接收方类型：会员 / 管理员（客服同属 admin） |
+| `recipient_id` | bigint | 接收方 ID（按类型解释为 `members.id` 或 `admins.id`） |
+| `event` | enum | 事件类型，见下表（9 个取值） |
+| `title` | varchar(120) | 标题（纯文本） |
+| `content` | varchar(1000) | 正文（纯文本，不含敏感信息） |
+| `read_at` | datetime \| null | 已读时间（UTC）；**NULL = 未读** |
+| `created_at` | datetime | 创建时间（UTC） |
+
+索引：`idx_notifications_recipient(recipient_type, recipient_id, id)`（收件箱列表）、
+`idx_notifications_unread(recipient_type, recipient_id, read_at)`（未读列表与未读计数）。
+
+**事件枚举（`notifications.event`，定稿 9 个）**
+
+| event | 语义 | 接收方 |
+| --- | --- | --- |
+| `order_delivered` | 新购订单交付成功（上游开通完成） | 会员 |
+| `order_failed` | 新购订单交付失败（正文含已脱敏的失败原因） | 会员 |
+| `renew_succeeded` | 续费成功（正文含新的到期时间） | 会员 |
+| `instance_suspended` | 到期未续费，系统自动暂停 | 会员 |
+| `instance_terminated` | 终止收敛（上游主机已删除，本地转 `terminated`） | 会员 |
+| `ticket_created` | 新工单 | 管理员 + 客服 |
+| `ticket_replied` | 工单新回复（**双向同名**：发给会员 = 客服公开回复了你的工单；发给管理员 = 会员回复了工单） | 会员 / 管理员 + 客服 |
+| `ticket_closed` | 工单被**客服**关闭 | 会员 |
+| `expiry_reminder` | 到期前提醒 | 会员 |
+
+**`email_logs`（邮件发送留痕，同步发送、成功与失败都记）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | bigint | 主键 |
+| `to_addr` | varchar(255) | 收件人地址 |
+| `subject` | varchar(255) | 主题（纯文本） |
+| `status` | enum(`success`,`fail`) | 发送结果 |
+| `error` | varchar(500) | 失败原因（**已脱敏**，绝不含 SMTP 口令；成功为空串） |
+| `created_at` | datetime | 发送时间（UTC） |
+
+索引：`idx_email_logs_created(created_at)`、`idx_email_logs_status(status, created_at)`。
+
+**`instances.expiry_reminded_due`（到期提醒去重锚点）**
+
+`DATETIME NULL`，记录「已就哪个到期时间提醒过」。与 `next_due_date` 相等 ⇒ 本到期周期已提醒；
+续费/同步把 `next_due_date` 推进后两者不再相等 ⇒ 提醒**自动重新武装**（见 17.5）。
+
+### 17.2 站内通知接口
+
+会员端与管理端**同构**，唯一区别是接收方身份（会员 token → `recipient_type=member`；
+管理员 token → `recipient_type=admin`，读**自己**的收件箱）。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/notifications` | 会员通知列表（`page` / `page_size` / `unread=true\|false`），回带 `unread` 未读数 |
+| `GET /api/v1/notifications/unread-count` | 会员未读数（`{unread}`） |
+| `POST /api/v1/notifications/:id/read` | 单条已读（**幂等**：重复已读返回 `already_read=true`，不覆盖首次 `read_at`） |
+| `POST /api/v1/notifications/read-all` | 全部已读（返回本次置为已读的 `updated` 条数与 `unread=0`） |
+| `GET /api/v1/admin/notifications` | 管理端通知列表（同参数、同视图） |
+| `GET /api/v1/admin/notifications/unread-count` | 管理端未读数 |
+| `POST /api/v1/admin/notifications/:id/read` | 管理端单条已读（幂等） |
+| `POST /api/v1/admin/notifications/read-all` | 管理端全部已读（幂等） |
+
+**权限（定稿）**
+
+| 角色 | 会员端通知 | 管理端通知 |
+| --- | --- | --- |
+| 会员 | 仅**本人**（他人的通知与不存在的通知统一 `404`，不暴露存在性） | — |
+| `admin` / `support` / `finance` | — | 各自读**本人**收件箱（通知是个人收件箱，**不属于工单域**，故 finance 也可访问；只是扇出只覆盖 admin + support，finance 通常是空的） |
+| 未登录 / 跨端 token | `401`（会员 token 访问管理端、管理员 token 访问会员端一律 `401`） | 同左 |
+
+**列表响应示例**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "id": 12,
+        "event": "ticket_replied",
+        "title": "工单已回复：主机无法连接，请协助排查",
+        "content": "客服已回复您的工单 T20261008225813K7Q2ZP（主机无法连接，请协助排查）。\n\n请登录会员中心查看回复内容。",
+        "read": false,
+        "read_at": null,
+        "created_at": "2026-10-08T22:58:13Z"
+      }
+    ],
+    "page": 1,
+    "page_size": 20,
+    "total": 3,
+    "unread": 2
+  }
+}
+```
+
+**单条已读响应（幂等）**：`{"notification": {...}, "already_read": false}`；
+重复调用返回 `"already_read": true`，`read_at` 保持首次值。
+**全部已读响应**：`{"updated": 2, "unread": 0}`（无未读时 `updated=0`）。
+
+### 17.3 SMTP 设置与测试邮件
+
+#### 设置键 `email.smtp`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `enabled` | bool | 是否启用邮件通知；启用时 `host` / `from` 必须齐全（否则 `40002`） |
+| `host` | string | SMTP 服务器主机名（不含端口） |
+| `port` | int | 端口；**留空（0）按加密方式取缺省**：`none`→25、`starttls`→587、`ssl`→465 |
+| `username` | string | 认证用户名（可空 = 不做认证；**非空时必须提供 password**，否则 `40002`） |
+| `password` | string | 认证口令（**三态**：省略 = 保持、给值 = 替换、空串 = 清空；接口只回显 `password_configured` 与掩码） |
+| `from` | string | 发件人地址（信封与 `From` 头都用它；非空时必须是合法邮箱） |
+| `from_name` | string | 发件人显示名（可空；非 ASCII 自动做 RFC 2047 编码） |
+| `encryption` | enum | `none` / `starttls` / `ssl`；空值按 `none` |
+
+**加密方式评估（定稿：三种都实现）**：`ssl` 是**隐式 TLS**（建连即 TLS，通常 465 端口）——
+标准库 `net/smtp` 没有内置这一形态，本实现用 `crypto/tls` 先建 TLS 连接再 `smtp.NewClient` 承接，
+**不引入任何外部依赖**（约 20 行）；`starttls` 走 `Client.StartTLS`。
+明文 + 认证在**非回环地址**上会被标准库拒绝（`smtp.PlainAuth` 的安全保护）——远程发信请用 `starttls` / `ssl`。
+
+#### 设置键 `notifications`
+
+| 字段 | 类型 | 缺省 | 说明 |
+| --- | --- | --- | --- |
+| `inapp_enabled` | bool | `true` | 站内通知总开关（关：不写 `notifications` 行） |
+| `email_enabled` | bool | `true` | 邮件通知总开关（关：不发任何通知邮件；**是否真的发信还取决于 `email.smtp` 是否启用且齐全**） |
+| `expiry_reminder_enabled` | bool | `true` | 到期提醒开关（关：到期扫描不产生任何提醒、也不认领去重锚点） |
+| `expiry_reminder_days` | int | `7` | 到期前多少天提醒（1–30，越界 `40001`） |
+
+> 缺省为「全开 + 提前 7 天」：**未配置该键的新站点开箱即用**；邮件在 `email.smtp` 未配置时
+> 静默跳过（未配置不是故障，不写失败留痕、不刷日志）。
+
+#### 接口（全部**仅 `admin` 角色，含读取**；`finance` / `support` 一律 `403`）
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/v1/admin/settings/email/smtp` | 读取 SMTP 设置（口令只给 `password_configured` + `password_masked`：首 4 位 + `****`） |
+| `PUT /api/v1/admin/settings/email/smtp` | 局部更新（字段均可选但至少一个；口令三态；`port_effective` 回带实际端口） |
+| `POST /api/v1/admin/settings/email/test` | **发送测试邮件**（同步；`to` 缺省回退 `settings.site.admin_email`，两者皆空 `40001`） |
+| `GET /api/v1/admin/settings/notifications` | 读取通知开关 |
+| `PUT /api/v1/admin/settings/notifications` | 局部更新通知开关 |
+
+测试邮件接口的错误口径：**SMTP 未配置/未启用 → `40002`**（明确提示先配置）；
+**发送失败 → `50004`**（`message` 含已脱敏的 SMTP 原因，绝不含口令）。
+测试邮件**不受通知总开关约束**（它的用途就是验证配置），但同样写入 `email_logs`。
+邮件报文：纯文本（`text/plain; charset=UTF-8`）、正文 base64（避免中文/长行/点号行被传输层改写）、
+主题与非 ASCII 显示名按 RFC 2047 编码、站点名尾注（「本邮件由「<站点名>」自动发送，请勿直接回复。」）。
+
+### 17.4 事件接线表
+
+全部事件都在**业务事务提交后**触发（调用点见下表），生产实现异步执行、失败只记日志。
+
+| 事件 | 触发点（代码位置） | 接收方 | 站内 | 邮件 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `order_delivered` | `internal/delivery` 新购交付落库成功 | 会员 | ✅ | ✅ | 正文含单号、商品名、实例名、到期时间 |
+| `order_failed` | `internal/delivery` 订单置 `failed` | 会员 | ✅ | ✅ | 正文含 `provision_error`（交付链路已脱敏） |
+| `renew_succeeded` | `internal/delivery` 续费交付落库成功 | 会员 | ✅ | ✅ | 正文含新的到期时间 |
+| `instance_suspended` | `internal/scheduler` 到期暂停成功 | 会员 | ✅ | ✅ | 幂等路径（上游已暂停）同样通知一次 |
+| `instance_terminated` | `internal/scheduler` 取消申请收敛成功 | 会员 | ✅ | ✅ | **仅 `changed=true` 时发**（幂等重复收敛不再打扰） |
+| `expiry_reminder` | `internal/scheduler` 到期提醒扫描 | 会员 | ✅ | ✅ | 先去重认领再投递，见 17.5 |
+| `ticket_created` | `router` 提单落库后 | admin + support（扇出） | ✅ | ✅ | 邮件发 `settings.site.admin_email`（有值且 SMTP 可用时） |
+| `ticket_replied`（管理端侧） | `router` **会员回复**落库后 | admin + support（扇出） | ✅ | ✅ | 同上 |
+| `ticket_replied`（会员侧） | `router` **客服公开回复**落库后 | 会员 | ✅ | ✅ | **内部备注（`internal=true`）不触发任何通知** |
+| `ticket_closed` | `router` **客服关闭**成功后 | 会员 | ✅ | ✅ | 幂等重复关闭不重复通知；**会员自行关闭不通知客服**（定稿） |
+
+**扇出与收件人（定稿）**：管理端站内通知按**在职**的 `admin` + `support` **逐个账号**写行
+（一行一人，读/未读按人记录）；`finance` 不接收工单类通知；管理端通知**邮件**只发给
+`settings.site.admin_email`（安装向导期可空 → 空值跳过邮件）。会员侧邮件发 `members.email`。
+
+**不接线的路径（定稿）**：管理端**手动**暂停/恢复实例（人工操作不打扰会员）、会员自行关闭工单、
+管理员内部备注、上游自行暂停/删除（由管理端同步接口收敛）。
+
+**管理员重试交付同样接线**（定稿）：重试与新购交付共用同一条 `deliverNew` 链路，因此
+重试成功会补发 `order_delivered`（会员的订单终于开通了）、重试仍失败会再次发 `order_failed`
+（含新的失败原因）——这是有意为之：交付结果变化对会员是有价值的信息，且不会产生重复的「同一结果」通知。
+
+### 17.5 到期提醒（scheduler 扩展）
+
+**扫描范围**（同一轮扫描的**阶段零**，在到期暂停之前执行，**不需要上游**）：
+
+```
+status = active
+  AND cancel_status <> 'pending'          -- 已进入终止流程的不提醒
+  AND next_due_date IS NOT NULL
+  AND next_due_date >  now                -- 已过期的走暂停链路，不提醒
+  AND next_due_date <= now + N 天         -- N = notifications.expiry_reminder_days（缺省 7）
+  AND (expiry_reminded_due IS NULL OR expiry_reminded_due <> next_due_date)
+```
+
+**去重锚点（定稿）**：`instances.expiry_reminded_due`。先**原子认领**
+（`UPDATE ... SET expiry_reminded_due = next_due_date WHERE 锚点 <> next_due_date`，
+受影响行数 = 1 者认领成功）再投递通知：
+
+- 同一到期周期**只提醒一次**（并发/重复扫描时只有一个认领成功）；
+- 续费或同步把 `next_due_date` 推进后锚点自动失效 ⇒ **新周期重新提醒**；
+- **宁可少发不重复发**：认领成功而投递失败的极端情形（进程崩溃、库故障）本周期不再补发。
+
+用列而不是「反查 notifications」的理由：通知总开关关闭时不产生通知行，去重不能依赖通知行是否存在。
+
+**扫描统计**：`ScanReport` 新增 `expiry_scanned` / `expiry_reminded` / `expiry_failed`
+（`expiry_failed` = 认领时的数据库错误，**下一轮自动重试**）。
+
+**边界**：上游未配置时提醒阶段照常执行（阶段零先跑，随后上游检查返回错误并跳过暂停/收敛）；
+未接线通知（测试默认）时整段跳过；`notifications` 设置读取失败只记警告并跳过本轮提醒（不阻断扫描）。
+
+### 17.6 开关与边界
+
+1. **站内与邮件独立开关**：站内关只停写库、邮件照发；邮件关只停发信、通知照写
+   （集成测试对两个方向都有断言）。
+2. **未配置 SMTP 静默跳过**：不写 `email_logs` 失败行、不刷服务日志（避免「没配邮件」把日志刷满）。
+3. **发送失败留痕**：`email_logs.status=fail` + 已脱敏原因；通知本身不受影响。
+4. **幂等**：已读、全部已读、重复关闭、重复收敛、重复扫描都不产生重复通知。
+5. **失败隔离**：通知任务内的 panic 会被捕获并记日志；通知链路里的任何错误都不改变业务结果。
+6. **不做（留后续批次）**：通知删除/归档、按事件细分的通知偏好、邮件模板自定义与品牌化、
+   邮件重试队列、抄送与多人收件、短信与 webhook 通道、通知保留期清理（表会持续增长，需运维定期归档）。
+
+### 17.7 真机实测（2026-10-08，开发库）
+
+环境：开发库 `lyidc`（迁移 `0010 → 0011`，`version: 11 (dirty=false)`），后端 `127.0.0.1:8080`；
+**mini SMTP 收信器**（`scratch/stage6b/smtp_sink.py`，Python 标准库 socket，**不装任何依赖**，
+应答 EHLO/MAIL/RCPT/DATA 并逐封存盘到 `scratch/stage6b/mail/NNN.eml`）监听 `127.0.0.1:2525`。
+测试数据准备（均为开发库数据）：`settings.site` 写入站点名「验证站点-阶段6b」与 `admin_email=ops@oem.example.com`；
+注册会员 `vfy6b`（id=10）并写库造一台属于该会员的 active 实例（`id=4`，host 30002）；
+实例 `id=3`（会员 9 `vfy6a`）的 `next_due_date` 改为当前 UTC + 3 天用于到期提醒演练。
+
+| 步骤 | 请求 / 动作 | 结果（证据） |
+| --- | --- | --- |
+| 配置 SMTP | `PUT /admin/settings/email/smtp`（host=127.0.0.1、port=2525、encryption=none、无认证） | 200；视图 `port_effective=2525`、`password_configured=false`、`updated_by=1` |
+| 测试邮件 | `POST /admin/settings/email/test {to: ops@oem.example.com}` | 200 `{"sent":true,"to":"ops@oem.example.com"}`；**sink 收到第 1 封**（`mail/001.eml`，690 B）：`from: 验证站点-阶段6b <noreply@oem.example.com>`、`subject: 【验证站点-阶段6b】SMTP 测试邮件`（RFC 2047 编码已正确解码）、正文含「发件服务器：127.0.0.1:2525」与站点名尾注；`email_logs` 记 `success` |
+| 提单（关联本人实例） | `POST /tickets`（会员 vfy6b） | 200；工单 **`T20261008124001RHDUN9`**（id=23）；站内通知 **`#1/#2`**（recipient `admin:1` / `admin:2`，`ticket_created`，**finance(id=3) 无**）；**sink 第 2 封**发 `ops@`（正文：会员 vfy6b 提交了工单 …（分类 technical）） |
+| 会员回复 | `POST /tickets/23/reply` | 200；站内 **`#3/#4`**（admin+support，`ticket_replied`）；**sink 第 3 封**发 `ops@` |
+| 管理员**内部备注** | `POST /admin/tickets/23/reply {internal:true}` | 200（状态保持 `open`）；**零通知、零邮件**（通知表与 `email_logs` 均无新增） |
+| 客服公开回复 | `POST /admin/tickets/23/reply {internal:false}`（support cs6a） | 200 `status=replied`；站内 **`#5`**（`member:10`，`ticket_replied`）；**sink 第 4 封**发 `vfy6b@example.com`（正文：客服已回复您的工单 …） |
+| 客服关闭 | `POST /admin/tickets/23/close` | 200 `closed_at=2026-10-08T12:40:20Z`；站内 **`#6`**（`member:10`，`ticket_closed`）；**sink 第 5 封**发 `vfy6b@`；**重复关闭** `already_closed=true` 且**无新通知** |
+| 到期提醒（run1） | 改库把实例 3 的 `next_due_date` 置为 UTC+3 天 → 服务启动后首轮扫描 | 扫描日志 `expiry_scanned=1 expiry_reminded=1`；站内 **`#7`**（`member:9`，`expiry_reminder`，正文含实例名与「提前 7 天」）；**sink 第 6 封**发 `vfy6a@`；去重锚点 `expiry_reminded_due = next_due_date`；暂停/收敛阶段 `scanned=0`（**本轮零上游调用**） |
+| **去重**（run2） | 重启服务 → 第二轮扫描 | 日志 `到期暂停扫描完成：无到期实例、无待收敛的取消申请、无即将到期实例`；`expiry_reminder` 通知仍为 **1 条**、sink 仍为 **6 封** |
+| **开关关闭**（run3） | `PUT /admin/settings/notifications {expiry_reminder_enabled:false}` + 到期时间改为 UTC+2 天 → 重启扫描 | 200；扫描日志同上（无提醒）；`expiry_reminder` 仍 1 条、邮件仍 6 封、去重锚点**未被认领**（保持旧值） |
+| **重新武装**（run4） | 开关改回 `true`（同一新到期时间）→ 重启扫描 | 日志 `已投递到期提醒 instance_id=3 … next_due_date=2026-10-10T12:42:36Z`；站内 **`#8`**；**sink 第 7 封**——证明 run3 的静默来自开关，且**推进到期时间后重新提醒**（新周期一次） |
+| 会员端接口 | `GET /notifications`、`?unread=true`、`/unread-count`、`POST /:id/read`（两次）、`/read-all` | 列表 `total=2 unread=2`（新建在前 #6/#5）；筛选与计数一致；首次已读 `already_read=false read_at=12:45:17Z`，**重复已读 `already_read=true` 且 `read_at` 不变**；`read-all` 返回 `{"updated":1,"unread":0}` |
+| 管理端接口与权限 | `GET /admin/notifications`（admin / support / finance）、越权已读、跨端 token | admin `total=2 unread=2`、support `total=2`、**finance `total=0`**（扇出不覆盖）；support 读 admin 的通知 **`404 通知不存在`**；会员 token 访问管理端 **`401`** |
+| 口令脱敏 | `PUT /admin/settings/email/smtp {username,password}` | 响应 `password_configured=true`、`password_masked=stag****`；**响应体与 server 日志均无明文口令**（`grep` 计数 0）；随后清空口令恢复（`password_configured=false`） |
+| 库内一致性 | `SELECT … FROM notifications / email_logs` | 通知 **8 条**（2 admin×ticket_created + 2 admin×ticket_replied + 1 member×ticket_replied + 1 member×ticket_closed + 2 member×expiry_reminder）；邮件留痕 **8 条全 success**、0 fail；sink 目录 8 个 `.eml` 与留痕逐条对应 |
+
+**结论**：站内通知（会员/管理端各自的收件箱、未读计数、已读幂等、跨端与跨人隔离）、
+邮件（设置三态与脱敏、测试邮件、RFC 2047 中文主题、真实投递）、事件接线（工单四类事件、
+内部备注零泄漏、会员自行关闭不通知客服、扇出只覆盖 admin + support）与到期提醒
+（**每周期一次 + 去重 + 新周期重新武装 + 开关关闭不产生**）全部在真机按契约生效；
+扫描轮次对上游**零调用**（无到期实例）。测试数据（会员 10、实例 4、站点设置与 8 条通知/邮件留痕）
+留在开发库作证据，生产部署前按需清理。
+
+**未做（本批边界）**：`starttls` / `ssl` 两种加密方式只有单元测试（进程内自签证书假 SMTP）覆盖，
+真机验证走的是明文 + 无认证（mini sink 无 TLS 能力）；SMTP **认证**路径同样只有单测覆盖
+（mini sink 不校验凭据）；交付类事件（`order_delivered` / `order_failed` / `renew_succeeded`）
+由集成测试覆盖（假上游 + 同步通知），**未做真实开通的真机演练**（本批可选项，避免真机开销）。
+
+## 18. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v12 | 阶段 6b：新增第 17 节「通知体系」——**迁移 0011**（新建 `notifications` / `email_logs` 两表 + 给 `instances` 扩 `expiry_reminded_due` 列，**不改 0001–0010**）；**站内通知**（会员端 / 管理端同构的 8 个接口：列表（`unread` 筛选 + 回带未读数）/ 未读计数 / 单条已读（**幂等**，不覆盖首次 `read_at`）/ 全部已读；权限定稿：**个人收件箱**——会员仅本人（他人的与不存在的统一 `404`），管理端三类角色各读本人收件箱（通知不属于工单域））；**邮件 SMTP**（设置键 `email.smtp`：enabled/host/port/username/password/from/from_name/encryption(`none`/`starttls`/`ssl`，端口按加密方式取缺省 25/587/465，口令三态脱敏；`POST /admin/settings/email/test` 同步发测试邮件，未配置 `40002`、失败 `50004`；发送器**只用标准库 net/smtp**（`ssl` 用 crypto/tls 建连再 `smtp.NewClient`，无外部依赖）；`email_logs` 同步留痕、error 已脱敏）；**事件接线定稿 9 个事件**（`order_delivered`/`order_failed`/`renew_succeeded`/`instance_suspended`/`instance_terminated`/`ticket_created`/`ticket_replied`(双向同名)/`ticket_closed`/`expiry_reminder`；**事务提交后异步触发、失败只记日志**；管理端站内按在职 admin+support **逐个账号扇出**、邮件发 `settings.site.admin_email`；**内部备注不产生任何通知**、**会员自行关闭不通知客服**）；**到期提醒**（设置键 `notifications`：站内/邮件总开关 + 到期提醒开关与天数，缺省全开、提前 7 天；扫描窗口 `(now, now+N 天]` 且 `status=active`、无在途取消申请；**去重锚点定稿为 `instances.expiry_reminded_due`**——先原子认领再投递，每到期周期**只提醒一次**，续费/同步推进到期时间后**自动重新武装**；该阶段**不需要上游**，在扫描首段执行）；**接线点**：`internal/notify`（新包，事件入口 + SMTP 发送 + 留痕）、delivery/scheduler 通过窄接口 `Notifier` 解耦、router 工单 handler 4 处挂点接线；**顺手修**：`internal/auth` 的篡改 token 用例改为确定性构造（原写法有约 0.1% 概率构造出与原值相同的 token）；**真机实测（17.7）**——开发库（迁移 0010→0011）+ mini SMTP 收信器（标准库 socket）：测试邮件、工单创建/会员回复/客服公开回复/客服关闭四类事件（内部备注与重复关闭零通知）、会员与支持各自收件箱、finance 零扇出、越权 404 与跨端 401、口令仅回显掩码（响应与日志无明文）、到期提醒三轮（首轮投递 → 去重不重复 → 开关关闭不产生 → 重新武装再投递），通知 8 条 / 邮件 8 封全 success；同步更新 12.1（新增两个设置键）/12.7（角色矩阵补通知三行）/错误码表（新增 `50004`）|
 | 2026-10-08 | v11 | 阶段 6a：新增第 16 节「工单系统」——**迁移 0010**（新建 `tickets` / `ticket_messages` 两表，**不改 0001–0009**）；**状态机定稿**（`open` 待客服 ↔ `replied` 待会员 → `closed` 终态；会员回复回 `open`、管理员公开回复转 `replied`、**内部备注不改状态**只推进 `last_reply_at`、关闭**幂等**（重复关闭 `already_closed=true` 且不覆盖 `closed_at`）、`closed` 后回复一律 `40002`）；**单号前缀 `T`**（复用 12.2.5 规则与 `createWithTradeNo`）；**限流定稿**（未关闭工单上限 20，超限 `40002`，并发允许瞬时超出）；**字段约束**（`subject` 5-100 / `content` 1-5000 字符，裁剪首尾空白后按 rune 计，纯空白拒绝）；**接口**（会员端 `POST/GET /tickets`、`GET /tickets/:id`、`POST /tickets/:id/reply|close`；管理端 `GET /admin/tickets`（status/category/member_id/keyword 筛选）、`GET /admin/tickets/:id`、`POST /admin/tickets/:id/reply|close`）；**权限定稿**（工单域为客服域：**admin + support 全权，finance 一律 403**；会员端仅本人，他人工单统一 404）；**内部备注不泄漏**（`internal=true` 的消息绝不进会员端响应）；同步更新 12.7（角色矩阵补工单两行）；**真机实测（16.5）**——开发库（迁移 0009→0010）全流程中文内容演练：工单号 `T20261008121849W0QLH7` 全生命周期（提单 → 会员回复 → 内部备注（状态保持 open）→ support 公开回复（转 replied）→ 会员回复（回 open）→ 关闭 → 关闭后回复 40002 → 重复关闭 `already_closed=true` 且 `closed_at` 不覆盖）、内部备注对会员端零泄漏、finance 四接口全 403、越权关联实例 404、第 21 单 40002 且关闭一单后放行、库内消息流与 6b 挂点日志逐条对应；通知体系（站内通知 + 邮件 SMTP + 到期提醒）留**阶段 6b**，本批只在工单事件处预留挂点 |
 | 2026-10-08 | v10 | 阶段 5c：新增 **15.8「取消/终止流程」**——**迁移 0009**（`instances` 扩 `cancel_request_id` / `cancel_type` / `cancel_status`(none/pending/done) / `cancel_reason` / `cancel_requested_at` + `idx_instances_cancel`；`instance_operation_logs.action` 仅注释扩展，VARCHAR(32) 无 DDL 变更）；**状态机定稿**（取消申请是与服务状态正交的标记：在途期间 `status` 保持 `active`/`suspended` 不变，上游确认删除后一次性转 `terminated`；迁移 0007 的 `cancelled` 枚举**保留但不再写入**）；**接口**（会员端 `POST /instances/:id/cancel`、管理端 `POST /admin/instances/:id/cancel`（仅 admin、reason 必填）；`type` = `immediate`/`end_of_billing` → 上游 `Immediate`/`Endofbilling`；**重复申请幂等**（在途返回现状 `duplicate=true`，不重复提交上游但留审计）；允许状态 `active`/`suspended`）；**收敛规则**（主机不在列表或 `domainstatus ∈ {Deleted, Terminated}` → `terminated` + `cancel_status=done` + 审计 `cancel_sync`，幂等；回读故障与「主机不存在」严格区分，绝不误收敛）；**操作矩阵更新**（`terminated` 终态全操作拒绝；`cancel_status=pending` 时禁续费；其他操作不受在途申请影响）；**扫描扩展**（到期暂停排除在途申请实例；新增终止收敛阶段 `cancel_scanned/converged/failed`，immediate 每轮回读、end_of_billing 到期后回读，失败不写审计并下轮重试）；**审计 action 扩展** `cancel` / `cancel_sync`；**视图扩展**（实例列表/详情/`sync` 响应新增取消字段，新增 `terminated` 标志）；**真机实测（15.8.6）**——上游终止完成后主机**仍在 `hostinfo` 列表中且 `domainstatus=Deleted`**、对已删除主机的重复申请返回 `200 + data.domainstatus=Deleted`（无申请号，区别于首次申请的 `202 + pending + cancel_request_id`）、两台遗留真机（10922/10923）经同步收敛为 `terminated` 且审计留痕、终态操作矩阵实测全部 `40002`；同步更新 14.2（instances 状态说明）、15.1（矩阵与状态图）、15.2/15.3（renew 收紧、sync 行为与错误码）、15.4（action 枚举）、15.6（扫描范围与边界） |
 | 2026-10-08 | v9 | 阶段 5b：新增第 15 节「实例操作与续费」——**操作矩阵与状态约束**（会员端电源/重装/改密仅 `active`；续费 `active`/`suspended`；管理端 suspend/unsuspend 仅 `admin` 且状态受限、sync 全角色；硬操作 `hard_off`/`hard_reboot` 按需开放并标注风险；上游操作异步受理语义与密码强度口径）；**`instance_operation_logs` 审计表**（迁移 0008：id/instance_id/actor_type(member/admin/system)/actor_id/action/status/message(脱敏)/created_at；全部操作含失败尝试与系统自动操作留痕；审计不参与业务事务）；**续费链路**（orders 扩 `type` ENUM('new','renew') + `instance_id`，`POST /instances/:id/renew` 按当前商品售价建单、**不支持优惠码**；支付成功 → 认领行锁幂等 → `RenewHost` → 回读顺延 `next_due_date` → 订单 active；suspended 续费成功自动 Unsuspend（失败不阻断）；失败置 `failed` + 管理员重试同入口；订单视图新增 `type`/`instance_id`）；**到期暂停扫描**（启动延迟 1 分钟 + 每 24h；`active` 且 `next_due_date < now` → 上游 Suspend + 本地 suspended + 审计 actor=system；失败下轮重试、上游已暂停幂等收敛、上游不可达整轮跳过；不做到期提醒）；**接口**（会员端 `POST /instances/:id/power|reinstall|reset-password|renew`、`GET /instances/:id/reinstall-options|logs`；管理端 `POST /admin/instances/:id/suspend|unsuspend|sync`、`GET /admin/instances/:id/logs`）；错误码新增 `50003`（上游调用失败）；**真机实测差异（15.7）**——`configoption` 口径行为级复核通过（所选 os 精确生效，对照组为默认值）、`/host/details` 可作回读来源、`/host/cloudos` 必须带 `os_config_option_id`、电源/重装/改密为异步受理（`process` 中间态与 `406 重置密码中不能执行该操作`）；同步更新 12.3（orders 两列）/12.4（订单视图 `type`/`instance_id`）/12.7（角色矩阵）/12.8（错误码）/14.1（状态机交付分支按 type 分流）/14.2（instances 状态说明：本批起产生 suspended）；变更记录移到第 16 节 |

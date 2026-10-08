@@ -26,11 +26,12 @@ const (
 // ticketHandler 处理工单接口：会员端提单/列表/详情/回复/关闭，
 // 管理端（admin + support）列表/详情/回复（含内部备注）/关闭（阶段 6a）。
 //
-// 通知挂点（阶段 6b）：本 handler 是工单事件的唯一产生处——创建、会员回复、
-// 管理员回复 / 内部备注、关闭都集中在此写库并记录日志；6b 的站内通知与邮件
-// 发送直接在下面标注了「6b 通知挂点」的位置接入，本批不做任何通知发送。
+// 通知接线（阶段 6b，契约 17.4）：本 handler 是工单事件的唯一产生处——创建、会员回复、
+// 客服公开回复、**客服关闭**落库后调用 notify 投递通知（异步、失败不影响工单业务）。
+// 不产生通知的路径：管理员**内部备注**（不对外）、会员自行关闭（定稿：只有客服关闭才通知会员）。
 type ticketHandler struct {
 	store  *store.Store
+	notify NotificationTrigger
 	logger *slog.Logger
 }
 
@@ -234,9 +235,10 @@ func (h *ticketHandler) createTicket(c *gin.Context) {
 		return
 	}
 
-	// 6b 通知挂点：工单创建 → 通知客服（站内/邮件）。本批只记日志。
 	h.logger.Info("工单已创建", "ticket_id", created.ticket.ID, "trade_no", created.ticket.TradeNo,
 		"member_id", member.ID, "category", category, "instance_id", instanceIDRef(req.InstanceID))
+	// 6b 通知接线：工单创建 → 通知客服（站内扇出 admin+support；邮件发站点 admin_email）。
+	h.ticketCreated(created.ticket.ID)
 
 	names := map[ticketAuthorKey]string{
 		{AuthorType: model.TicketAuthorMember, AuthorID: member.ID}: member.Username,
@@ -390,9 +392,10 @@ func (h *ticketHandler) replyMyTicket(c *gin.Context) {
 		return
 	}
 
-	// 6b 通知挂点：会员回复 → 通知客服。
 	h.logger.Info("工单收到会员回复", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"member_id", member.ID, "status", updated.Status)
+	// 6b 通知接线：会员回复 → 通知客服（ticket_replied 的管理端侧）。
+	h.ticketRepliedByMember(updated.ID)
 
 	instance, err := h.instanceOfTicket(ctx, updated)
 	if err != nil {
@@ -590,9 +593,13 @@ func (h *ticketHandler) adminReplyTicket(c *gin.Context) {
 		return
 	}
 
-	// 6b 通知挂点：管理员**公开**回复 → 通知会员；内部备注不产生任何对外通知。
 	h.logger.Info("工单收到管理员回复", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"admin_id", admin.ID, "role", admin.Role, "internal", req.Internal, "status", updated.Status)
+	// 6b 通知接线：管理员**公开**回复 → 通知会员（ticket_replied 的会员侧）；
+	// 内部备注（internal=true）不产生任何对外通知。
+	if !req.Internal {
+		h.ticketRepliedByAdmin(updated.ID)
+	}
 
 	instance, err := h.instanceOfTicket(ctx, updated)
 	if err != nil {
@@ -639,7 +646,7 @@ func (h *ticketHandler) adminCloseTicket(c *gin.Context) {
 }
 
 // closeTicket 是会员端/管理端共用的关闭实现：幂等关闭并按视角组装响应。
-// authorType/authorID 仅用于日志（6b 通知挂点的上下文）。
+// authorType/authorID 用于日志与「客服关闭才通知会员」的分支判定。
 func (h *ticketHandler) closeTicket(c *gin.Context, ticket *model.Ticket, authorType string, authorID uint64) {
 	ctx := c.Request.Context()
 	updated, changed, err := h.store.CloseTicket(ctx, ticket.ID)
@@ -648,9 +655,13 @@ func (h *ticketHandler) closeTicket(c *gin.Context, ticket *model.Ticket, author
 		return
 	}
 
-	// 6b 通知挂点：工单关闭（会员关闭 → 通知客服；客服关闭 → 通知会员）。
 	h.logger.Info("工单已关闭", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"author_type", authorType, "author_id", authorID, "already_closed", !changed)
+	// 6b 通知接线：**客服**关闭 → 通知会员（契约 17.4 定稿；会员自行关闭不通知客服，
+	// 幂等重复关闭同样不再打扰会员）。
+	if authorType == model.TicketAuthorAdmin && changed {
+		h.ticketClosedByAdmin(updated.ID)
+	}
 
 	instance, err := h.instanceOfTicket(ctx, updated)
 	if err != nil {
@@ -858,17 +869,7 @@ func newTicketMessageView(message *model.TicketMessage, names map[ticketAuthorKe
 
 // ticketPaging 解析分页参数（缺省 1 / 20，上限 100）；非法时写出 40001 并返回 ok=false。
 func ticketPaging(c *gin.Context) (int, int, bool) {
-	page, err := intQuery(c, "page", defaultPage, 1, maxPage)
-	if err != nil {
-		response.Fail(c, response.CodeInvalidParam, err.Error())
-		return 0, 0, false
-	}
-	pageSize, err := intQuery(c, "page_size", defaultPageSize, 1, maxPageSize)
-	if err != nil {
-		response.Fail(c, response.CodeInvalidParam, err.Error())
-		return 0, 0, false
-	}
-	return page, pageSize, true
+	return pagingParams(c)
 }
 
 // ticketStatusQuery 解析并校验 status 查询参数；非法时写出 40001 并返回 ok=false。
@@ -897,4 +898,40 @@ func instanceIDRef(id *uint64) any {
 		return "-"
 	}
 	return *id
+}
+
+// ---------------------------------------------------------------------------
+// 通知触发点（阶段 6b）：nil 保护后转交 NotificationTrigger
+// ---------------------------------------------------------------------------
+
+// ticketCreated 触发「新工单」通知（未接线时静默跳过）。
+func (h *ticketHandler) ticketCreated(ticketID uint64) {
+	if h.notify == nil {
+		return
+	}
+	h.notify.TicketCreated(ticketID)
+}
+
+// ticketRepliedByMember 触发「会员回复工单」通知（发给客服）。
+func (h *ticketHandler) ticketRepliedByMember(ticketID uint64) {
+	if h.notify == nil {
+		return
+	}
+	h.notify.TicketRepliedByMember(ticketID)
+}
+
+// ticketRepliedByAdmin 触发「客服回复工单」通知（发给会员）。
+func (h *ticketHandler) ticketRepliedByAdmin(ticketID uint64) {
+	if h.notify == nil {
+		return
+	}
+	h.notify.TicketRepliedByAdmin(ticketID)
+}
+
+// ticketClosedByAdmin 触发「工单被客服关闭」通知（发给会员）。
+func (h *ticketHandler) ticketClosedByAdmin(ticketID uint64) {
+	if h.notify == nil {
+		return
+	}
+	h.notify.TicketClosedByAdmin(ticketID)
 }

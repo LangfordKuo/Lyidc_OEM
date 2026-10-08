@@ -97,7 +97,10 @@ type Instance struct {
 	Name         string     `gorm:"column:name"`
 	BillingCycle string     `gorm:"column:billing_cycle"`
 	NextDueDate  *time.Time `gorm:"column:next_due_date"`
-	Status       string     `gorm:"column:status"`
+	// ExpiryRemindedDue 是**到期提醒去重锚点**（迁移 0011，契约 17.5）：记录已就哪个到期时间
+	// 提醒过会员；与 NextDueDate 相等表示本到期周期的提醒已完成（续费/同步推进到期时间后自动重新武装）。
+	ExpiryRemindedDue *time.Time `gorm:"column:expiry_reminded_due"`
+	Status            string     `gorm:"column:status"`
 	// UpstreamStatus 是上游 domainstatus 原文（如 Active），仅作同步展示。
 	UpstreamStatus string `gorm:"column:upstream_status"`
 	DedicatedIP    string `gorm:"column:dedicated_ip"`

@@ -31,6 +31,22 @@ func failInternal(c *gin.Context, logger *slog.Logger, err error) {
 	response.Fail(c, response.CodeInternalError, response.Message(response.CodeInternalError))
 }
 
+// pagingParams 解析分页参数（page / page_size，缺省 1 / 20，上限 100）；
+// 非法时写出 40001 并返回 ok=false（分页口径全站统一，契约 1.3）。
+func pagingParams(c *gin.Context) (int, int, bool) {
+	page, err := intQuery(c, "page", defaultPage, 1, maxPage)
+	if err != nil {
+		response.Fail(c, response.CodeInvalidParam, err.Error())
+		return 0, 0, false
+	}
+	pageSize, err := intQuery(c, "page_size", defaultPageSize, 1, maxPageSize)
+	if err != nil {
+		response.Fail(c, response.CodeInvalidParam, err.Error())
+		return 0, 0, false
+	}
+	return page, pageSize, true
+}
+
 // paramError 描述查询参数非法（供 message 拼接）。
 type paramError struct {
 	field    string

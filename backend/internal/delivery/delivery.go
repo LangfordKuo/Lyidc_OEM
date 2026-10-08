@@ -60,6 +60,19 @@ var passwordClasses = []string{
 	"!@#$%^&*",
 }
 
+// Notifier 接收交付事件的通知（阶段 6b，契约 17.4）。
+//
+// 契约：**交付结果提交后**调用（订单/实例已落库），实现必须不阻塞且不返回错误——
+// 生产实现是 internal/notify.Service（内部异步 + 失败只记日志）；nil 表示不接线（测试默认）。
+type Notifier interface {
+	// OrderDelivered 新购订单交付成功（开通完成）。
+	OrderDelivered(orderID uint64)
+	// OrderFailed 新购订单交付失败（订单已置 failed）。
+	OrderFailed(orderID uint64)
+	// RenewSucceeded 续费订单交付成功。
+	RenewSucceeded(orderID uint64)
+}
+
 // Options 是交付服务的构造参数。
 type Options struct {
 	// Async 为 true 时 Trigger 在后台 goroutine 中执行（生产默认）；
@@ -69,6 +82,8 @@ type Options struct {
 	Timeout time.Duration
 	// Logger 为 nil 时使用 slog.Default()。
 	Logger *slog.Logger
+	// Notifier 是交付事件的通知回调（阶段 6b）；nil 时不发通知。
+	Notifier Notifier
 }
 
 // Service 是交付服务：router 通过它触发自动交付与管理员重试。
@@ -76,6 +91,7 @@ type Service struct {
 	store    *store.Store
 	upstream upstream.Provider
 	logger   *slog.Logger
+	notifier Notifier
 
 	async   bool
 	timeout time.Duration
@@ -95,8 +111,31 @@ func New(st *store.Store, provider upstream.Provider, opts Options) *Service {
 		store:    st,
 		upstream: provider,
 		logger:   logger,
+		notifier: opts.Notifier,
 		async:    opts.Async,
 		timeout:  timeout,
+	}
+}
+
+// notifyDelivered / notifyFailed / notifyRenewed 是交付结果提交后的通知触发点（契约 17.4）。
+// 调用方（实现须为 notify.Service）自行保证异步与失败隔离：这里只做 nil 保护。
+func (s *Service) notifyDelivered(orderID uint64) {
+	if s.notifier != nil {
+		s.notifier.OrderDelivered(orderID)
+	}
+}
+
+// notifyFailed 交付失败通知。
+func (s *Service) notifyFailed(orderID uint64) {
+	if s.notifier != nil {
+		s.notifier.OrderFailed(orderID)
+	}
+}
+
+// notifyRenewed 续费成功通知。
+func (s *Service) notifyRenewed(orderID uint64) {
+	if s.notifier != nil {
+		s.notifier.RenewSucceeded(orderID)
 	}
 }
 
@@ -176,6 +215,8 @@ func (s *Service) deliverNew(ctx context.Context, order *model.Order) (*model.Or
 		s.logger.Info("订单交付完成", "order_id", updated.ID, "trade_no", updated.TradeNo,
 			"host_id", instance.HostID, "product_id", instance.ProductID)
 		s.auditCreate(ctx, updated, instance.HostID, true, "开通成功，主机已交付")
+		// 6b 通知挂点：交付成功 → 通知会员（异步、失败不影响交付结果）。
+		s.notifyDelivered(updated.ID)
 		return updated, nil
 	}
 
@@ -185,6 +226,8 @@ func (s *Service) deliverNew(ctx context.Context, order *model.Order) (*model.Or
 	}
 	s.logger.Error("订单交付失败", "error", err, "order_id", order.ID, "trade_no", order.TradeNo)
 	s.auditCreate(ctx, failed, 0, false, "开通失败："+err.Error())
+	// 6b 通知挂点：交付失败 → 通知会员（含已脱敏的失败原因）。
+	s.notifyFailed(failed.ID)
 	return failed, fmt.Errorf("%w: %v", ErrProvisionFailed, err)
 }
 

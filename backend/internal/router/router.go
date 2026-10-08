@@ -15,6 +15,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/notify"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/scheduler"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
@@ -34,6 +35,29 @@ type DeliveryTrigger interface {
 	Trigger(orderID uint64)
 	// Deliver 同步执行一次交付（管理员重试接口）；allowFailed 为 true 时交付失败的订单可重试。
 	Deliver(ctx context.Context, orderID uint64, allowFailed bool) (*model.Order, error)
+}
+
+// NotificationTrigger 是事件通知能力（阶段 6b，契约 17.4）：router 把同一个实现
+// 分发给交付链路（delivery.Notifier）、扫描器（scheduler.Notifier）、工单 handler 与设置页。
+//
+// 生产实现是 internal/notify.Service（事件入口内部异步、失败只记日志）；测试可注入
+// Async=false 的实现使通知同步完成，从而确定性地断言通知落库与邮件收件人。
+type NotificationTrigger interface {
+	// 交付事件（internal/delivery 的接线点）。
+	delivery.Notifier
+	// 扫描事件（internal/scheduler 的接线点：暂停、终止收敛、到期提醒）。
+	scheduler.Notifier
+
+	// TicketCreated 新工单 → 通知管理员/客服。
+	TicketCreated(ticketID uint64)
+	// TicketRepliedByMember 会员回复工单 → 通知管理员/客服。
+	TicketRepliedByMember(ticketID uint64)
+	// TicketRepliedByAdmin 客服公开回复工单 → 通知会员（内部备注不调用）。
+	TicketRepliedByAdmin(ticketID uint64)
+	// TicketClosedByAdmin 客服关闭工单 → 通知会员。
+	TicketClosedByAdmin(ticketID uint64)
+	// SendTestEmail 同步发送一封测试邮件（设置页验证 SMTP 参数）。
+	SendTestEmail(ctx context.Context, to string) error
 }
 
 // Options 是路由构造参数。
@@ -59,6 +83,10 @@ type Options struct {
 	// 启动延迟 DefaultInitialDelay 后首次扫描，之后每 DefaultInterval 扫描一次。
 	// 生产装配（cmd/server）传 true；集成测试默认 false（扫描逻辑由 scheduler.Scanner 单元/集成测试覆盖）。
 	EnableDueScan bool
+	// Notifier 是通知能力（阶段 6b）；nil 时构造默认实现（事件入口异步、按后台设置发信）。
+	// 注入的实现同时被「交付/扫描（经 Options.Delivery 与调度器）」与「工单/设置页」使用；
+	// 测试注入 Async=false 的 notify.Service 即可同步断言通知结果。
+	Notifier NotificationTrigger
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -89,20 +117,31 @@ func New(opts Options) *gin.Engine {
 	if upstreamProvider == nil {
 		upstreamProvider = newUpstreamProvider(settingsReader, opts.Logger)
 	}
+	// 阶段 6b：通知服务（站内通知 + 通知邮件），供交付/扫描/工单/设置页共用。
+	// 生产实现的事件入口是异步的（不阻塞业务，失败只记日志），发送器按后台 SMTP 设置动态重建。
+	notifier := opts.Notifier
+	if notifier == nil {
+		notifier = notify.New(st, settingsReader, notify.Options{Async: true, Logger: opts.Logger})
+	}
 	// 阶段 5a：支付成功后的自动交付（异步 goroutine，不阻塞回调响应，契约 14.3）。
 	// 阶段 5b：同一交付器按订单 type 分流新购（开通）/续费（RenewHost）。
+	// 阶段 6b：交付结果提交后触发通知（交付成功/失败、续费成功）。
 	deliveries := opts.Delivery
 	if deliveries == nil {
-		deliveries = delivery.New(st, upstreamProvider, delivery.Options{Async: true, Logger: opts.Logger})
+		deliveries = delivery.New(st, upstreamProvider, delivery.Options{
+			Async: true, Logger: opts.Logger, Notifier: notifier,
+		})
 	}
 	// 阶段 5b：实例操作（电源/重装/改密/暂停/恢复/同步），审计写 instance_operation_logs。
 	instanceOperator := instanceops.New(st, upstreamProvider, instanceops.Options{Logger: opts.Logger})
 
 	// 阶段 5b：到期暂停扫描（应用内后台任务；生产由 main 显式开启，契约 15.5）。
+	// 阶段 6b：同一轮扫描先跑到期提醒，并在暂停/终止收敛后投递通知（契约 17.5）。
 	if opts.EnableDueScan {
 		scanner := scheduler.New(st, upstreamProvider, scheduler.Options{
 			InitialDelay: scheduler.DefaultInitialDelay,
 			Logger:       opts.Logger,
+			Notifier:     notifier,
 		})
 		scanner.Start()
 		opts.Logger.Info("到期暂停扫描已启动",
@@ -123,9 +162,14 @@ func New(opts Options) *gin.Engine {
 		store: st, payments: payments, reader: settingsReader, deliveries: deliveries, logger: opts.Logger,
 	}
 	instances := &instanceHandler{store: st, ops: instanceOperator, logger: opts.Logger}
-	adminSettings := &settingsHandler{store: st, reader: settingsReader, logger: opts.Logger}
+	adminSettings := &settingsHandler{
+		store: st, reader: settingsReader, notify: notifier, logger: opts.Logger,
+	}
 	// 阶段 6a：工单（纯本地域，不调用上游；管理端为 admin + support 的客服域）。
-	tickets := &ticketHandler{store: st, logger: opts.Logger}
+	// 阶段 6b：工单事件（创建/会员回复/客服公开回复/客服关闭）在事务提交后触发通知。
+	tickets := &ticketHandler{store: st, notify: notifier, logger: opts.Logger}
+	// 阶段 6b：站内通知收件箱（会员端与管理端同构）。
+	notifications := &notificationHandler{store: st, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
 	{
@@ -194,6 +238,13 @@ func New(opts Options) *gin.Engine {
 			memberAPI.GET("/tickets/:id", tickets.getMyTicket)
 			memberAPI.POST("/tickets/:id/reply", tickets.replyMyTicket)
 			memberAPI.POST("/tickets/:id/close", tickets.closeMyTicket)
+
+			// 站内通知（阶段 6b，契约 17.2）：**仅本人**（他人的通知与不存在统一 404）；
+			// 已读操作幂等（重复已读 already_read=true）。
+			memberAPI.GET("/notifications", notifications.listMyNotifications)
+			memberAPI.GET("/notifications/unread-count", notifications.myUnreadCount)
+			memberAPI.POST("/notifications/:id/read", notifications.readMyNotification)
+			memberAPI.POST("/notifications/read-all", notifications.readAllMyNotifications)
 		}
 
 		// 管理端：登录开放，其余需要管理员 token；
@@ -226,6 +277,19 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getUpstreamSettings)
 				settingsGroup.PUT("/upstream",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateUpstreamSettings)
+
+				// 邮件与通知开关（阶段 6b，契约 17.3）：同样**仅 admin**；
+				// 测试邮件同步发送，未配置 SMTP 时返回 40002 明确提示。
+				settingsGroup.GET("/email/smtp",
+					requireAdminRole(model.RoleAdmin), adminSettings.getEmailSMTPSettings)
+				settingsGroup.PUT("/email/smtp",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateEmailSMTPSettings)
+				settingsGroup.POST("/email/test",
+					requireAdminRole(model.RoleAdmin), adminSettings.sendTestEmail)
+				settingsGroup.GET("/notifications",
+					requireAdminRole(model.RoleAdmin), adminSettings.getNotificationSettings)
+				settingsGroup.PUT("/notifications",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateNotificationSettings)
 			}
 
 			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。
@@ -284,6 +348,16 @@ func New(opts Options) *gin.Engine {
 				adminTickets.GET("/:id", tickets.getAdminTicket)
 				adminTickets.POST("/:id/reply", tickets.adminReplyTicket)
 				adminTickets.POST("/:id/close", tickets.adminCloseTicket)
+			}
+
+			// 站内通知（阶段 6b，契约 17.2）：**本人收件箱**，三类角色都可读自己的通知
+			// （通知不属于工单域，finance 只是通常收不到事件——扇出只覆盖 admin + support）。
+			adminNotifications := adminGroup.Group("/notifications")
+			{
+				adminNotifications.GET("", notifications.listAdminNotifications)
+				adminNotifications.GET("/unread-count", notifications.adminUnreadCount)
+				adminNotifications.POST("/:id/read", notifications.readAdminNotification)
+				adminNotifications.POST("/read-all", notifications.readAllAdminNotifications)
 			}
 		}
 	}

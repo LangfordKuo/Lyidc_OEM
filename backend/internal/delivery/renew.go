@@ -102,6 +102,8 @@ func (s *Service) deliverRenew(ctx context.Context, order *model.Order) (*model.
 	s.audit(ctx, instance.ID, model.ActionRenew, model.InstanceOpSuccess, message)
 	s.logger.Info("续费交付完成", "order_id", updated.ID, "trade_no", updated.TradeNo,
 		"instance_id", instance.ID, "host_id", instance.HostID, "cycle", order.Cycle)
+	// 6b 通知挂点：续费成功 → 通知会员（异步、失败不影响交付结果）。
+	s.notifyRenewed(updated.ID)
 	return updated, nil
 }
 

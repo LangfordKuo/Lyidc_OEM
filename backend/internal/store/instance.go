@@ -76,6 +76,15 @@ func (s *Store) InstanceByHostID(ctx context.Context, hostID int) (*model.Instan
 	return instanceBy(db, "host_id = ?", hostID)
 }
 
+// InstanceByOrderID 按订单 ID 查询实例（订单 ↔ 实例一对一；通知组装用）。
+func (s *Store) InstanceByOrderID(ctx context.Context, orderID uint64) (*model.Instance, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return instanceBy(db, "order_id = ?", orderID)
+}
+
 // InstanceSyncInput 是实例上游同步字段的落库输入（阶段 5b）。
 //
 // 语义：**调用方提供完整快照**（未回读到的字段由调用方保留旧值后传入），
@@ -281,6 +290,55 @@ func (s *Store) ListDueInstances(ctx context.Context, dueBefore time.Time, limit
 		return nil, err
 	}
 	return items, nil
+}
+
+// ListExpiringInstances 返回「即将到期且尚未提醒过」的 active 实例（到期提醒扫描用，契约 17.5）：
+// dueAfter < next_due_date <= dueBefore，且 next_due_date 与去重锚点 expiry_reminded_due 不相等
+// （相等 = 本到期周期已提醒过；续费/同步推进到期时间后两者不再相等，提醒自动重新武装）。
+//
+// 排除 cancel_status=pending 的实例（已进入终止流程，提醒续费是错误动作），
+// 也排除尚无到期时间的实例（上游未回读到）。按 next_due_date 升序最多 limit 条。
+func (s *Store) ListExpiringInstances(ctx context.Context, dueAfter, dueBefore time.Time, limit int) ([]model.Instance, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.Instance, 0)
+	if err := db.Where("status = ? AND cancel_status <> ? AND next_due_date IS NOT NULL AND next_due_date > ? AND next_due_date <= ? "+
+		"AND (expiry_reminded_due IS NULL OR expiry_reminded_due <> next_due_date)",
+		model.InstanceStatusActive, model.InstanceCancelPending, dueAfter.UTC(), dueBefore.UTC()).
+		Order("next_due_date ASC, id ASC").
+		Limit(limit).
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// ClaimExpiryReminder 认领「本到期周期的一次到期提醒」：把去重锚点写成当前的 next_due_date。
+//
+// 条件更新（锚点不等于当前到期时间）保证同一周期只有一次认领成功：并发/重复扫描时
+// 只有一行被更新（RowsAffected=1），其余返回 false（本次不提醒）。
+// 实例不存在返回 ErrNotFound；到期时间尚未回读（NULL）时同样不认领（返回 false）。
+func (s *Store) ClaimExpiryReminder(ctx context.Context, id uint64) (bool, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return false, err
+	}
+	result := db.Exec("UPDATE instances SET expiry_reminded_due = next_due_date, updated_at = ? "+
+		"WHERE id = ? AND next_due_date IS NOT NULL AND (expiry_reminded_due IS NULL OR expiry_reminded_due <> next_due_date)",
+		time.Now().UTC(), id)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected > 0 {
+		return true, nil
+	}
+	// 未被认领：区分「实例不存在」（报错）与「本周期已提醒过」（正常的幂等结果）。
+	if _, err := instanceBy(db, "id = ?", id); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // InstancesByIDs 按主键批量查询实例（工单视图组装 instance 概要、校验归属用）；

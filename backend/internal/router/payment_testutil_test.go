@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
@@ -188,13 +189,17 @@ func newStage4Engine(t *testing.T, gdb *gorm.DB, logs *bytes.Buffer) *gin.Engine
 	})
 }
 
-// seedSetting 直接写库写入一条设置（绕过管理端接口，用于测试准备）。
+// seedSetting 直接写库写入一条设置（绕过管理端接口，用于测试准备）；
+// 同键重复调用按「覆盖」处理（与 UpsertSetting 同语义，便于用例改写设置）。
 func seedSetting(t *testing.T, gdb *gorm.DB, key, value string) {
 	t.Helper()
 	now := time.Now().UTC()
 	updatedBy := uint64(0)
 	setting := model.Setting{Key: key, Value: value, UpdatedBy: &updatedBy, CreatedAt: now, UpdatedAt: now}
-	if err := gdb.Create(&setting).Error; err != nil {
+	if err := gdb.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_by", "updated_at"}),
+	}).Create(&setting).Error; err != nil {
 		t.Fatalf("写入测试设置失败: %v", err)
 	}
 }

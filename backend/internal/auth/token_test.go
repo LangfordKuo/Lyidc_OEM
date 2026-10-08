@@ -120,7 +120,18 @@ func TestVerifyRejectsTamperedTokenAndForeignKey(t *testing.T) {
 		t.Fatalf("IssueMemberToken() 返回错误: %v", err)
 	}
 
-	tampered := token[:len(token)-2] + "xx"
+	// 篡改签名的最后一个字符：替换为「与原字符必然不同」的 base64url 字符
+	// （历史写法 token[:len-2]+"xx" 有约 0.1% 概率与原值完全相同——签名末两位本就是 xx 时
+	// 篡改后 token 不变，用例会偶发失败；此处改为确定性构造）。
+	last := token[len(token)-1]
+	replacement := byte('A')
+	if last == 'A' {
+		replacement = 'B'
+	}
+	tampered := token[:len(token)-1] + string(replacement)
+	if tampered == token {
+		t.Fatal("篡改后的 token 与原值相同（构造错误）")
+	}
 	if _, err := manager.VerifyMemberToken(tampered); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("篡改 token 校验 err=%v, 期望 ErrInvalidToken", err)
 	}
