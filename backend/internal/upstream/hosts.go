@@ -12,11 +12,14 @@ const (
 	pathCartHostInfo = "/cart/hostinfo"
 	pathCartCredit   = "/cart/credit"
 	pathCartSummary  = "/cart/summary"
+	pathHostCloudOS  = "/host/cloudos"
 )
 
 // Hosts 拉取已购产品（主机）列表，对应 GET /cart/hostinfo。
 //
-// hostIDs 为空表示该接口不限定主机（上游按账号返回）。all 为 true 时请求 all=1，
+// **hostIDs 必须传且非空**：实测（2026-10-08）上游在该参数缺省时返回空列表，
+// 并不会「列出账号下全部主机」；要按账号批量取主机需由调用方维护上游主机 ID 清单
+// （Accounts/Hosts 的同步策略放在后续阶段）。all 为 true 时请求 all=1，
 // 上游会额外回带每个主机的可配置项明细（Host.OptionConfig）。
 func (c *Client) Hosts(ctx context.Context, hostIDs []int, all bool) (*HostList, error) {
 	params := url.Values{}
@@ -55,6 +58,28 @@ func (c *Client) Host(ctx context.Context, hostID int) (*Host, error) {
 	}
 	return nil, &BusinessError{API: pathCartHostInfo, Status: statusNotLogged,
 		Msg: fmt.Sprintf("上游未返回主机 %d（可能不属于该账号）", hostID)}
+}
+
+// CloudOS 查询商品可选的操作系统列表，对应 GET /host/cloudos。
+//
+// osOptionID 是商品「操作系统」可配置项的 ID（ProductConfig 中 OptionName 含 os 的那一项的 ID），
+// 用于让上游按商品返回可选系统；填 0 时上游按 productID 处理。
+func (c *Client) CloudOS(ctx context.Context, productID, osOptionID int) (*CloudOSList, error) {
+	if productID <= 0 {
+		return nil, fmt.Errorf("%w: productID 必须为正整数，收到 %d", ErrBusiness, productID)
+	}
+
+	params := url.Values{}
+	params.Set("productid", strconv.Itoa(productID))
+	if osOptionID > 0 {
+		params.Set("os_config_option_id", strconv.Itoa(osOptionID))
+	}
+
+	var out CloudOSList
+	if _, err := c.Get(ctx, pathHostCloudOS, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Credit 查询上游账号余额，对应 GET /cart/credit。未登录时上游返回 credit=null（本包会先登录）。

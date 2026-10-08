@@ -12,11 +12,11 @@ import (
 const realHostInfoBody = `{
   "hosts": [
     {"id": 88, "productid": 1, "domain": "hk-a.example.com", "dedicatedip": "203.0.113.10",
-     "assignedips": ["203.0.113.11"], "create_time": 1759881600, "nextduedate": "2026-11-08",
-     "billingcycle": "monthly", "billingcycle_zh": "月",
+     "assignedips": ["203.0.113.11"], "create_time": 1791448202, "nextduedate": 1796718606,
+     "billingcycle": "monthly", "billingcycle_zh": "月付",
      "firstpaymentamount": "20.00", "amount": "20.00", "port": 22,
      "username": "root", "password": "secret", "initiative_renew": 1,
-     "domainstatus": "Active", "domainstatus_zh": ["已激活", "#00ff00"]}
+     "domainstatus": "Active", "domainstatus_zh": {"name": "已激活", "color": "#3fbf70"}}
   ],
   "currency": "¥"
 }`
@@ -45,8 +45,9 @@ func TestHostsSendsHostIDArrayAndParsesRealPayload(t *testing.T) {
 		t.Errorf("IP = (%s, %v), 期望 dedicatedip=203.0.113.10 且 assignedips 展开为 1 项",
 			host.DedicatedIP, host.AssignedIPs)
 	}
-	if host.CreateTime != 1759881600 || host.NextDueDate != "2026-11-08" {
-		t.Errorf("时间字段 = (%d, %s), 期望 (1759881600, 2026-11-08)", host.CreateTime, host.NextDueDate)
+	// 实测：create_time / nextduedate 都是 unix 秒（不是日期字符串）。
+	if host.CreateTime != 1791448202 || host.NextDueDate != 1796718606 {
+		t.Errorf("时间字段 = (%d, %d), 期望 (1791448202, 1796718606)", host.CreateTime, host.NextDueDate)
 	}
 	if list.Currency != "¥" {
 		t.Errorf("货币符号 = %q, 期望 ¥", list.Currency)
@@ -146,5 +147,47 @@ func TestSummaryBusinessErrorWhenAPIClosed(t *testing.T) {
 	}
 	if summary.APIOpen != 1 || summary.AgentCount != 2 || summary.APICount != 10 {
 		t.Errorf("概览 = %+v, 期望 api_open=1 agent_count=2 api_count=10", summary)
+	}
+}
+
+func TestCloudOSParsesRealPayloadAndSendsParams(t *testing.T) {
+	// 实测响应（2026-10-08，已裁剪）：只有 cloud_os，group 是分组名字符串。
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathHostCloudOS: func(_ int, _ *http.Request, _ url.Values) (int, string) {
+			return http.StatusOK, okBody(`{"cloud_os":[
+				{"id":3,"name":"Debian-10.3.3-x64","group":"Debian"},
+				{"id":9,"name":"CentOS-7.9.2111-x64","group":"CentOS"}],
+				"cloud_os_group":[{"id":"Debian","name":"Debian"},{"id":"CentOS","name":"CentOS"}]}`)
+		},
+	})
+	client := fake.client(t, nil)
+
+	list, err := client.CloudOS(context.Background(), 1, 2)
+	if err != nil {
+		t.Fatalf("CloudOS() 失败: %v", err)
+	}
+	if len(list.OS) != 2 || list.OS[1].ID != 9 {
+		t.Fatalf("系统列表 = %+v, 期望 2 项且第二项 id=9", list.OS)
+	}
+	if list.OS[1].Group != "CentOS" {
+		t.Errorf("group = %q, 期望字符串分组名 CentOS", list.OS[1].Group)
+	}
+	if len(list.OSGroup) != 2 || list.OSGroup[1].ID != "CentOS" {
+		t.Errorf("分组 = %+v, 期望 2 组且 id 为字符串 CentOS", list.OSGroup)
+	}
+
+	calls := fake.requests(pathHostCloudOS)
+	if len(calls) != 1 {
+		t.Fatalf("调用次数 = %d, 期望 1", len(calls))
+	}
+	if got := calls[0].Query.Get("productid"); got != "1" {
+		t.Errorf("productid = %q, 期望 1", got)
+	}
+	if got := calls[0].Query.Get("os_config_option_id"); got != "2" {
+		t.Errorf("os_config_option_id = %q, 期望 2", got)
+	}
+
+	if _, err := client.CloudOS(context.Background(), 0, 2); !errors.Is(err, ErrBusiness) {
+		t.Errorf("productid=0 错误 = %v, 期望 ErrBusiness", err)
 	}
 }

@@ -197,6 +197,10 @@ func TestCreateHostRunsOrderingPipelineInOrder(t *testing.T) {
 	if got := pay.Get("use_credit"); got != "1" {
 		t.Errorf("apply_credit use_credit = %q, 期望 1", got)
 	}
+	// 本次下单生成的账单：enough=0（与上游官方下游实现一致）。
+	if got := pay.Get("enough"); got != "0" {
+		t.Errorf("apply_credit enough = %q, 期望 0", got)
+	}
 }
 
 func TestCreateHostPaysExistingInvoiceWithoutReordering(t *testing.T) {
@@ -346,5 +350,71 @@ func TestInvoiceIDFromTopLevelIsAccepted(t *testing.T) {
 
 	if got := invoiceIDOf(&Response{Data: []byte(`{}`)}); got != 0 {
 		t.Errorf("invoiceIDOf(无账单) = %d, 期望 0", got)
+	}
+}
+
+func TestRequestCancelSendsTypeAndReason(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathHostCancel: func(_ int, _ *http.Request, _ url.Values) (int, string) {
+			return http.StatusOK, okBody(`{"cancel_id":3}`)
+		},
+	})
+	client := fake.client(t, nil)
+
+	result, err := client.RequestCancel(context.Background(), 88, CancelImmediate, "阶段 2 联调结束")
+	if err != nil {
+		t.Fatalf("RequestCancel() 失败: %v", err)
+	}
+	if result.Status != statusOK {
+		t.Errorf("status = %d, 期望 200", result.Status)
+	}
+
+	calls := fake.requests(pathHostCancel)
+	if len(calls) != 1 || calls[0].Method != http.MethodPost {
+		t.Fatalf("调用 = %+v, 期望 1 次 POST", calls)
+	}
+	form := calls[0].Form
+	if form.Get("id") != "88" || form.Get("type") != CancelImmediate {
+		t.Errorf("表单 = %v, 期望 id=88 type=Immediate", form)
+	}
+	if form.Get("reason") != "阶段 2 联调结束" {
+		t.Errorf("reason = %q, 期望原样带上中文原因", form.Get("reason"))
+	}
+}
+
+func TestRequestCancelValidatesArguments(t *testing.T) {
+	fake := newFakeUpstream(t, nil)
+	client := fake.client(t, nil)
+	ctx := context.Background()
+
+	if _, err := client.RequestCancel(ctx, 0, CancelImmediate, "r"); !errors.Is(err, ErrBusiness) {
+		t.Errorf("hostID=0 错误 = %v, 期望 ErrBusiness", err)
+	}
+	if _, err := client.RequestCancel(ctx, 88, "now", "r"); !errors.Is(err, ErrBusiness) {
+		t.Errorf("非法 type 错误 = %v, 期望 ErrBusiness", err)
+	}
+	if _, err := client.RequestCancel(ctx, 88, CancelImmediate, ""); !errors.Is(err, ErrBusiness) {
+		t.Errorf("空 reason 错误 = %v, 期望 ErrBusiness", err)
+	}
+	if got := fake.count(pathHostCancel); got != 0 {
+		t.Errorf("非法参数不应发起请求，实际 %d 次", got)
+	}
+}
+
+func TestRequestCancelAcceptsUpstreamStatus202(t *testing.T) {
+	fake := newFakeUpstream(t, map[string]handlerFunc{
+		pathHostCancel: func(_ int, _ *http.Request, _ url.Values) (int, string) {
+			// 实测：上游以 202 + 该 msg 表示「终止申请待处理」。
+			return http.StatusOK, `{"status":202,"msg":"mf_cloud_finance_termination_pending","is_aff":"1"}`
+		},
+	})
+	client := fake.client(t, nil)
+
+	result, err := client.RequestCancel(context.Background(), 10919, CancelImmediate, "清理测试资源")
+	if err != nil {
+		t.Fatalf("202 应视为已受理，实际错误: %v", err)
+	}
+	if result.Status != 202 || result.Msg != "mf_cloud_finance_termination_pending" {
+		t.Errorf("结果 = %+v, 期望 status=202 且保留上游 msg 供调用方判断", result)
 	}
 }

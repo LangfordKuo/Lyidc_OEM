@@ -266,10 +266,10 @@ type Host struct {
 	DedicatedIP string `json:"dedicatedip"`
 	// AssignedIPs 上游以逗号分隔字符串返回，接口层已展开为切片。
 	AssignedIPs []string `json:"assignedips"`
-	// CreateTime 上游存 unix 秒。
+	// CreateTime 上游存 unix 秒（实测：1791448202）。
 	CreateTime int64 `json:"create_time"`
-	// NextDueDate 上游是日期字符串（YYYY-MM-DD）。
-	NextDueDate  string `json:"nextduedate"`
+	// NextDueDate 上游存 unix 秒（实测 2026-10-08：1796718606，**不是**日期字符串）。
+	NextDueDate  int64  `json:"nextduedate"`
 	BillingCycle string `json:"billingcycle"`
 	// BillingCycleZh / DomainStatusZh 上游可能返回字符串或 [文案, 颜色] 数组，故用 any。
 	BillingCycleZh any `json:"billingcycle_zh"`
@@ -285,6 +285,28 @@ type Host struct {
 
 	// OptionConfig 仅在请求 all=1 时返回（可配置项及当前取值）。
 	OptionConfig json.RawMessage `json:"host_option_config"`
+}
+
+// CloudOSList 是 GET /host/cloudos 的返回：商品可选的操作系统与分组。
+//
+// 实测（2026-10-08）：上游只返回 cloud_os，且每个系统的 group 是**分组名**（字符串），
+// cloud_os_group 可能缺省，因此两者都按可缺省处理。
+type CloudOSList struct {
+	OS      []CloudOS      `json:"cloud_os"`
+	OSGroup []CloudOSGroup `json:"cloud_os_group"`
+}
+
+// CloudOS 是一个可选操作系统；ID 用于 Reinstall 的 osID 参数。
+type CloudOS struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Group string `json:"group"`
+}
+
+// CloudOSGroup 是操作系统分组。实测 id 是**字符串**（即分组名，如 "CentOS"）。
+type CloudOSGroup struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Credit 是 GET /cart/credit 的返回。未携带有效 JWT 时上游把 credit 返回为 null。

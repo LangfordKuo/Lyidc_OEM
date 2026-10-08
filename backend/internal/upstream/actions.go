@@ -168,6 +168,44 @@ func (c *Client) CustomButton(ctx context.Context, hostID int, funcName string) 
 	return provisionResultOf(resp), nil
 }
 
+// 取消（终止）申请的类型，对应上游 POST /host/cancel 的 type 参数。
+const (
+	// CancelImmediate 立即取消（上游按自身策略决定是否立即执行终止）。
+	CancelImmediate = "Immediate"
+	// CancelEndOfBilling 到账单周期结束时取消。
+	CancelEndOfBilling = "Endofbilling"
+)
+
+// RequestCancel 向上游提交主机取消（终止）申请，对应 POST /host/cancel。
+//
+// 上游前台没有「直接删除主机」的开放接口，删除需走此申请流程（按上游配置可能需人工审核），
+// 因此该方法只保证「申请已被上游受理」，不保证主机立即终止：
+// 实测上游以 status=202 + msg=mf_cloud_finance_termination_pending 表示「终止申请待处理」，
+// 调用方可据 ProvisionResult.Status 区分 200（已生效）与 202（待上游处理）。
+func (c *Client) RequestCancel(ctx context.Context, hostID int, cancelType, reason string) (*ProvisionResult, error) {
+	if hostID <= 0 {
+		return nil, fmt.Errorf("%w: hostID 必须为正整数，收到 %d", ErrBusiness, hostID)
+	}
+	if cancelType != CancelImmediate && cancelType != CancelEndOfBilling {
+		return nil, fmt.Errorf("%w: cancelType 必须是 %s 或 %s，收到 %q",
+			ErrBusiness, CancelImmediate, CancelEndOfBilling, cancelType)
+	}
+	if reason == "" {
+		return nil, fmt.Errorf("%w: 取消申请需要填写 reason", ErrBusiness)
+	}
+
+	params := url.Values{}
+	params.Set("id", strconv.Itoa(hostID))
+	params.Set("type", cancelType)
+	params.Set("reason", reason)
+
+	resp, err := c.Post(ctx, pathHostCancel, params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return provisionResultOf(resp), nil
+}
+
 // provision 是生命周期方法的公共实现，对应 POST /provision/default。
 func (c *Client) provision(ctx context.Context, hostID int, op HostOperation, extra url.Values) (*ProvisionResult, error) {
 	if hostID <= 0 {
@@ -381,13 +419,16 @@ func (c *Client) RenewHost(ctx context.Context, hostID int, billingCycle string)
 	return result, nil
 }
 
-// applyCredit 用上游余额支付账单。withHostID 为 true 时额外请求上游回带开通出的主机 ID。
-func (c *Client) applyCredit(ctx context.Context, invoiceID int, req CreateHostRequest, withHostID bool) (*Response, error) {
+// applyCredit 用上游余额支付账单。enough 对应上游参数 enough（1/0），
+// 取值与上游官方下游实现一致：已有账单直接支付传 1，本次下单生成的账单传 0。
+func (c *Client) applyCredit(ctx context.Context, invoiceID int, req CreateHostRequest, enough bool) (*Response, error) {
 	params := url.Values{}
 	params.Set("invoiceid", strconv.Itoa(invoiceID))
 	params.Set("use_credit", "1")
-	if withHostID {
+	if enough {
 		params.Set("enough", "1")
+	} else {
+		params.Set("enough", "0")
 	}
 	for key, values := range c.downstreamParams(req) {
 		for _, value := range values {

@@ -43,6 +43,7 @@ const (
 
 	// 上游业务状态码。
 	statusOK         = 200
+	statusAccepted   = 202  // 已受理、异步待处理（实测：/host/cancel 提交终止申请返回 202）
 	statusPaid       = 1001 // /apply_credit 余额支付成功
 	statusNotLogged  = 405  // 未登录或 JWT 失效
 	pathLogin        = "/zjmf_api_login"
@@ -53,6 +54,7 @@ const (
 	pathHostRenew    = "/host/renew"
 	pathProvisionDef = "/provision/default"
 	pathProvisionBtn = "/provision/button"
+	pathHostCancel   = "/host/cancel"
 )
 
 // Config 是上游客户端配置，字段与 config.yaml 的 upstream 段落对应。
@@ -253,7 +255,7 @@ func (c *Client) call(ctx context.Context, method, path string, params url.Value
 		}
 
 		switch resp.Status {
-		case statusOK, statusPaid:
+		case statusOK, statusPaid, statusAccepted:
 			c.logger.Debug("上游调用成功", "method", method, "api", path,
 				"status", resp.Status, "latency_ms", time.Since(start).Milliseconds())
 			return resp, nil

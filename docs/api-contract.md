@@ -453,7 +453,7 @@ curl -s http://127.0.0.1:8080/api/v1/nope
 | 上游系统 | 智简魔方「魔方财务系统」v3.7.5（生产站 `https://lyew.com`） |
 | 版本判定依据 | `GET /doc` 返回内置接口文档站；业务响应的 `is_aff` 字段来自 v3.7.5 `jsons()` 注入；实测路由 `/zjmf_api_login`、`/cart/*`、`/api/product/*` 均按 v3.7.5 源码定义响应 |
 | 鉴权方式 | **两步：先换 JWT，再带 Bearer 头**（不是签名，也不是 Query 参数） |
-| 凭证 | 「用户名（账号手机号/邮箱）」+「API 密钥」（上游前台 安全中心 → API 生成的 12 位随机串，**不是登录密码**） |
+| 凭证 | 「用户名」+「API 密钥」（上游前台 安全中心 → API 生成的 12 位随机串，**不是登录密码**）。**用户名必须是注册手机号**：上游对 `username` 有 4–20 字符硬校验，长邮箱会被拒（见 8.5 第 1 条） |
 | 密钥传输 | 仅在 `POST /zjmf_api_login` 的表单体中传输一次，之后所有请求只用 JWT |
 
 **第一步：换取 JWT**
@@ -462,7 +462,18 @@ curl -s http://127.0.0.1:8080/api/v1/nope
 POST {base_url}/zjmf_api_login
 Content-Type: application/x-www-form-urlencoded
 
-username=<上游账号，必须 4-20 字符>&password=<API 密钥>
+username=<上游注册手机号，必须 4-20 字符>&password=<API 密钥>
+```
+
+实测（2026-10-08，密钥与 JWT 已脱敏）：
+
+```bash
+curl -s -X POST https://lyew.com/zjmf_api_login \
+  -d 'username=<注册手机号，11 位>' -d 'password=<API 密钥>'
+```
+
+```json
+{"jwt":"eyJ0****Er8","status":200,"msg":"鉴权成功","is_aff":"1"}
 ```
 
 **第二步：携带 JWT 调用业务接口**
@@ -506,6 +517,7 @@ JWT 由上游服务端缓存（键 `client_user_login_token_<jwt>`）二次校�
 | 上游 status | 含义 | 我方映射（`backend/internal/upstream`） |
 | --- | --- | --- |
 | `200` | 成功 | 正常返回 |
+| `202` | 已受理、异步待处理（实测 `/host/cancel` 终止申请） | 视为已受理，`Resp.Status` 原样回传给调用方判断 |
 | `1001` | 特例：`/apply_credit` 余额支付成功 | 视为成功（与 `200` 等价） |
 | `400` | 业务失败（账号或密码错误、API 未开通、操作被拒） | `ErrBusiness`（`/zjmf_api_login` 场景为 `ErrAuth`） |
 | `405` | 未登录或 JWT 失效（`请登陆后再试`） | 内部触发一次重新登录并重放；仍失败则 `ErrNotLoggedIn` |
@@ -522,9 +534,11 @@ JWT 由上游服务端缓存（键 `client_user_login_token_<jwt>`）二次校�
 | `ProductConfig` | `GET /cart/get_product_config` | `pid` | 可配置选项与价格周期 |
 | `Stock` | `GET /cart/stock_control` | `pid` | 库存/是否控库存 |
 | `OntrialMax` | `GET /cart/ontrialmax` | `pid` | 试用数量与最大购买数 |
-| `Hosts` | `GET /cart/hostinfo` | `hostid[]`、`all` | 已购产品（主机）列表 |
+| `Hosts` / `Host` | `GET /cart/hostinfo` | `hostid[]`、`all` | 已购产品（主机）列表 / 单主机详情 |
 | `Credit` | `GET /cart/credit` | — | 账号余额与货币 |
-| `Summary` | `GET /cart/summary` | — | API 概览（开关、数量、调用量） |
+| `CloudOS` | `GET /host/cloudos` | `productid`、`os_config_option_id` | 重装可选的操作系统列表 |
+| `Summary` | `GET /cart/summary` | — | API 概览；**API 登录（机器凭证）调用返回 403**，见 8.5 第 2 条 |
+| `RequestCancel` | `POST /host/cancel` | `id`、`type`(Immediate/Endofbilling)、`reason` | 提交取消（终止）申请；实测返回 `status=202` + `pending=true`，见 8.5 第 6 条 |
 | `On` / `Off` / `Reboot` / `HardOff` / `HardReboot` / `Status` / `VNC` | `POST /provision/default` | `func`、`id` | 开关机、重启、电源状态 |
 | `Reinstall` | `POST /provision/default` | `func=reinstall`、`id`、`os`、`port` | 重装系统 |
 | `ResetPassword` | `POST /provision/default` | `func=crack_pass`、`id`、`password` | 重置密码 |
@@ -551,7 +565,7 @@ JWT 由上游服务端缓存（键 `client_user_login_token_<jwt>`）二次校�
 
 ### 8.4 实测示例（密钥与 JWT 已脱敏）
 
-未鉴权调用（HTTP 200，业务 400/405）：
+未鉴权调用（HTTP 200，业务 400；`/cart/summary` 在未登录时因取不到 `uid` 直接判为未开通 API）：
 
 ```bash
 curl -s -X POST https://lyew.com/cart/summary
@@ -561,13 +575,45 @@ curl -s -X POST https://lyew.com/cart/summary
 {"status":400,"msg":"暂未开通API功能","is_aff":"1"}
 ```
 
+带上 JWT 后的只读接口（实测主机 10919 的真实返回，字段已裁剪）：
+
 ```bash
-curl -s -X POST https://lyew.com/zjmf_api_login \
-  -d 'username=<账号>' -d 'password=<API 密钥>'
+curl -s 'https://lyew.com/cart/hostinfo?hostid%5B%5D=10919' \
+  -H 'Authorization: Bearer <JWT>'
 ```
 
 ```json
-{"status":400,"msg":"鉴权失败","is_aff":"1"}
+{"status":200,"msg":"请求成功","data":{"hosts":[
+  {"id":10919,"productid":1,"domain":"lyidc-it-48201.example.com",
+   "dedicatedip":"156.233.235.183","assignedips":[""],"create_time":1791448202,
+   "nextduedate":1796718606,"billingcycle":"monthly","billingcycle_zh":"月付",
+   "firstpaymentamount":"20.00","amount":"20.00","port":0,"username":"root",
+   "initiative_renew":0,"domainstatus":"Active",
+   "domainstatus_zh":{"name":"已激活","color":"#3fbf70"}}],
+ "currency":"¥"},"is_aff":"1"}
+```
+
+开通（`/cart/clear` → `/cart/add_to_shop` → `/cart/settle` → `/apply_credit` 四步全成功后的返回）：
+
+```json
+开通: 成功 —— 上游 hostid=10919 invoiceid=840727 paid=true
+```
+
+生命周期调用（`POST /provision/default`，实测返回）：
+
+```json
+{"status":200,"msg":"","data":{"status":"on","des":"开机"}}     // func=status
+{"status":200,"msg":"关机成功","data":null}                      // func=off
+{"status":200,"msg":"发起重启成功","data":null}                   // func=reboot
+{"status":200,"msg":"重装发起成功","data":null}                   // func=reinstall（异步，随后 status 查得 process/重装中）
+{"status":200,"msg":"暂停成功","data":null}                       // func=suspend
+{"status":200,"msg":"解除暂停成功","data":null}                    // func=unsuspend
+```
+
+续费（`/host/renew` + `/apply_credit`）：
+
+```json
+续费: 成功 —— invoiceid=840728 paid=true
 ```
 
 只读接口（无需鉴权即可返回商品目录，实测 2026-10-08 返回 200）：
@@ -593,31 +639,71 @@ curl -s https://lyew.com/cart/credit
 "currency":{"id":1,"code":"CNY","prefix":"¥","suffix":"元"}},"is_aff":"1"}
 ```
 
+携带有效 JWT 时（该测试账号实测余额）：
+
+```json
+{"status":200,"msg":"请求成功","data":{"credit":"10000.00",
+"currency":{"id":1,"code":"CNY","prefix":"¥","suffix":"元"}},"is_aff":"1"}
+```
+
 通过 `/api/*` 的路由还会返回 `{"status":400,"msg":"请输入用户名密码"}`（缺 Basic 头）或 `{"status":400,"msg":"当前IP不允许访问"}`（IP 未加白）。
 
 ### 8.5 实测与文档不符之处 / 已知限制
 
-1. **`username` 长度硬校验 4–20（当前联调阻塞点）**：上游 `app/home/controller/LoginController.php` 的 `zjmfApiLogin` / `resourceLogin` 均使用 `require|length:4,20`，**超过 20 字符的邮箱一律在校验阶段失败并统一返回 `鉴权失败`**（与密码错误同文案，无法区分）。上游文档标注 username 为「用户名(手机号+区号)」——**手机号 ≤ 20 字符可用，长邮箱不可用**。
+1. **`username` 必须是注册手机号，长邮箱过不了长度校验（已解决）**：上游 `app/home/controller/LoginController.php` 的 `zjmfApiLogin` / `resourceLogin` 均使用 `require|length:4,20`，**超过 20 字符的邮箱一律在校验阶段失败并统一返回 `鉴权失败`**（与密码错误同文案，无法区分）。上游文档标注 username 为「用户名(手机号+区号)」——手机号 ≤ 20 字符可用，长邮箱不可用。
 
-   实测证据链（2026-10-08，可复跑脚本见 `scratch/auth_evidence.sh`）：
+   定位过程（2026-10-08，可复跑脚本 `scratch/auth_evidence.sh`）：
 
    | # | 请求 | 响应 | 说明 |
    | --- | --- | --- | --- |
-   | 1 | `POST /zjmf_api_login`，username=`langfordkuo@foxmail.com`（23 字符），password=API 密钥 | `{"status":400,"msg":"鉴权失败"}` | 换 JWT 失败 |
-   | 2 | `POST /zjmf_api_login`，同一账号 + 错误密码 | `{"status":400,"msg":"鉴权失败"}` | 与 1 文案相同，说明无法用文案区分「长度不合法」与「密码错误」 |
-   | 3 | `POST /resource_login_supplier`（同一套 4–20 校验逻辑），同一账号 + 错误密码 | `{"status":400,"msg":"鉴权失败"}` | 该接口密码错误时本应返回 `账号或密码错误`，说明**用户查询根本没执行** ⇒ 卡在长度校验 |
-   | 4 | `POST /login_pass_email`，同一邮箱 + 任意密码 | `{"status":400,"msg":"账号或密码错误"}` | 该邮箱在上游**已注册** |
+   | 1 | `POST /zjmf_api_login`，username=`langfordkuo@foxmail.com`（23 字符）+ 正确 API 密钥 | `{"status":400,"msg":"鉴权失败"}` | 换 JWT 失败 |
+   | 2 | `POST /zjmf_api_login`，同账号 + **错误**密码 | `{"status":400,"msg":"鉴权失败"}` | 与 1 文案相同 ⇒ 无法用文案区分「长度不合法」与「密码错误」 |
+   | 3 | `POST /resource_login_supplier`（同一套 4–20 校验），同账号 + 错误密码 | `{"status":400,"msg":"鉴权失败"}` | 该接口密码错时本应返回 `账号或密码错误` ⇒ **用户查询根本没执行**，卡在长度校验 |
+   | 4 | `POST /login_pass_email`，同一邮箱 | `{"status":400,"msg":"账号或密码错误"}` | 该邮箱在上游**已注册** |
    | 5 | `POST /login_pass_email`，不存在的邮箱 | `{"status":400,"msg":"邮箱未注册"}` | 负对照，证明 4 的判读成立 |
+   | 6 | `POST /zjmf_api_login`，username=**注册手机号**（11 字符）+ API 密钥 | `{"jwt":"eyJ0****Er8","status":200,"msg":"鉴权成功"}` | **改用手机号后鉴权成功**，全部需鉴权接口可用 |
 
-   **影响与结论**：在账号 `langfordkuo@foxmail.com`（23 字符）下无法换取 JWT，因此所有需要鉴权的上游接口（`/cart/hostinfo`、`/cart/credit`、`/provision/default`、开通/续费链路）均不可用；`GET /api/v1/admin/upstream/health` 会如实返回 `connected=false` + `error="上游鉴权失败: 鉴权失败 (api=/zjmf_api_login)"`（实测 HTTP 200、latency≈1.27s）。**解除方式**：改用该账号在上游绑定的**手机号**作为 `upstream.username`（≤20 字符），或为对接新开一个 ≤20 字符登录名的账号。
-2. **上游官方文档站不含资源 API 定义**：`http://w2.test.idcsmart.com/doc?name=...`（已抓取于 `docs/references/upstream/`）只覆盖前台/后台管理控制器，`/zjmf_api_login`、`/cart/*`、`/provision/default` 等资源 API 均无文档；本节清单来自 v3.7.5 源码与实测。
-3. **响应包风格不同**：上游 `{status,msg,data}` vs 我方 `{code,message,data}`。上游包**不进入**我方对外接口，只在上游客户端内部映射（`backend/internal/upstream/errors.go`）。
-4. **业务错误也返回 HTTP 200**：不可用 HTTP 状态码判成败（本阶段实测全部命中该行为）。
-5. **`/cart/all` 未鉴权也返回数据**：上游未对该只读接口强制登录；我方客户端仍要求先登录，避免误用匿名态数据（实测该接口匿名态返回 157 479 字节 / 29 个分组 / 159 个商品，已用于验证解析层）。
-6. **开通/续费是「下单 + 余额支付」两步**：上游没有单独的「开通」接口，必须 `add_to_shop`/`settle` 后再 `apply_credit` 扣上游余额；余额不足时 `apply_credit` 返回业务失败（非异常）。
-7. **`/apply_credit` 的支付成功码是 `1001` 而不是 `200`**：上游返回 `status=200` 表示「已生成账单但未支付」（上游官方下游实现即把 200 当作失败处理），只有 `1001` 才是余额支付成功且回带 `data.hostid[]`。
-8. **业务状态码与内层 `data.status` 同名不同义**：`/provision/default` 的外层 `status=200` 是业务成功码，内层 `data.status` 是电源状态文案（`"on"`/`"off"`），解析时不能合并成同一个字段（`internal/upstream.ProvisionResult.DataField` 负责取内层值）。
-9. **部分接口把结果放在顶层**：`/zjmf_api_login` 的 `jwt`、`/cart/clear` 的 `hostid`/`invoiceid`/`user` 都在响应顶层而非 `data` 内；`/cart/settle`、`/apply_credit` 的 `hostid` 又出现在 `data` 内。客户端对两处都做兼容（`Response.HostIDs`）。
+   结论：`upstream.username` 填该账号在上游绑定的手机号（`backend/config.yaml` 已如此配置），邮箱仅作为账号标识，不能用于 API 登录。
+
+2. **`/cart/summary` 对 API 登录返回 403**：携带 JWT 调用时上游返回
+   `{"status":403,"msg":"Machine credentials cannot access member security operations"}`——
+   上游把 API 登录的 JWT 视为「机器凭证」，禁止其访问会员安全类操作。因此 API 概览接口在本阶段**不可用**（`internal/upstream.Client.Summary` 保留但会返回 `ErrBusiness`），账号/主机统计改用 `Hosts` + `Credit` 组合获得。该 403 用英文返回，与上游其它中文文案风格不一致，疑似新增的权限层。
+3. **上游官方文档站不含资源 API 定义**：`http://w2.test.idcsmart.com/doc?name=...`（已抓取于 `docs/references/upstream/`）只覆盖前台/后台管理控制器，`/zjmf_api_login`、`/cart/*`、`/provision/default` 等资源 API 均无文档；本节清单来自 v3.7.5 源码与实测。
+4. **响应包风格不同**：上游 `{status,msg,data}` vs 我方 `{code,message,data}`。上游包**不进入**我方对外接口，只在上游客户端内部映射（`backend/internal/upstream/errors.go`）。
+5. **业务错误也返回 HTTP 200**：不可用 HTTP 状态码判成败（本阶段实测全部命中该行为）。
+6. **`/cart/all` 未鉴权也返回数据**：上游未对该只读接口强制登录；我方客户端仍要求先登录，避免误用匿名态数据（实测该接口匿名态返回 157 479 字节 / 29 个分组 / 159 个商品，已用于验证解析层）。
+7. **开通/续费是「下单 + 余额支付」两步**：上游没有单独的「开通」接口，必须 `add_to_shop`/`settle` 后再 `apply_credit` 扣上游余额；余额不足时 `apply_credit` 返回业务失败（非异常）。
+8. **`/apply_credit` 的支付成功码是 `1001` 而不是 `200`**：上游返回 `status=200` 表示「已生成账单但未支付」（上游官方下游实现即把 200 当作失败处理），只有 `1001` 才是余额支付成功且回带 `data.hostid[]`。
+9. **业务状态码与内层 `data.status` 同名不同义**：`/provision/default` 的外层 `status=200` 是业务成功码，内层 `data.status` 是电源状态文案（`"on"`/`"off"`），解析时不能合并成同一个字段（`internal/upstream.ProvisionResult.DataField` 负责取内层值）。
+10. **部分接口把结果放在顶层**：`/zjmf_api_login` 的 `jwt`、`/cart/clear` 的 `hostid`/`invoiceid`/`user` 都在响应顶层而非 `data` 内；`/cart/settle`、`/apply_credit` 的 `hostid` 又出现在 `data` 内。客户端对两处都做兼容（`Response.HostIDs`）。
+11. **字段类型与「文档/直觉」不符（实测踩坑，已按真实类型建模）**：
+
+    | 字段 | 直觉/文档 | 实测真实类型 | 备注 |
+    | --- | --- | --- | --- |
+    | `hosts[].nextduedate` | 日期字符串 `2026-11-08` | **unix 秒（int）** `1796718606` | 按字符串建模会导致整条主机列表解析失败 |
+    | `hosts[].create_time` | — | unix 秒（int） | 同上 |
+    | `hosts[].domainstatus_zh` | 字符串 | **对象** `{"name":"已激活","color":"#3fbf70"}` | 用 `any` 承接 |
+    | `hosts[].billingcycle_zh` | 字符串 | 字符串 `月付` | — |
+    | `hosts[].assignedips` | 字符串 | 数组（可能含空字符串） | 已展开为 `[]string` |
+    | `cloud_os[].group` | 分组 ID（int） | **分组名字符串** `CentOS` | — |
+    | `cloud_os_group[].id` | 分组 ID（int） | **字符串**（即分组名） | — |
+    | `/host/cloudos` 响应 | 含 `msg` | 只有 `{status,data}`，无 `msg` | 客户端 `Msg` 为空属正常 |
+
+12. **`/provision/default` 的成功语义与文案**（实测 2026-10-08，主机 10919）：
+    - 外层 `status=200` + `msg` 为中文成功文案：`关机成功`、`开机成功`、`发起重启成功`、`重装发起成功`、`暂停成功`、`解除暂停成功`；
+    - `func=status` 返回内层 `data.status`：`on`（开机）/`off`（关机）/`process`（重装等异步进行中），另有 `data.des` 中文描述；
+    - 重装是**异步**的：`重装发起成功` 之后 `status` 查询返回 `{"status":"process","des":"重装中"}`，接入方不能把「发起成功」当作「重装完成」。
+13. **取消（终止）申请是异步且幂等的**：`POST /host/cancel` 实测返回
+
+    ```json
+    {"status":202,"msg":"mf_cloud_finance_termination_pending","pending":true,
+     "data":{"cancel_request_id":431,"domainstatus":"Active","id":"10919","idempotent":1}}
+    ```
+
+    要点：`status=202` 表示**已受理、待上游处理**（不是失败，客户端按已受理处理）；`pending=true`；同一主机重复提交返回 `idempotent=1` 且不产生重复申请；主机状态**不会立即变**（仍为 `Active`），实际终止由上游财务/魔方云流程执行。
+14. **前端路由的 `is_api` 分支**：上游用 JWT 中的 `is_api=1` 跳过二次验证（`secondVerifyResultHome`），因此 API 登录可免 2FA 调用 `/provision/default` 等前台接口；同时也带来上面第 2 条的 403 限制（机器凭证不得访问会员安全操作）。
+15. **`/cart/hostinfo` 必须带 `hostid[]`**：实测不带该参数时上游返回**空列表**（不是「账号下全部主机」），带 `hostid[]=<id>` 才返回对应主机。上游文档把该参数标为必填，但未说明缺省时返回空——接入方需自行维护上游主机 ID 清单（本阶段由我方订单表承担，见后续阶段）。
+16. **资金消耗核对**：测试账号在上游的余额从 `10000.00` 降到 `9960.00`，与「开通 20.00 + 续费 20.00」一致，说明 `apply_credit` 的扣费链路真实生效。
 
 ### 8.6 配置项（`backend/config.yaml` → `upstream`）
 
@@ -645,7 +731,7 @@ curl -s https://lyew.com/cart/credit
 | 上游调用 | 登录 + 读取余额（只读，不产生写操作） |
 | 超时 | 取配置 `upstream.timeout_seconds`，缺省 5s |
 
-成功（HTTP 200）：
+成功（HTTP 200，下为 2026-10-08 对生产上游的实测响应）：
 
 ```json
 {
@@ -654,9 +740,9 @@ curl -s https://lyew.com/cart/credit
   "data": {
     "connected": true,
     "base_url": "https://lyew.com",
-    "latency_ms": 412,
+    "latency_ms": 354,
     "api_key_masked": "1sXR****ZG5",
-    "checked_at": "2026-10-08T07:31:02Z"
+    "checked_at": "2026-10-08T08:32:44Z"
   }
 }
 ```
@@ -696,6 +782,6 @@ curl -s https://lyew.com/cart/credit
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
-| 2026-10-08 | v3 | 阶段 2：新增第 8 节「上游对接」（鉴权机制、`{status,msg,data}` 与状态码映射、上游接口清单、实测示例、实测与文档不符之处）与第 9 节「管理端上游探活接口」 |
+| 2026-10-08 | v3 | 阶段 2：新增第 8 节「上游对接」（鉴权机制、`{status,msg,data}` 与状态码映射、上游接口清单、实测示例、实测与文档不符之处/字段类型踩坑）与第 9 节「管理端上游探活接口」；本阶段对生产上游完成真机联调（开通/开关机/重启/重装/暂停/恢复/续费/取消申请） |
 | 2026-10-08 | v2 | 阶段 1：新增第 6 节「认证与账号」（会员注册/登录/资料/改密、管理员登录/资料/会员列表/启禁用）、1.1 认证方式（JWT HS256 + aud 区分两类 token）、1.2 时间与时区（DATETIME 存 UTC）、RBAC 矩阵与开发默认管理员说明 |
 | 2026-10-08 | v1 | 阶段 0：建立统一响应包、错误码表与 `/api/v1/health` 契约 |
