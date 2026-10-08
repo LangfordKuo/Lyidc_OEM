@@ -120,3 +120,21 @@ export function validateTicketContent(value: string): string {
 export function validateCancelReason(value: string): string {
   return [...value.trim()].length > 200 ? '原因最多 200 个字符' : ''
 }
+
+/**
+ * 邮箱地址校验（后台设置里的发件人 / 测试收件地址等表单预检）：
+ * 只做「形状」判断，与注册规则同口径；空串返回空错误（调用方按需决定是否必填）。
+ */
+export function validateEmail(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (byteLength(trimmed) > 128) {
+    return '邮箱最多 128 字节'
+  }
+  if (!EMAIL_PATTERN.test(trimmed)) {
+    return '邮箱格式不正确'
+  }
+  return ''
+}

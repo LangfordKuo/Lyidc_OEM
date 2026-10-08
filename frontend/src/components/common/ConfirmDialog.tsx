@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 /**
  * 通用二次确认弹窗（危险操作统一入口）：受控开合 + 确认回调。
  * danger=true 时确认按钮为 destructive 样式，用于关机/终止/取消订单等不可逆操作。
+ * children 渲染在说明与按钮之间，供「必须填写原因」等场景追加表单控件。
  */
 export default function ConfirmDialog({
   open,
@@ -27,6 +28,7 @@ export default function ConfirmDialog({
   danger = false,
   pending = false,
   onConfirm,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -37,6 +39,7 @@ export default function ConfirmDialog({
   danger?: boolean
   pending?: boolean
   onConfirm: () => void
+  children?: ReactNode
 }) {
   return (
     <AlertDialog open={open} onOpenChange={(next) => (!pending ? onOpenChange(next) : undefined)}>
@@ -45,6 +48,7 @@ export default function ConfirmDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description ? <AlertDialogDescription asChild><div>{description}</div></AlertDialogDescription> : null}
         </AlertDialogHeader>
+        {children}
         <AlertDialogFooter>
           <AlertDialogCancel asChild>
             <Button variant="outline" disabled={pending}>

@@ -84,6 +84,35 @@ describe('api client', () => {
     off()
   })
 
+  it("auth: 'admin' 注入管理端 token，且与会员 token 分离存储", async () => {
+    localStorage.setItem('lyidc.member.token', 'member-tok')
+    localStorage.setItem('lyidc.admin.token', 'admin-tok')
+    installFetchMock((_url, init) => {
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer admin-tok')
+      return ok({ id: 1, role: 'admin' })
+    })
+
+    await http.get('/admin/profile', { auth: 'admin' })
+  })
+
+  it("auth: 'admin' 请求 401 只清管理端 token，不影响会员登录态", async () => {
+    localStorage.setItem('lyidc.member.token', 'member-tok')
+    localStorage.setItem('lyidc.admin.token', 'admin-tok')
+    const listener = vi.fn()
+    const off = onUnauthorized(listener)
+    installFetchMock(() => fail(401, '请先登录', 401))
+
+    const error = await http
+      .get('/admin/profile', { auth: 'admin' })
+      .catch((err: unknown) => err)
+
+    expect((error as ApiError).code).toBe(401)
+    expect(localStorage.getItem('lyidc.admin.token')).toBeNull()
+    expect(localStorage.getItem('lyidc.member.token')).toBe('member-tok')
+    expect(listener).toHaveBeenCalledWith('admin')
+    off()
+  })
+
   it('网络不可达时转成可展示的中文错误', async () => {
     vi.stubGlobal(
       'fetch',

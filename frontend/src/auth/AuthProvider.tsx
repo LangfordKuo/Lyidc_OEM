@@ -60,11 +60,13 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     void reload().finally(() => setInitializing(false))
   }, [reload])
 
-  // token 失效通知：清空登录态。
+  // token 失效通知：仅会员侧的 401 清空会员登录态（管理端 401 不影响会员登录）。
   useEffect(
     () =>
-      onUnauthorized(() => {
-        setMember(null)
+      onUnauthorized((scope) => {
+        if (scope === 'member') {
+          setMember(null)
+        }
       }),
     [],
   )

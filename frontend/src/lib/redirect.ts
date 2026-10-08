@@ -24,3 +24,9 @@ export function buildRegisterUrl(redirect: string, fallback = DEFAULT_REDIRECT):
   const target = safeRedirect(redirect, fallback)
   return `/register?redirect=${encodeURIComponent(target)}`
 }
+
+/** 生成带 redirect 参数的管理后台登录链接（回跳缺省到 /admin）。 */
+export function buildAdminLoginUrl(redirect: string, fallback = '/admin'): string {
+  const target = safeRedirect(redirect, fallback)
+  return `/admin/login?redirect=${encodeURIComponent(target)}`
+}

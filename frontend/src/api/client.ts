@@ -1,4 +1,4 @@
-import { clearMemberToken, getMemberToken } from './tokens'
+import { clearAdminToken, clearMemberToken, getAdminToken, getMemberToken } from './tokens'
 
 // 统一响应包，字段与 backend/internal/response.Envelope 一一对应。
 // 契约文档：docs/api-contract.md 第 2 节。
@@ -18,14 +18,20 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type QueryValue = string | number | boolean | null | undefined
 export type QueryParams = Record<string, QueryValue>
 
+/**
+ * 鉴权作用域：会员 token（aud=member）与管理端 token（aud=admin）**互不通用**
+ * （契约 1.1）。`true` 是会员的简写（一期沿用的写法），管理端一律显式写 `'admin'`。
+ */
+export type AuthScope = 'member' | 'admin'
+
 export interface RequestOptions {
   method?: HttpMethod
   /** 请求体：自动 JSON 序列化并补 Content-Type。 */
   body?: unknown
   /** 查询参数：null / undefined 会被跳过。 */
   query?: QueryParams
-  /** 是否注入会员 token（Authorization: Bearer）。 */
-  auth?: boolean
+  /** 注入哪一类 token（Authorization: Bearer）；缺省不带鉴权头。 */
+  auth?: boolean | AuthScope
   headers?: Record<string, string>
   signal?: AbortSignal
   timeoutMs?: number
@@ -67,9 +73,10 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// 未认证回调：会员 token 失效（401）时清本地 token 并通知上层清登录态（路由守卫据此跳登录页）。
+// 未认证回调：某一作用域的 token 失效（401）时，清该侧本地 token 并通知上层清登录态
+// （会员/管理端守卫据此分别跳各自的登录页；两侧互不影响）。
 // ---------------------------------------------------------------------------
-type UnauthorizedListener = () => void
+type UnauthorizedListener = (scope: AuthScope) => void
 
 const unauthorizedListeners = new Set<UnauthorizedListener>()
 
@@ -80,11 +87,23 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
   }
 }
 
-function notifyUnauthorized(): void {
-  clearMemberToken()
-  for (const listener of unauthorizedListeners) {
-    listener()
+function notifyUnauthorized(scope: AuthScope): void {
+  if (scope === 'admin') {
+    clearAdminToken()
+  } else {
+    clearMemberToken()
   }
+  for (const listener of unauthorizedListeners) {
+    listener(scope)
+  }
+}
+
+/** 把 RequestOptions.auth 归一化成作用域；缺省（undefined/false）返回 null = 不带鉴权头。 */
+function authScope(auth: RequestOptions['auth']): AuthScope | null {
+  if (auth === 'admin') {
+    return 'admin'
+  }
+  return auth ? 'member' : null
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +130,9 @@ function buildHeaders(options: RequestOptions): Headers {
   if (options.body !== undefined) {
     headers.set('Content-Type', 'application/json')
   }
-  if (options.auth) {
-    const token = getMemberToken()
+  const scope = authScope(options.auth)
+  if (scope) {
+    const token = scope === 'admin' ? getAdminToken() : getMemberToken()
     if (token) {
       headers.set('Authorization', `Bearer ${token}`)
     }
@@ -154,9 +174,10 @@ async function readEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
  * `code === 0` 返回 `data`，否则抛出 ApiError（携带 code / message / data / HTTP 状态）。
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { auth, method = 'GET', timeoutMs = DEFAULT_TIMEOUT_MS } = options
+  const { method = 'GET', timeoutMs = DEFAULT_TIMEOUT_MS } = options
+  const scope = authScope(options.auth)
 
-  if (auth && !getMemberToken()) {
+  if (scope && !(scope === 'admin' ? getAdminToken() : getMemberToken())) {
     // 未登录时不必打网络：直接给出与后端一致的 401 语义。
     throw new ApiError(401, '请先登录后再操作', null, 401)
   }
@@ -203,8 +224,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       envelope.data,
       response.status,
     )
-    if (error.isUnauthorized && auth) {
-      notifyUnauthorized()
+    if (error.isUnauthorized && scope) {
+      notifyUnauthorized(scope)
     }
     throw error
   }

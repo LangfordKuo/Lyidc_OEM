@@ -1,4 +1,11 @@
 import type {
+  AdminAccount,
+  AdminInstance,
+  AdminInstanceDetail,
+  AdminOrder,
+  AdminProduct,
+  AdminProductGroup,
+  AdminTicket,
   CouponValidation,
   InstanceDetail,
   InstanceLog,
@@ -285,6 +292,107 @@ export function makeLedgerEntry(overrides: Partial<LedgerEntry> = {}): LedgerEnt
     ref_id: 1,
     note: '充值 R20261008143500M3P8QT',
     created_at: '2026-10-08T14:40:00Z',
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 管理后台：管理员账号 / 订单 / 商品 / 实例 / 工单（字段与契约 6.3 / 12.6 / 10.4 / 14.4+15.3 / 16.3 一致）
+// ---------------------------------------------------------------------------
+
+export function makeAdminAccount(overrides: Partial<AdminAccount> = {}): AdminAccount {
+  return {
+    id: 1,
+    username: 'admin',
+    nickname: '超级管理员',
+    role: 'admin',
+    status: 'active',
+    created_at: '2026-10-08T06:00:00Z',
+    updated_at: '2026-10-08T06:00:00Z',
+    last_login_at: '2026-10-08T06:20:00Z',
+    ...overrides,
+  }
+}
+
+/** 管理端订单视图：订单全字段 + 会员概要。 */
+export function makeAdminOrder(overrides: Partial<AdminOrder> = {}): AdminOrder {
+  return {
+    ...makeOrder(),
+    member: {
+      id: 1,
+      username: 'demo7a',
+      nickname: 'demo7a',
+      email: 'demo7a@example.com',
+      status: 'active',
+    },
+    ...overrides,
+  }
+}
+
+export function makeAdminProduct(overrides: Partial<AdminProduct> = {}): AdminProduct {
+  return {
+    id: 1,
+    upstream_pid: 501,
+    upstream_group_id: 9,
+    group_id: 1,
+    group_name: '香港二区',
+    name: '香港二区 CN2 A型',
+    type: 'dcimcloud',
+    module: 'dcimcloud',
+    status: 'on',
+    sort: 0,
+    stock_qty: 70,
+    stock_control: 1,
+    ontrial_max: 0,
+    pricing: { mode: 'upstream' },
+    prices: makePrices(),
+    created_at: '2026-10-08T09:00:00Z',
+    updated_at: '2026-10-08T09:12:03Z',
+    ...overrides,
+  }
+}
+
+export function makeAdminProductGroup(
+  overrides: Partial<AdminProductGroup> = {},
+): AdminProductGroup {
+  return {
+    id: 1,
+    upstream_group_id: 9,
+    name: '香港二区',
+    sort: 0,
+    products: { total: 2, on: 1, off: 1 },
+    created_at: '2026-10-08T09:00:00Z',
+    updated_at: '2026-10-08T09:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 管理端实例列表项：会员端摘要 + member_id。 */
+export function makeAdminInstance(overrides: Partial<AdminInstance> = {}): AdminInstance {
+  return {
+    ...makeInstance(),
+    member_id: 1,
+    ...overrides,
+  }
+}
+
+/** 管理端实例详情：含主机账号密码等敏感字段。 */
+export function makeAdminInstanceDetail(
+  overrides: Partial<AdminInstanceDetail> = {},
+): AdminInstanceDetail {
+  return {
+    ...makeInstanceDetail(),
+    member_id: 1,
+    ...overrides,
+  }
+}
+
+/** 管理端工单：工单全字段 + 会员概要。 */
+export function makeAdminTicket(overrides: Partial<AdminTicket> = {}): AdminTicket {
+  return {
+    ...makeTicket(),
+    member_id: 1,
+    member: { id: 1, username: 'demo7a', nickname: 'demo7a' },
     ...overrides,
   }
 }

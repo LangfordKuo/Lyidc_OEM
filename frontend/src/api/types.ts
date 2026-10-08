@@ -466,3 +466,291 @@ export interface LedgerEntry {
   note: string
   created_at: string
 }
+
+// ---------------------------------------------------------------------------
+// 管理端（契约 6.3 / 10.4 / 12.6 / 14.4 / 15.3 / 16.3 / 17.2 / 17.3）
+//
+// 类型来源：backend/internal/router 的 view 结构体与 docs/api-contract.md 的响应示例
+// （两者不一致时以 router 为准）。管理端 token 走独立的 storage key（lyidc.admin.token），
+// 全部接口 auth: 'admin'。
+// ---------------------------------------------------------------------------
+
+/** 管理端角色（契约 6.4 / 12.7 的角色矩阵权威定义）。 */
+export type AdminRole = 'admin' | 'finance' | 'support'
+
+export interface AdminAccount {
+  id: number
+  username: string
+  nickname: string
+  role: AdminRole
+  status: MemberStatus
+  created_at: string
+  updated_at: string
+  last_login_at: string | null
+}
+
+export interface AdminLoginResult {
+  token: string
+  expires_at: string
+  admin: AdminAccount
+}
+
+// —— 商品与计费（管理端，契约 10.4） ——
+
+/** 定价模式：upstream=直接用上游价、markup=上游价加价、fixed=固定覆盖价。 */
+export type PricingMode = 'upstream' | 'markup' | 'fixed'
+
+export interface PricingRule {
+  mode: PricingMode
+  /** 加价率（百分比，最多两位小数）；mode=markup 时必填，fixed 时可选。 */
+  markup_percent?: number
+  /** 固定覆盖价（周期 → 金额字符串）；mode=fixed 时至少一项。 */
+  fixed?: Partial<Record<BillingCycle, string>>
+}
+
+export interface CustomField {
+  id: number
+  name: string
+  description: string
+  type: string
+  required: boolean
+  regexpr: string
+}
+
+export interface AdminProduct {
+  id: number
+  upstream_pid: number
+  upstream_group_id: number
+  group_id: number
+  group_name: string
+  name: string
+  type: string
+  module: string
+  status: 'on' | 'off'
+  sort: number
+  stock_qty: number
+  stock_control: number
+  ontrial_max: number
+  pricing: PricingRule
+  /** 六周期本地售价；null 表示该周期不可售 */
+  prices: CyclePrices
+  created_at: string
+  updated_at: string
+}
+
+/** 上游价格缓存原文（契约 10.1：`upstream_prices_json` 的解析视图）。 */
+export interface UpstreamPrices {
+  code: string
+  prices: Record<string, string>
+  rows?: unknown[]
+}
+
+export interface AdminProductDetail extends AdminProduct {
+  description: string
+  config_groups: ConfigGroup[]
+  custom_fields: CustomField[]
+  upstream_prices: UpstreamPrices
+}
+
+export interface AdminProductGroup {
+  id: number
+  upstream_group_id: number
+  name: string
+  sort: number
+  products: { total: number; on: number; off: number }
+  created_at: string
+  updated_at: string
+}
+
+/** 上游导入结果（契约 10.4；failed=0 时不含 failed_pids）。 */
+export interface ProductImportResult {
+  created: number
+  updated: number
+  unchanged: number
+  groups: number
+  failed: number
+  failed_pids?: number[]
+}
+
+export interface UpdateProductInput {
+  pricing_json?: PricingRule | string | null
+  status?: 'on' | 'off'
+  sort?: number
+}
+
+// —— 订单（管理端，契约 12.6）：字段与会员端订单一致，额外回带会员概要 ——
+
+/** 订单归属会员的概要（管理端订单视图 `member` 字段）。 */
+export interface AdminOrderMember {
+  id: number
+  username: string
+  nickname: string
+  email: string
+  status: MemberStatus
+}
+
+/** 会员行缺失时为 null（异常数据，不阻断订单展示）。 */
+export interface AdminOrder extends Order {
+  member: AdminOrderMember | null
+}
+
+// —— 实例（管理端，契约 14.4 / 15.3） ——
+
+/** 管理端实例列表项：会员端摘要 + member_id。 */
+export interface AdminInstance extends InstanceSummary {
+  member_id: number
+}
+
+/** 管理端实例详情（阶段 8 新增）：会员端详情口径 + member_id。 */
+export interface AdminInstanceDetail extends InstanceDetail {
+  member_id: number
+}
+
+/** 同步接口返回（契约 15.3）。 */
+export interface InstanceSyncResult extends InstanceActionResult {
+  power_state: string
+  power_desc: string
+  status_changed: boolean
+  /** true = 上游主机已不存在/已删除，本次已把本地收敛为 terminated。 */
+  terminated: boolean
+  instance: InstanceSummary
+  next_due_date: string | null
+  upstream_status: string
+}
+
+// —— 工单（管理端，契约 16.3） ——
+
+export interface AdminTicket extends Ticket {
+  member_id: number
+  member: { id: number; username: string; nickname: string }
+}
+
+/** 管理端工单详情：嵌套 `{ticket, messages}`，消息流含内部备注。 */
+export interface AdminTicketDetail {
+  ticket: AdminTicket
+  messages: TicketMessage[]
+}
+
+export interface AdminReplyTicketInput {
+  content: string
+  /** true = 内部备注（会员端不可见，状态不变）。 */
+  internal?: boolean
+}
+
+/** 管理端回复响应 `{ticket, message}`（internal=true 时状态不变）。 */
+export interface AdminTicketMutationResult {
+  ticket: AdminTicket
+  message: TicketMessage
+}
+
+/** 管理端关闭响应（already_closed=true 表示幂等重复关闭）。 */
+export interface AdminTicketCloseResult {
+  ticket: AdminTicket
+  already_closed: boolean
+}
+
+// —— 后台设置（契约 12.1 / 17.3；全部仅 admin 角色，含读取） ——
+
+export interface EpaySettings {
+  enabled: boolean
+  gateway: string
+  pid: string
+  key_configured: boolean
+  key_masked: string
+  notify_url: string
+  notify_url_recommended: string
+  return_url: string
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateEpaySettingsInput {
+  enabled?: boolean
+  gateway?: string
+  pid?: string
+  /** 三态：省略 = 保持不变、给值 = 替换、空串 = 清空。 */
+  key?: string
+  notify_url?: string
+  return_url?: string
+}
+
+export interface UpstreamSettings {
+  base_url: string
+  username: string
+  api_key_configured: boolean
+  api_key_masked: string
+  timeout_seconds: number
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateUpstreamSettingsInput {
+  base_url?: string
+  username?: string
+  /** 三态同上。 */
+  api_key?: string
+  timeout_seconds?: number
+}
+
+export type SMTPEncryption = 'none' | 'starttls' | 'ssl'
+
+export interface EmailSMTPSettings {
+  enabled: boolean
+  host: string
+  port: number
+  /** 按加密方式推导的实际端口（none→25 / starttls→587 / ssl→465）。 */
+  port_effective: number
+  username: string
+  password_configured: boolean
+  password_masked: string
+  from: string
+  from_name: string
+  encryption: SMTPEncryption
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateEmailSMTPSettingsInput {
+  enabled?: boolean
+  host?: string
+  port?: number
+  username?: string
+  /** 三态同上。 */
+  password?: string
+  from?: string
+  from_name?: string
+  encryption?: SMTPEncryption
+}
+
+export interface EmailTestResult {
+  sent: boolean
+  to: string
+}
+
+export interface NotificationSettings {
+  inapp_enabled: boolean
+  email_enabled: boolean
+  expiry_reminder_enabled: boolean
+  expiry_reminder_days: number
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateNotificationSettingsInput {
+  inapp_enabled?: boolean
+  email_enabled?: boolean
+  expiry_reminder_enabled?: boolean
+  expiry_reminder_days?: number
+}
+
+// —— 上游探活（契约第 9 节） ——
+
+export interface UpstreamHealth {
+  connected: boolean
+  base_url: string
+  latency_ms: number
+  api_key_masked: string
+  checked_at: string
+  /** 仅 connected=false 时出现，内容已脱敏。 */
+  error?: string
+}

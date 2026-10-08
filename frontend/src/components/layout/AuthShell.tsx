@@ -6,15 +6,17 @@ import { paths } from '@/app/paths'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { SITE_NAME } from '@/lib/site'
 
-/** 认证页（登录/注册）的居中卡片外壳。 */
+/** 认证页（登录/注册）的居中卡片外壳；badge 用于标注「管理后台」等场景。 */
 export default function AuthShell({
   title,
   description,
+  badge,
   footer,
   children,
 }: {
   title: string
   description?: string
+  badge?: string
   footer?: ReactNode
   children: ReactNode
 }) {
@@ -29,6 +31,11 @@ export default function AuthShell({
           <ServerIcon className="size-5" aria-hidden />
         </span>
         <span className="text-lg font-semibold">{SITE_NAME}</span>
+        {badge ? (
+          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            {badge}
+          </span>
+        ) : null}
       </Link>
 
       <Card className="mt-6">

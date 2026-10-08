@@ -70,3 +70,33 @@ export function requestBody<T = unknown>(init: RequestInit): T | null {
 export function seedMemberToken(token = 'test-member-token'): void {
   localStorage.setItem('lyidc.member.token', token)
 }
+
+/**
+ * 写入管理端 token（模拟已登录后台）。
+ * 与会员 token 分离存储（键名不同），两处登录互不覆盖。
+ */
+export function seedAdminToken(token = 'test-admin-token'): void {
+  localStorage.setItem('lyidc.admin.token', token)
+}
+
+/**
+ * 写入管理员资料缓存并返回该资料：后台首屏在 /admin/profile 返回前先用缓存占位。
+ * 传入 role 即模拟以对应角色登录（admin / finance / support）。
+ */
+export function seedAdminProfile(
+  overrides: Partial<import('@/api/types').AdminAccount> = {},
+): import('@/api/types').AdminAccount {
+  const profile = {
+    id: 1,
+    username: 'admin',
+    nickname: '超级管理员',
+    role: 'admin' as const,
+    status: 'active' as const,
+    created_at: '2026-10-08T06:00:00Z',
+    updated_at: '2026-10-08T06:00:00Z',
+    last_login_at: '2026-10-08T06:20:00Z',
+    ...overrides,
+  }
+  localStorage.setItem('lyidc.admin.profile', JSON.stringify(profile))
+  return profile
+}
