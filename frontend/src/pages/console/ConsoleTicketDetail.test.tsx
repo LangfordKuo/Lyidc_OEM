@@ -62,8 +62,8 @@ function renderDetail(status: string) {
       },
     }),
     apiPost('/api/v1/tickets/7/close', { ticket: ticketWith('closed'), already_closed: false }),
-    // 详情响应的工单字段是平铺的（data.status / data.messages），与实现口径一致
-    apiGet('/api/v1/tickets/7', { ...ticketWith(status), messages }),
+    // 详情响应为嵌套结构 {ticket, messages}（契约 16.3，阶段 8 起与实现统一）
+    apiGet('/api/v1/tickets/7', { ticket: ticketWith(status), messages }),
   ])
 }
 

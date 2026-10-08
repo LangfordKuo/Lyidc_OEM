@@ -23,3 +23,12 @@ export function buildRegisterUrl(redirect: string, fallback = '/console'): strin
   const target = safeRedirect(redirect, fallback)
   return `/register?redirect=${encodeURIComponent(target)}`
 }
+
+/**
+ * buildAdminLoginUrl 生成后台登录链接（回跳默认回后台首页，不落到会员区）。
+ * 与会员登录共用 safeRedirect 校验：只接受站内相对路径，避免开放重定向。
+ */
+export function buildAdminLoginUrl(redirect: string, fallback = '/admin'): string {
+  const target = safeRedirect(redirect, fallback)
+  return `/admin/login?redirect=${encodeURIComponent(target)}`
+}

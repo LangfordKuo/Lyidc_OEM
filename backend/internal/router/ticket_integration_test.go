@@ -226,8 +226,8 @@ func TestTicketMemberLifecycle(t *testing.T) {
 		adminDetail.Messages[2].Content != internalContent {
 		t.Fatalf("管理端消息流错误: %+v", adminDetail.Messages)
 	}
-	if adminDetail.Member.ID != member.ID || adminDetail.Member.Nickname == "" {
-		t.Fatalf("管理端详情会员概要错误: %+v", adminDetail.Member)
+	if adminDetail.Ticket.Member.ID != member.ID || adminDetail.Ticket.Member.Nickname == "" {
+		t.Fatalf("管理端详情会员概要错误: %+v", adminDetail.Ticket.Member)
 	}
 
 	// 公开回复 → 状态 replied（待会员）。
@@ -417,7 +417,7 @@ func TestTicketPermissionMatrix(t *testing.T) {
 			t.Fatalf("跨会员访问 %s 应 404：HTTP %d, body=%s", tc.path, rec.Code, rec.Body.String())
 		}
 	}
-	if detail := adminTicketDetail(t, engine, tokenSupport, ticketID); detail.Status != model.TicketStatusOpen ||
+	if detail := adminTicketDetail(t, engine, tokenSupport, ticketID); detail.Ticket.Status != model.TicketStatusOpen ||
 		len(detail.Messages) != 1 {
 		t.Fatalf("越权尝试改动了工单: %+v", detail)
 	}
@@ -432,7 +432,7 @@ func TestTicketPermissionMatrix(t *testing.T) {
 	}
 
 	// support：四个接口全权（读 + 写）。
-	if detail := adminTicketDetail(t, engine, tokenSupport, ticketID); detail.ID != ticketID {
+	if detail := adminTicketDetail(t, engine, tokenSupport, ticketID); detail.Ticket.ID != ticketID {
 		t.Fatalf("support 读取详情失败: %+v", detail)
 	}
 	reply := adminReplyTicket(t, engine, tokenSupport, ticketID, map[string]any{"content": "客服已受理。"})
@@ -464,7 +464,7 @@ func TestTicketPermissionMatrix(t *testing.T) {
 			t.Fatalf("finance 访问 %s 应 403：HTTP %d, body=%s", tc.path, rec.Code, rec.Body.String())
 		}
 	}
-	if detail := adminTicketDetail(t, engine, tokenSupport, other.Ticket.ID); detail.Status != model.TicketStatusOpen {
+	if detail := adminTicketDetail(t, engine, tokenSupport, other.Ticket.ID); detail.Ticket.Status != model.TicketStatusOpen {
 		t.Fatalf("finance 的越权尝试改动了工单: %+v", detail)
 	}
 }

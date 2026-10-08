@@ -67,6 +67,13 @@ type instanceDetailView struct {
 	UpdatedAt   string   `json:"updated_at"`
 }
 
+// adminInstanceDetailView 是管理端实例详情（阶段 8，契约 14.4）：
+// 字段对齐会员端详情口径（含主机账号密码等敏感字段），额外回带 member_id 便于客服定位归属。
+type adminInstanceDetailView struct {
+	instanceDetailView
+	MemberID uint64 `json:"member_id"`
+}
+
 // instanceListView 是实例分页列表。
 type instanceListView struct {
 	Items    []instanceSummaryView `json:"items"`
@@ -192,7 +199,21 @@ func (h *instanceHandler) listAdminInstances(c *gin.Context) {
 	response.Success(c, adminInstanceListView{Items: views, Page: page, PageSize: pageSize, Total: total})
 }
 
-// instanceStatusQuery 解析并校验 status 查询参数；非法时写出 40001 并返回 ok=false。
+// getAdminInstance 处理 GET /api/v1/admin/instances/:id：管理端实例详情（阶段 8，契约 14.4）。
+//
+// 权限沿用管理端实例**列表**口径（admin / finance / support 均可读）；
+// 字段与会员端详情一致（assigned_ips / port / username / password / updated_at），
+// 额外回带 member_id 标明归属会员（不存在统一 404 实例不存在）。
+func (h *instanceHandler) getAdminInstance(c *gin.Context) {
+	instance, ok := h.adminInstance(c)
+	if !ok {
+		return
+	}
+	response.Success(c, adminInstanceDetailView{
+		instanceDetailView: newInstanceDetailView(instance),
+		MemberID:           instance.MemberID,
+	})
+}
 func instanceStatusQuery(c *gin.Context) (string, bool) {
 	status := strings.TrimSpace(c.Query("status"))
 	if status != "" && !model.IsValidInstanceStatus(status) {

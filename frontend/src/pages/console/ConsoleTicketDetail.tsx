@@ -36,8 +36,8 @@ export default function ConsoleTicketDetail() {
     },
     [id, refreshKey],
   )
-  // 详情接口把工单字段平铺在 data 上（另含 messages），非嵌套结构。
-  const ticket = ticketState.data
+  // 详情接口返回嵌套的 {ticket, messages}（契约 16.3，阶段 8 起与实现统一）。
+  const ticket = ticketState.data?.ticket ?? null
   const messages = ticketState.data?.messages ?? []
   const closed = ticket?.status === 'closed'
 

@@ -157,3 +157,41 @@ export function IconArrowRight(props: IconProps) {
     </Icon>
   )
 }
+
+// 管理后台补充图标：商品（箱子）、会员（用户）、设置（齿轮）、外部跳转。
+export function IconProduct(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M21 8.5L12 3.5 3 8.5v7L12 20.5l9-5v-7z" />
+      <path d="M3 8.5l9 5 9-5M12 13.5v7" />
+    </Icon>
+  )
+}
+
+export function IconUsers(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+      <path d="M16 5.5a3 3 0 010 5.6M17 14.8c2.1.5 3.5 2.2 3.5 4.7" />
+    </Icon>
+  )
+}
+
+export function IconSettings(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2 2 2 0 11-4 0 1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.7 1.7 0 003 15a2 2 0 010-4 1.7 1.7 0 001.2-2.9l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 0010 4.2a2 2 0 014 0 1.7 1.7 0 002.9 1.2l.1-.1a2 2 0 112.8 2.8l-.1.1A1.7 1.7 0 0021 11a2 2 0 010 4z" />
+    </Icon>
+  )
+}
+
+export function IconLogout(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3" />
+      <path d="M10 8l-4 4 4 4M6 12h9" />
+    </Icon>
+  )
+}

@@ -24,7 +24,7 @@ export function listTickets(
   return http.get<Paged<Ticket>>('/tickets', { auth: 'member', query: { ...params } })
 }
 
-/** GET /api/v1/tickets/:id —— 工单详情（平铺字段）+ 消息流（不含内部备注）。 */
+/** GET /api/v1/tickets/:id —— 工单详情 `{ticket, messages}`（消息流不含内部备注）。 */
 export function fetchTicket(id: number): Promise<TicketDetail> {
   return http.get<TicketDetail>(`/tickets/${id}`, { auth: 'member' })
 }

@@ -86,8 +86,13 @@ export default function ReinstallDialog({
                 >
                   <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                     {options.map((option) => (
+                      // HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本），
+                      // 圆圈（Radio.Control / Radio.Indicator）也要放在 Radio.Content 内、文本之前。
                       <Radio key={option.id} value={String(option.id)}>
                         <Radio.Content>
+                          <Radio.Control>
+                            <Radio.Indicator />
+                          </Radio.Control>
                           <span className="flex flex-col">
                             <span className="text-sm">{option.name}</span>
                             {option.group ? (

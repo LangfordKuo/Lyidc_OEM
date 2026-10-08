@@ -159,8 +159,15 @@ export default function ConsoleRecharge() {
                 className="gap-3"
               >
                 {EPAY_TYPES.map((item) => (
+                  // HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本），
+                  // 圆圈（Radio.Control / Radio.Indicator）也要放在 Radio.Content 内、文本之前。
                   <Radio key={item.value} value={item.value}>
-                    {item.label}
+                    <Radio.Content>
+                      <Radio.Control>
+                        <Radio.Indicator />
+                      </Radio.Control>
+                      {item.label}
+                    </Radio.Content>
                   </Radio>
                 ))}
               </RadioGroup>

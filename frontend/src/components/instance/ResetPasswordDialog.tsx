@@ -90,8 +90,13 @@ export default function ResetPasswordDialog({
                     onChange={(value) => setMode(value as Mode)}
                     className="gap-3"
                   >
+                    {/* HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本）；
+                        圆圈（Radio.Control / Radio.Indicator）同样要放在 Radio.Content 内、文本之前。 */}
                     <Radio value="auto">
                       <Radio.Content>
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
                         <span className="flex flex-col">
                           <span className="text-sm font-medium">自动生成</span>
                           <span className="text-xs text-muted">
@@ -102,6 +107,9 @@ export default function ResetPasswordDialog({
                     </Radio>
                     <Radio value="custom">
                       <Radio.Content>
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
                         <span className="flex flex-col">
                           <span className="text-sm font-medium">自定义密码</span>
                           <span className="text-xs text-muted">

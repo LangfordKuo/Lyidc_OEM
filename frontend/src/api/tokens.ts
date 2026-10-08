@@ -5,6 +5,7 @@ import { localStore } from '../lib/storage'
 const MEMBER_TOKEN_KEY = 'lyidc.member.token'
 const MEMBER_PROFILE_KEY = 'lyidc.member.profile'
 const ADMIN_TOKEN_KEY = 'lyidc.admin.token'
+const ADMIN_PROFILE_KEY = 'lyidc.admin.profile'
 
 // 会员 token：仅由 src/api/client.ts 注入到 `Authorization` 头，不写入任何日志。
 export function getMemberToken(): string | null {
@@ -29,7 +30,7 @@ export function setMemberProfile(profile: unknown): void {
   localStore.setJSON(MEMBER_PROFILE_KEY, profile)
 }
 
-// 管理端 token：前端一期（官网 + 会员区）不使用，预留管理后台阶段复用。
+// 管理端 token：管理后台（阶段 8）使用，与会员 token 完全隔离——两处登录互不覆盖。
 export function getAdminToken(): string | null {
   return localStore.get(ADMIN_TOKEN_KEY)
 }
@@ -40,4 +41,15 @@ export function setAdminToken(token: string): void {
 
 export function clearAdminToken(): void {
   localStore.remove(ADMIN_TOKEN_KEY)
+  localStore.remove(ADMIN_PROFILE_KEY)
+}
+
+// 管理员资料缓存：仅用于后台首屏占位（真实数据一律以 GET /admin/profile 为准）。
+// 缓存里含角色（role），界面按角色矩阵渲染权限，不缓存任何凭据。
+export function getAdminProfile<T>(): T | null {
+  return localStore.getJSON<T>(ADMIN_PROFILE_KEY)
+}
+
+export function setAdminProfile(profile: unknown): void {
+  localStore.setJSON(ADMIN_PROFILE_KEY, profile)
 }

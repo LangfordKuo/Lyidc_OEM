@@ -79,8 +79,13 @@ export default function CancelRequestDialog({
                 onChange={(value) => setType(value as CancelType)}
                 className="gap-3"
               >
+                {/* HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本）；
+                    圆圈（Radio.Control / Radio.Indicator）同样要放在 Radio.Content 内、文本之前。 */}
                 <Radio value="immediate">
                   <Radio.Content>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
                     <span className="flex flex-col">
                       <span className="text-sm font-medium">立即终止</span>
                       <span className="text-xs text-muted">上游受理后尽快删除主机</span>
@@ -89,6 +94,9 @@ export default function CancelRequestDialog({
                 </Radio>
                 <Radio value="end_of_billing">
                   <Radio.Content>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
                     <span className="flex flex-col">
                       <span className="text-sm font-medium">到期终止</span>
                       <span className="text-xs text-muted">到当前账单周期结束后再删除主机</span>

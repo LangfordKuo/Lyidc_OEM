@@ -1,4 +1,4 @@
-import { clearMemberToken, getAdminToken, getMemberToken } from './tokens'
+import { clearAdminToken, clearMemberToken, getAdminToken, getMemberToken } from './tokens'
 
 // 统一响应包，字段与 backend/internal/response.Envelope 一一对应。
 // 契约文档：docs/api-contract.md 第 2 节。
@@ -84,6 +84,9 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
 function notifyUnauthorized(scope: AuthScope): void {
   if (scope === 'member') {
     clearMemberToken()
+  } else {
+    // 管理端 token 失效（401）：同步清本地登录态，由后台路由守卫跳登录页。
+    clearAdminToken()
   }
   for (const listener of unauthorizedListeners) {
     listener(scope)

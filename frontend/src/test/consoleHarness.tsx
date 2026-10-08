@@ -50,6 +50,10 @@ export function apiPost(prefix: string, data: unknown): ApiHandler {
   return (url, init) => (matches(url, init, 'POST', prefix) ? ok(data) : undefined)
 }
 
+export function apiPut(prefix: string, data: unknown): ApiHandler {
+  return (url, init) => (matches(url, init, 'PUT', prefix) ? ok(data) : undefined)
+}
+
 /** 按顺序匹配的 fetch 桩；未命中返回 404 响应包，返回的数组记录全部调用。 */
 export function stubApi(handlers: ApiHandler[]): [string, RequestInit][] {
   const calls: [string, RequestInit][] = []

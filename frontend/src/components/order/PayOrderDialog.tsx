@@ -111,8 +111,13 @@ export default function PayOrderDialog({
                 className="gap-3"
               >
                 {PAY_METHODS.map((method) => (
+                  // HeroUI v3 的 Radio 必须用 Radio.Content 包裹才是可交互控件（否则渲染为不可选中的纯文本），
+                  // 圆圈（Radio.Control / Radio.Indicator）也要放在 Radio.Content 内、文本之前。
                   <Radio key={method.value} value={method.value}>
                     <Radio.Content>
+                      <Radio.Control>
+                        <Radio.Indicator />
+                      </Radio.Control>
                       <div className="flex flex-col">
                         <span className="text-sm font-medium">
                           {method.title}
@@ -135,7 +140,12 @@ export default function PayOrderDialog({
                 >
                   {EPAY_TYPES.map((item) => (
                     <Radio key={item.value} value={item.value}>
-                      {item.label}
+                      <Radio.Content>
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        {item.label}
+                      </Radio.Content>
                     </Radio>
                   ))}
                 </RadioGroup>

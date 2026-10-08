@@ -106,14 +106,17 @@ type ticketMessageView struct {
 }
 
 // ticketDetailView 是会员端工单详情（消息流**不含**内部备注）。
+//
+// 结构为**嵌套** `{ticket, messages}`（不内嵌 ticketView，避免 Go 结构体嵌入把工单字段平铺到 data 上）：
+// 与 POST /tickets、/reply、/close 的 `{ticket, …}` 口径一致（契约 16.3）。
 type ticketDetailView struct {
-	ticketView
+	Ticket   ticketView          `json:"ticket"`
 	Messages []ticketMessageView `json:"messages"`
 }
 
-// adminTicketDetailView 是管理端工单详情（消息流**含**内部备注）。
+// adminTicketDetailView 是管理端工单详情（消息流**含**内部备注）；同样嵌套 `{ticket, messages}`。
 type adminTicketDetailView struct {
-	adminTicketView
+	Ticket   adminTicketView     `json:"ticket"`
 	Messages []ticketMessageView `json:"messages"`
 }
 
@@ -336,8 +339,8 @@ func (h *ticketHandler) getMyTicket(c *gin.Context) {
 	}
 
 	response.Success(c, ticketDetailView{
-		ticketView: newTicketView(ticket, instance),
-		Messages:   newTicketMessageViews(messages, names, false),
+		Ticket:   newTicketView(ticket, instance),
+		Messages: newTicketMessageViews(messages, names, false),
 	})
 }
 
@@ -531,8 +534,8 @@ func (h *ticketHandler) getAdminTicket(c *gin.Context) {
 	}
 
 	response.Success(c, adminTicketDetailView{
-		adminTicketView: newAdminTicketView(ticket, instance, member),
-		Messages:        newTicketMessageViews(messages, names, true),
+		Ticket:   newAdminTicketView(ticket, instance, member),
+		Messages: newTicketMessageViews(messages, names, true),
 	})
 }
 

@@ -298,9 +298,12 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/ledger",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), finance.listAdminLedger)
 
-			// 实例（阶段 5a）：查看类所有角色可调用（不含敏感字段）；
+			// 实例（阶段 5a）：查看类所有角色可调用（列表不含敏感字段）；
+			// 阶段 8：详情接口（`/instances/:id`）字段对齐会员端详情口径 + member_id，
+			// 权限沿用列表口径（三角色均可读）。
 			// 重试交付会真实调用上游开通（可能扣上游余额），仅 admin 角色（契约 14.4）。
 			adminGroup.GET("/instances", instances.listAdminInstances)
+			adminGroup.GET("/instances/:id", instances.getAdminInstance)
 			adminGroup.POST("/orders/:id/retry-delivery",
 				requireAdminRole(model.RoleAdmin), orders.retryDelivery)
 
