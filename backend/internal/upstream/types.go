@@ -21,6 +21,11 @@ type Response struct {
 	HostID    json.RawMessage `json:"hostid"`
 	InvoiceID json.Number     `json:"invoiceid"`
 	User      *ClientUser     `json:"user"`
+	// CancelRequestID / CancelID 是 /host/cancel 受理后回带的取消申请 ID（阶段 5c；
+	// 上游可能放在顶层或 data 内，字段名实测口径为 cancel_request_id、文档口径为 cancel_id，
+	// 两种都解析）。
+	CancelRequestID json.Number `json:"cancel_request_id"`
+	CancelID        json.Number `json:"cancel_id"`
 
 	// IsAff 是上游注入的推广开关（v3.7.5 的 jsons() 行为），与本项目无关。
 	IsAff string `json:"is_aff"`
@@ -346,6 +351,9 @@ type ProvisionResult struct {
 	Msg     string          `json:"-"`
 	Data    json.RawMessage `json:"-"`
 	HostIDs []int           `json:"-"`
+	// CancelRequestID 是取消申请 ID（仅 /host/cancel 有值；上游放在 data 或顶层，
+	// 解析时优先 data.cancel_request_id，取不到回退顶层 cancel_request_id；无申请为 0）。
+	CancelRequestID int `json:"-"`
 }
 
 // DataField 读取 data 中某个字段的文本值（字符串/数字/布尔都转成字符串），字段不存在时返回空串。
@@ -368,6 +376,10 @@ func (r *ProvisionResult) DataField(key string) string {
 		return typed
 	case json.Number:
 		return typed.String()
+	case float64:
+		// 标准 json.Unmarshal 把数字解成 float64（如 data.cancel_request_id=433）；
+		// 用最短表示输出，避免 433 变成 433.000000。
+		return strconv.FormatFloat(typed, 'f', -1, 64)
 	case bool:
 		if typed {
 			return "true"

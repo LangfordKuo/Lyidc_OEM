@@ -91,8 +91,11 @@ type SyncResult struct {
 	PowerState string
 	// PowerDesc 是上游对电源状态的中文描述（data.des；取不到为空串）。
 	PowerDesc string
-	// StatusChanged 表示本地实例状态是否被本次同步收敛（active ↔ suspended）。
+	// StatusChanged 表示本地实例状态是否被本次同步收敛（active ↔ suspended，或收敛为 terminated）。
 	StatusChanged bool
+	// Terminated 表示本次同步判定上游主机已终止（不存在或 domainstatus ∈ {Deleted, Terminated}），
+	// 本地已收敛为 terminated（此时不再回写同步字段、不查电源状态；契约 15.8.3）。
+	Terminated bool
 	// Message 是同步摘要（已脱敏，写入审计）。
 	Message string
 }
@@ -101,7 +104,9 @@ type SyncResult struct {
 // （next_due_date / upstream_status / IP / 端口 / 账号密码），附带查询电源状态；
 // 并按上游 domainstatus 收敛本地状态（Suspended ↔ Active，仅在这两个状态之间）。
 //
-// 任意实例状态均可调用（含 suspended；terminated 等由上游回答是否仍存在）。
+// 任意实例状态均可调用（含 suspended）。**上游主机已不存在或 domainstatus ∈ {Deleted, Terminated}
+// 时走终止收敛**：本地 status=terminated + cancel_status=done（幂等），写 cancel_sync 审计，
+// 本次不再回写同步字段与电源状态（契约 15.8.3）。
 func (s *Service) Sync(ctx context.Context, instance *model.Instance, actor Actor) (*SyncResult, error) {
 	client, err := s.client(ctx)
 	if err != nil {
@@ -109,11 +114,32 @@ func (s *Service) Sync(ctx context.Context, instance *model.Instance, actor Acto
 		return nil, err
 	}
 
-	host, err := client.Host(ctx, instance.HostID)
-	if err != nil {
-		wrapped := fmt.Errorf("%w：回读上游主机失败：%v", ErrUpstreamFailed, err)
+	host, hostErr := client.Host(ctx, instance.HostID)
+	if hostErr != nil && !errors.Is(hostErr, upstream.ErrHostNotFound) {
+		wrapped := fmt.Errorf("%w：回读上游主机失败：%v", ErrUpstreamFailed, hostErr)
 		s.auditFail(ctx, instance, actor, model.ActionSync, wrapped)
 		return nil, wrapped
+	}
+
+	// 终止收敛（上游主机已消失 → terminated）；正常主机返回 Terminated=false 继续字段同步。
+	termination, termErr := s.converge(ctx, instance, actor, host, hostErr)
+	if termErr != nil {
+		s.auditFail(ctx, instance, actor, model.ActionSync, termErr)
+		return nil, termErr
+	}
+	if termination.Terminated {
+		message := "同步完成：" + termination.Message
+		s.audit(ctx, instance.ID, actor, model.ActionSync, model.InstanceOpSuccess, message)
+		updated, err := s.store.InstanceByID(ctx, instance.ID)
+		if err != nil {
+			updated = instance
+		}
+		return &SyncResult{
+			Instance:      updated,
+			StatusChanged: termination.StatusChanged,
+			Terminated:    true,
+			Message:       message,
+		}, nil
 	}
 
 	sync := store.InstanceSyncInput{
@@ -141,7 +167,7 @@ func (s *Service) Sync(ctx context.Context, instance *model.Instance, actor Acto
 		return nil, wrapped
 	}
 
-	// 状态收敛：仅 active ↔ suspended 之间（cancelled / terminated 不动）。
+	// 状态收敛：仅 active ↔ suspended 之间（终止收敛已在上方返回；已 terminated 的实例不再被此分支改动）。
 	statusChanged := false
 	localStatus := instance.Status
 	switch {

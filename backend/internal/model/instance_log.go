@@ -38,6 +38,10 @@ const (
 	ActionSync = "sync"
 	// ActionRenew 续费交付（actor=system）。
 	ActionRenew = "renew"
+	// ActionCancel 提交取消/终止申请（会员本人或管理员；含幂等重复申请的留痕，阶段 5c）。
+	ActionCancel = "cancel"
+	// ActionCancelSync 上游确认终止后的本地收敛（管理端同步或到期扫描触发，阶段 5c）。
+	ActionCancelSync = "cancel_sync"
 )
 
 // 实例操作审计的结果取值（instance_operation_logs.status）。

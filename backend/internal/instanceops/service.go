@@ -1,13 +1,15 @@
-// Package instanceops 实现实例操作链路（阶段 5b）：会员端电源/重装/改密、管理端暂停/恢复/同步。
+// Package instanceops 实现实例操作链路（阶段 5b）：会员端电源/重装/改密、管理端暂停/恢复/同步；
+// 阶段 5c 追加：取消/终止申请（会员端与管理端）与上游确认终止后的状态收敛。
 //
 // 设计要点（契约见 docs/api-contract.md 第 15 节）：
 //   - 上游调用只走 internal/upstream 既有封装（On/Off/Reboot/HardOff/HardReboot/Reinstall/
-//     ResetPassword/Suspend/Unsuspend/Status/CloudOS/Host），本包不做任何裸 HTTP 调用；
+//     ResetPassword/Suspend/Unsuspend/Status/CloudOS/Host/RequestCancel），本包不做任何裸 HTTP 调用；
 //   - **所有操作无论成功失败都写 instance_operation_logs**（actor 区分 member/admin/system），
 //     审计写入不参与业务事务：写失败只记日志，不改变操作结果；
 //   - 审计与对外错误**不含密码与密钥**：上游错误原样透传前先做敏感串替换（见 sanitize）；
-//   - 状态矩阵（契约 15.2）：会员端操作仅 active 可执行；管理端 suspend 仅 active、
-//     unsuspend 仅 suspended；sync 任意状态可执行（由上游回答）。
+//   - 状态矩阵（契约 15.2 / 15.8）：会员端操作仅 active 可执行；管理端 suspend 仅 active、
+//     unsuspend 仅 suspended；取消申请 active / suspended 均可（有在途申请时幂等返回）；
+//     sync 任意状态可执行（由上游回答，含上游已删除时的终止收敛）。
 package instanceops
 
 import (
@@ -50,6 +52,11 @@ func MemberActor(memberID uint64) Actor {
 // AdminActor 构造管理员操作者。
 func AdminActor(adminID uint64) Actor {
 	return Actor{Type: model.ActorTypeAdmin, ID: adminID}
+}
+
+// SystemActor 构造系统操作者（后台扫描/自动任务；审计 actor_id 恒为 0）。
+func SystemActor() Actor {
+	return Actor{Type: model.ActorTypeSystem}
 }
 
 // Options 是实例操作服务的构造参数。

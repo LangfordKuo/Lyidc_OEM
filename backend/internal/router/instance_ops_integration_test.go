@@ -415,8 +415,10 @@ func TestAdminInstanceSync(t *testing.T) {
 		t.Fatalf("本地状态 = %s，期望 suspended", got.Status)
 	}
 
-	// 上游主机不存在（回读失败）→ 50003 + 审计 fail。
-	host.setHostinfoMissing(true)
+	// 回读故障（上游业务拒绝，非「主机不存在」）→ 50003 + 审计 fail。
+	// 注意：主机**不存在**自阶段 5c 起是「终止收敛」信号（见 TestSyncConvergesTerminated），
+	// 这里用业务失败注入保持「同步失败」语义。
+	host.setHostinfoFail("上游回读接口暂时不可用")
 	rec, envelope = doAPI(t, engine, http.MethodPost, syncPath, admin, nil)
 	if rec.Code != http.StatusInternalServerError || envelope.Code != response.CodeUpstreamFailed {
 		t.Fatalf("回读失败应 50003：HTTP %d, body=%s", rec.Code, rec.Body.String())
@@ -424,6 +426,7 @@ func TestAdminInstanceSync(t *testing.T) {
 	if last := lastInstanceLog(t, gdb, instance.ID); last.Action != model.ActionSync || last.Status != model.InstanceOpFail {
 		t.Fatalf("同步失败应审计 fail: %+v", last)
 	}
+	host.setHostinfoFail("")
 }
 
 // TestInstanceLogsEndpoints 验证操作记录接口的隔离、角色与分页校验。

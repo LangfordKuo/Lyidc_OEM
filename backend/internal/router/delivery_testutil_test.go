@@ -78,6 +78,9 @@ const (
 	pathHostCloudOS  = "/host/cloudos"
 )
 
+// 阶段 5c 新增路径：取消（终止）申请。
+const pathHostCancel = "/host/cancel"
+
 // fakeUpstreamHostIDs 为每次开通分配互不重复的上游主机 ID。
 var fakeUpstreamHostIDs atomic.Int64
 
@@ -106,6 +109,8 @@ type fakeHostServer struct {
 	settleNoHostID bool
 	// hostinfoMissing 为 true 时 /cart/hostinfo 返回空列表（回读失败场景）。
 	hostinfoMissing bool
+	// hostinfoFail 非空时 /cart/hostinfo 返回业务失败（status=400 + 该文案；回读故障注入）。
+	hostinfoFail string
 
 	// provisionFail 按 func 注入 /provision/default 的业务失败（返回 status=400 + 该文案）。
 	provisionFail map[string]string
@@ -119,6 +124,17 @@ type fakeHostServer struct {
 	renewDueUnix int64
 	// cloudOS 是 /host/cloudos 返回的可选系统（缺省为两个固定系统）。
 	cloudOS []fakeCloudOS
+
+	// cancelSeq 是取消申请的流水号（/host/cancel 每次受理 +1，生成 cancel_request_id）。
+	cancelSeq int
+	// cancelFail 非空时 /host/cancel 返回业务失败（status=400 + 该文案）。
+	cancelFail string
+	// cancelAlreadyDeleted 为 true 时 /host/cancel 按「主机已被上游终止」口径应答
+	// （status=200 + data.domainstatus=Deleted，无申请号）。
+	cancelAlreadyDeleted bool
+	// cancelTypes / cancelReasons 记录收到的取消方式与原因（按调用顺序，用例断言口径映射）。
+	cancelTypes   []string
+	cancelReasons []string
 }
 
 // fakeHostState 是一台已开通主机的运行态。
@@ -129,6 +145,10 @@ type fakeHostState struct {
 	password    string
 	nextDueUnix int64
 	dedicatedIP string
+	// deleted 为 true 表示上游已删除该主机（hostinfo 不再返回它，阶段 5c 收敛场景）。
+	deleted bool
+	// domainStatusOverride 非空时覆盖 hostinfo 回带的 domainstatus（如 Deleted）。
+	domainStatusOverride string
 }
 
 // fakeCloudOS 是一条可选系统记录。
@@ -209,9 +229,42 @@ func (f *fakeHostServer) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleRenew(w, r.Form)
 	case pathHostCloudOS:
 		f.handleCloudOS(w, r.Form)
+	case pathHostCancel:
+		f.handleCancel(w, r.Form)
 	default:
 		_, _ = io.WriteString(w, `{"status":404,"msg":"接口不存在"}`)
 	}
+}
+
+// handleCancel 处理 /host/cancel（阶段 5c）：受理取消申请并回带 cancel_request_id。
+// 与生产上游实测一致：受理为异步语义（status=202 + data.pending=true），主机暂仍 Active，
+// 主机真正被删除由用例显式 deleteHost / setDomainStatus 模拟。
+func (f *fakeHostServer) handleCancel(w http.ResponseWriter, form url.Values) {
+	f.mu.Lock()
+	if f.cancelFail != "" {
+		msg := f.cancelFail
+		f.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"status":400,"msg":%q}`, msg)
+		return
+	}
+	// 主机已被上游终止（已删除）时的受理口径：status=200 + data.domainstatus=Deleted
+	// （与生产上游实测一致，见契约 15.8.3），此时不回带 cancel_request_id。
+	if f.cancelAlreadyDeleted {
+		f.cancelSeq++
+		f.cancelTypes = append(f.cancelTypes, form.Get("type"))
+		f.cancelReasons = append(f.cancelReasons, form.Get("reason"))
+		f.mu.Unlock()
+		_, _ = io.WriteString(w, `{"status":200,"msg":"请求成功","completed":true,"data":{"domainstatus":"Deleted"}}`)
+		return
+	}
+	f.cancelSeq++
+	requestID := 5000 + f.cancelSeq
+	f.cancelTypes = append(f.cancelTypes, form.Get("type"))
+	f.cancelReasons = append(f.cancelReasons, form.Get("reason"))
+	f.mu.Unlock()
+
+	_, _ = fmt.Fprintf(w, `{"status":202,"msg":"mf_cloud_finance_termination_pending","data":{"pending":true,"cancel_request_id":%d}}`,
+		requestID)
 }
 
 // handleProvision 处理 /provision/default（生命周期操作）。
@@ -337,6 +390,13 @@ func (f *fakeHostServer) handleCloudOS(w http.ResponseWriter, form url.Values) {
 // 请求带 hostid[] 时按该 ID 精确返回；否则返回最近一次开通的主机。
 func (f *fakeHostServer) writeHostInfo(w http.ResponseWriter, form url.Values) {
 	f.mu.Lock()
+	// 回读故障注入（如上游网关 500/业务拒绝）：与「主机不存在」区分，不得触发终止收敛。
+	if f.hostinfoFail != "" {
+		msg := f.hostinfoFail
+		f.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"status":400,"msg":%q}`, msg)
+		return
+	}
 	hostID := f.hostID
 	if len(form["hostid[]"]) > 0 {
 		if id, err := strconv.Atoi(form["hostid[]"][0]); err == nil {
@@ -352,15 +412,24 @@ func (f *fakeHostServer) writeHostInfo(w http.ResponseWriter, form url.Values) {
 		password = state.password
 	}
 	suspended := state != nil && state.suspended
+	deleted := state != nil && state.deleted
+	override := ""
+	if state != nil {
+		override = state.domainStatusOverride
+	}
 	f.mu.Unlock()
 
-	if missing || hostID == 0 {
+	// 已删除的主机不再出现在主机列表中（生产上游终止完成后即如此，阶段 5c 收敛场景）。
+	if missing || hostID == 0 || deleted {
 		_, _ = io.WriteString(w, `{"status":200,"msg":"请求成功","data":{"hosts":[],"currency":"CNY"}}`)
 		return
 	}
 	domainStatus := "Active"
 	if suspended {
 		domainStatus = "Suspended"
+	}
+	if override != "" {
+		domainStatus = override
 	}
 	dedicatedIP := "203.0.113.10"
 	if state != nil && state.dedicatedIP != "" {
@@ -424,6 +493,13 @@ func (f *fakeHostServer) setHostinfoMissing(missing bool) {
 	f.hostinfoMissing = missing
 }
 
+// setHostinfoFail 注入 hostinfo 回读故障（status=400 + msg；空串表示恢复正常）。
+func (f *fakeHostServer) setHostinfoFail(msg string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hostinfoFail = msg
+}
+
 // setHostPassword 设置 hostinfo 回带的主机密码（空串表示不回传）。
 func (f *fakeHostServer) setHostPassword(password string) {
 	f.mu.Lock()
@@ -465,6 +541,48 @@ func (f *fakeHostServer) funcCallCount(funcName string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.funcCounts[funcName]
+}
+
+// deleteHost 模拟上游删除主机（终止处理完成）：hostinfo 不再返回该主机。
+func (f *fakeHostServer) deleteHost(hostID int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if state := f.hosts[hostID]; state != nil {
+		state.deleted = true
+	}
+}
+
+// setDomainStatus 覆盖某主机 hostinfo 回带的 domainstatus（hostID=0 表示最近一次开通的主机）。
+func (f *fakeHostServer) setDomainStatus(hostID int, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if hostID == 0 {
+		hostID = f.hostID
+	}
+	if state := f.hosts[hostID]; state != nil {
+		state.domainStatusOverride = status
+	}
+}
+
+// setCancelAlreadyDeleted 切换 /host/cancel 的「主机已被上游终止」应答口径。
+func (f *fakeHostServer) setCancelAlreadyDeleted(deleted bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelAlreadyDeleted = deleted
+}
+
+// setCancelFail 注入 /host/cancel 的业务失败（空串表示恢复正常）。
+func (f *fakeHostServer) setCancelFail(msg string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelFail = msg
+}
+
+// cancelCalls 返回 /host/cancel 的受理次数与收到的方式/原因（按调用顺序）。
+func (f *fakeHostServer) cancelCalls() (int, []string, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cancelSeq, append([]string(nil), f.cancelTypes...), append([]string(nil), f.cancelReasons...)
 }
 
 // setRenewDueUnix 设置续费后的到期时间（unix 秒；0 表示顺延 1 个月）。

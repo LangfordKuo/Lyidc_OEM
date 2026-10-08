@@ -84,8 +84,12 @@ func TestHostReturnsMatchingHostOrBusinessError(t *testing.T) {
 		t.Errorf("Host(88).ID = %d, 期望 88", host.ID)
 	}
 
+	if _, err := client.Host(context.Background(), 77); !errors.Is(err, ErrHostNotFound) {
+		t.Fatalf("主机不存在时错误 = %v, 期望 ErrHostNotFound", err)
+	}
+	// 兼容口径：主机不存在同时命中历史哨兵 ErrBusiness（既有调用方与日志文案不变）。
 	if _, err := client.Host(context.Background(), 77); !errors.Is(err, ErrBusiness) {
-		t.Fatalf("主机不存在时错误 = %v, 期望 ErrBusiness", err)
+		t.Fatalf("主机不存在时错误 = %v, 期望同时命中 ErrBusiness", err)
 	}
 	if _, err := client.Host(context.Background(), 0); !errors.Is(err, ErrBusiness) {
 		t.Fatalf("hostID=0 时错误 = %v, 期望 ErrBusiness", err)

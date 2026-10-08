@@ -3,6 +3,7 @@ package router
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -42,6 +43,19 @@ func setInstanceDue(t *testing.T, gdb *gorm.DB, instanceID uint64, due any) {
 	if err := gdb.Model(&model.Instance{}).Where("id = ?", instanceID).
 		Update("next_due_date", due).Error; err != nil {
 		t.Fatalf("更新实例到期时间失败: %v", err)
+	}
+}
+
+// setInstanceCancel 直接改库置入「取消申请在途」标记（构造 5c 收敛前置条件）。
+func setInstanceCancel(t *testing.T, gdb *gorm.DB, instanceID uint64, cancelType string, requestedAt time.Time) {
+	t.Helper()
+	if err := gdb.Model(&model.Instance{}).Where("id = ?", instanceID).Updates(map[string]any{
+		"cancel_status":       model.InstanceCancelPending,
+		"cancel_type":         cancelType,
+		"cancel_request_id":   4321,
+		"cancel_requested_at": requestedAt.UTC(),
+	}).Error; err != nil {
+		t.Fatalf("写入取消申请标记失败: %v", err)
 	}
 }
 

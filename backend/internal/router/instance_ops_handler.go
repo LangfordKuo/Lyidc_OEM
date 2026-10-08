@@ -42,6 +42,15 @@ type renewRequest struct {
 	Cycle string `json:"cycle"`
 }
 
+// cancelRequest 是 POST /api/v1/instances/:id/cancel 与
+// POST /api/v1/admin/instances/:id/cancel 的请求体（阶段 5c，契约 15.8.2）。
+type cancelRequest struct {
+	// Type 必填：immediate（立即取消）/ end_of_billing（到期取消，等到账单周期结束）。
+	Type string `json:"type"`
+	// Reason 会员端可空（服务端兜底默认文案）；管理端必填（强制终止需记录原因）。
+	Reason string `json:"reason"`
+}
+
 // suspendRequest 是 POST /api/v1/admin/instances/:id/suspend 请求体。
 type suspendRequest struct {
 	Reason string `json:"reason"`
@@ -104,9 +113,21 @@ type syncResultView struct {
 	PowerState    string              `json:"power_state"`
 	PowerDesc     string              `json:"power_desc"`
 	StatusChanged bool                `json:"status_changed"`
+	Terminated    bool                `json:"terminated"`
 	Instance      instanceSummaryView `json:"instance"`
 	NextDueDate   *string             `json:"next_due_date"`
 	UpstreamState string              `json:"upstream_status"`
+}
+
+// cancelResultView 是取消申请接口的返回（阶段 5c）。
+type cancelResultView struct {
+	operationResultView
+	CancelRequestID   int     `json:"cancel_request_id"`
+	CancelType        string  `json:"cancel_type"`
+	CancelStatus      string  `json:"cancel_status"`
+	CancelRequestedAt *string `json:"cancel_requested_at"`
+	// Duplicate 为 true 表示已有在途申请，本次未重复提交上游（幂等返回现状）。
+	Duplicate bool `json:"duplicate"`
 }
 
 // powerInstance 处理 POST /api/v1/instances/:id/power：soft_on / soft_off / reboot /
@@ -248,6 +269,13 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 			fmt.Sprintf("实例当前状态为 %s，仅 active / suspended 可续费", instance.Status))
 		return
 	}
+	// 阶段 5c：有在途取消申请时不可续费（上游可能按申请终止主机，续费会白付；
+	// 上游的撤销申请能力（DELETE /host/cancel）留后续批次，契约 15.8.4）。
+	if instance.CancelStatus == model.InstanceCancelPending {
+		response.Fail(c, response.CodeValidationFailed,
+			"实例已有在途取消申请，无法续费（如需继续使用请联系管理员）")
+		return
+	}
 
 	ctx := c.Request.Context()
 	product, err := h.store.ProductByID(ctx, instance.ProductID)
@@ -297,6 +325,39 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 	h.logger.Info("续费订单已创建", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", member.ID, "instance_id", instance.ID, "cycle", cycle, "amount", price)
 	response.Success(c, newOrderView(order, h.logger))
+}
+
+// cancelInstance 处理 POST /api/v1/instances/:id/cancel：会员本人提交取消（终止）申请。
+//
+// 允许状态 active / suspended（契约 15.8.1）；已有在途申请时**幂等返回现状**（`duplicate=true`，
+// 不重复提交上游）；成功后本地记 cancel_status=pending（status 保持原值），
+// 上游处理完毕后由管理端同步或到期扫描收敛为 terminated。
+func (h *instanceHandler) cancelInstance(c *gin.Context) {
+	member, instance, ok := h.memberInstance(c)
+	if !ok {
+		return
+	}
+
+	var req cancelRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	cancelType := strings.TrimSpace(req.Type)
+	if !model.IsValidCancelType(cancelType) {
+		response.Fail(c, response.CodeInvalidParam, msgCancelTypeInvalid)
+		return
+	}
+
+	result, err := h.ops.Cancel(c.Request.Context(), instance,
+		instanceops.MemberActor(member.ID), cancelType, req.Reason)
+	if err != nil {
+		h.failInstanceOp(c, instance.ID, err)
+		return
+	}
+	h.logger.Info("会员提交实例取消申请", "instance_id", instance.ID, "host_id", instance.HostID,
+		"member_id", member.ID, "cancel_type", cancelType, "duplicate", result.Duplicate,
+		"cancel_request_id", result.CancelRequestID)
+	response.Success(c, newCancelResultView(result))
 }
 
 // listMyInstanceLogs 处理 GET /api/v1/instances/:id/logs：本人实例的操作记录。
@@ -365,6 +426,46 @@ func (h *instanceHandler) adminUnsuspendInstance(c *gin.Context) {
 	})
 }
 
+// adminCancelInstance 处理 POST /api/v1/admin/instances/:id/cancel：管理员代客/强制提交终止申请
+// （仅 admin 角色；reason 必填）。允许状态与幂等口径同会员端，审计 actor=admin（契约 15.8.2）。
+func (h *instanceHandler) adminCancelInstance(c *gin.Context) {
+	admin, ok := adminFromContext(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized, msgInvalidCredential)
+		return
+	}
+	instance, ok := h.adminInstance(c)
+	if !ok {
+		return
+	}
+
+	var req cancelRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	cancelType := strings.TrimSpace(req.Type)
+	if !model.IsValidCancelType(cancelType) {
+		response.Fail(c, response.CodeInvalidParam, msgCancelTypeInvalid)
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		response.Fail(c, response.CodeInvalidParam, "reason 不能为空（管理端终止需记录原因）")
+		return
+	}
+
+	result, err := h.ops.Cancel(c.Request.Context(), instance,
+		instanceops.AdminActor(admin.ID), cancelType, reason)
+	if err != nil {
+		h.failInstanceOp(c, instance.ID, err)
+		return
+	}
+	h.logger.Info("管理员提交实例取消申请", "instance_id", instance.ID, "host_id", instance.HostID,
+		"admin_id", admin.ID, "cancel_type", cancelType, "duplicate", result.Duplicate,
+		"cancel_request_id", result.CancelRequestID)
+	response.Success(c, newCancelResultView(result))
+}
+
 // adminSyncInstance 处理 POST /api/v1/admin/instances/:id/sync：
 // 回读上游 hostinfo 回写同步字段（到期时间/状态/IP/端口/账号密码），并查询电源状态；
 // 按上游 domainstatus 收敛本地状态（Suspended ↔ Active）。所有角色可调用（契约 15.2）。
@@ -393,6 +494,7 @@ func (h *instanceHandler) adminSyncInstance(c *gin.Context) {
 		PowerState:    result.PowerState,
 		PowerDesc:     result.PowerDesc,
 		StatusChanged: result.StatusChanged,
+		Terminated:    result.Terminated,
 		Instance:      newInstanceSummaryView(result.Instance),
 		NextDueDate:   formatTimePtr(result.Instance.NextDueDate),
 		UpstreamState: result.Instance.UpstreamStatus,
@@ -487,6 +589,25 @@ func (h *instanceHandler) respondInstanceLogs(c *gin.Context, instanceID uint64)
 		})
 	}
 	response.Success(c, instanceLogListView{Items: views, Page: page, PageSize: pageSize, Total: total})
+}
+
+// msgCancelTypeInvalid 是取消方式非法的统一提示（会员端与管理端一致）。
+const msgCancelTypeInvalid = "type 只能是 immediate（立即取消）或 end_of_billing（到期取消，等到账单周期结束）"
+
+// newCancelResultView 组装取消申请接口的返回（会员端与管理端一致；message 已脱敏）。
+func newCancelResultView(result *instanceops.CancelResult) cancelResultView {
+	instance := result.Instance
+	return cancelResultView{
+		operationResultView: operationResultView{
+			InstanceID: instance.ID, Action: model.ActionCancel,
+			Message: result.Message, Status: instance.Status,
+		},
+		CancelRequestID:   instance.CancelRequestID,
+		CancelType:        instance.CancelType,
+		CancelStatus:      instance.CancelStatus,
+		CancelRequestedAt: formatTimePtr(instance.CancelRequestedAt),
+		Duplicate:         result.Duplicate,
+	}
 }
 
 // failInstanceOp 把实例操作错误映射为对外错误码（契约 15.6）：

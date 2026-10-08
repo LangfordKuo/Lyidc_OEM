@@ -1,16 +1,24 @@
-// Package scheduler 提供应用内轻量后台任务（阶段 5b：到期暂停扫描）。
+// Package scheduler 提供应用内轻量后台任务（阶段 5b：到期暂停扫描；阶段 5c：终止收敛）。
 //
 // 到期暂停扫描（契约 15.5）：服务启动后延迟 InitialDelay 执行首次扫描，之后每 Interval
 // 扫描一次；对「status=active 且 next_due_date < now」的实例调上游 Suspend、
-// 本地置 suspended，并写审计（actor=system）。
+// 本地置 suspended，并写审计（actor=system）。**有在途取消申请（cancel_status=pending）
+// 的实例排除在外**（它们已进入终止流程，见契约 15.8.5）。
+//
+// 终止收敛（契约 15.8.5，阶段 5c）：同一轮扫描中对「取消申请在途且已到收敛时机」的实例
+// 回读上游主机（immediate 提交后即回读；end_of_billing 到期后才回读），
+// 上游已删除/已终止 → 本地收敛 terminated + 审计（actor=system，action=cancel_sync）。
 //
 // 幂等与失败重试：
 //   - 上游 Suspend 业务失败时回读一次主机：若上游已是 Suspended，则只收敛本地状态
 //     （幂等路径，审计记 success 并标注）；否则记 fail，**下一轮扫描自动重试**；
-//   - 本地状态收敛用条件更新（active → suspended）：并发下只有一个生效。
+//   - 本地状态收敛用条件更新（active → suspended）：并发下只有一个生效；
+//   - 终止收敛同样幂等（已是 terminated 不重复写），收敛失败（回读报错等）**只记服务日志**，
+//     下一轮自动重试（不写 fail 审计，避免每日刷屏；契约 15.8.5）。
 //
-// 已知边界（契约 15.5）：上游自行暂停（非本系统触发）不在扫描范围内，由管理端同步接口收敛；
-// 扫描间隔窗口内到期的实例最迟在下一轮被处理；本批不做到期提醒通知（阶段 6）。
+// 已知边界（契约 15.5 / 15.8.5）：上游自行暂停或自行删除主机（非本系统触发）不在扫描范围内，
+// 由管理端同步接口收敛；扫描间隔窗口内到期/收敛的实例最迟在下一轮被处理；
+// 本批不做到期提醒通知（阶段 6）。
 package scheduler
 
 import (
@@ -22,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
@@ -64,12 +73,19 @@ type ScanReport struct {
 	Suspended int
 	// Failed 本轮处理失败（留待下轮重试）的实例数。
 	Failed int
+	// CancelScanned 本轮尝试收敛的「取消申请在途」实例数（阶段 5c）。
+	CancelScanned int
+	// CancelConverged 本轮成功收敛为 terminated 的实例数（阶段 5c）。
+	CancelConverged int
+	// CancelFailed 本轮收敛失败（回读报错等，留待下轮重试）的实例数（阶段 5c）。
+	CancelFailed int
 }
 
 // Scanner 是到期暂停扫描器（Start/Stop 控制后台循环；ScanOnce 供测试与手动触发）。
 type Scanner struct {
 	store    *store.Store
 	upstream upstream.Provider
+	ops      *instanceops.Service
 	logger   *slog.Logger
 
 	interval     time.Duration
@@ -106,6 +122,7 @@ func New(st *store.Store, provider upstream.Provider, opts Options) *Scanner {
 	return &Scanner{
 		store:        st,
 		upstream:     provider,
+		ops:          instanceops.New(st, provider, instanceops.Options{Logger: logger}),
 		logger:       logger,
 		interval:     interval,
 		initialDelay: initialDelay,
@@ -163,12 +180,14 @@ func (s *Scanner) runOnce() {
 		s.logger.Error("到期暂停扫描执行失败", "error", err)
 		return
 	}
-	if report.Scanned == 0 {
-		s.logger.Info("到期暂停扫描完成：无到期实例")
+	if report.Scanned == 0 && report.CancelScanned == 0 {
+		s.logger.Info("到期暂停扫描完成：无到期实例、无待收敛的取消申请")
 		return
 	}
 	s.logger.Info("到期暂停扫描完成", "scanned", report.Scanned,
-		"suspended", report.Suspended, "failed", report.Failed)
+		"suspended", report.Suspended, "failed", report.Failed,
+		"cancel_scanned", report.CancelScanned, "cancel_converged", report.CancelConverged,
+		"cancel_failed", report.CancelFailed)
 }
 
 // ScanOnce 执行一轮完整扫描（可重复调用；测试注入 Clock + 手动调用）。
@@ -190,12 +209,25 @@ func (s *Scanner) ScanOnce(ctx context.Context) (ScanReport, error) {
 	}
 
 	now := s.clock().UTC()
-	processed := make(map[uint64]struct{})
 
+	// 阶段一：到期暂停（active 且已过到期时间，排除有在途取消申请的实例）。
+	if err := s.suspendDueInstances(ctx, client, now, &report); err != nil {
+		return report, err
+	}
+	// 阶段二：取消申请收敛（回读上游，已删除/已终止 → 本地 terminated）。
+	if err := s.convergeCancels(ctx, client, now, &report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+// suspendDueInstances 循环处理到期实例直到取空（processed 去重避免状态未变时死循环）。
+func (s *Scanner) suspendDueInstances(ctx context.Context, client *upstream.Client, now time.Time, report *ScanReport) error {
+	processed := make(map[uint64]struct{})
 	for {
 		due, err := s.store.ListDueInstances(ctx, now, s.batchSize)
 		if err != nil {
-			return report, fmt.Errorf("查询到期实例失败：%w", err)
+			return fmt.Errorf("查询到期实例失败：%w", err)
 		}
 
 		batch := make([]model.Instance, 0, len(due))
@@ -207,7 +239,7 @@ func (s *Scanner) ScanOnce(ctx context.Context) (ScanReport, error) {
 			batch = append(batch, due[i])
 		}
 		if len(batch) == 0 {
-			return report, nil
+			return nil
 		}
 
 		for i := range batch {
@@ -220,6 +252,50 @@ func (s *Scanner) ScanOnce(ctx context.Context) (ScanReport, error) {
 				continue
 			}
 			report.Suspended++
+		}
+	}
+}
+
+// convergeCancels 循环收敛「取消申请在途」的实例直到取空（契约 15.8.5）：
+// 回读上游主机，上游已删除或已终止 → 本地 status=terminated + cancel_status=done + 审计（actor=system）；
+// 上游仍在运行（申请尚未被上游处理）→ 本轮跳过，下一轮再看；
+// 回读报错 → 记服务日志并计入 CancelFailed（不写 fail 审计），下一轮重试。
+func (s *Scanner) convergeCancels(ctx context.Context, client *upstream.Client, now time.Time, report *ScanReport) error {
+	processed := make(map[uint64]struct{})
+	for {
+		pending, err := s.store.ListPendingCancelInstances(ctx, now, s.batchSize)
+		if err != nil {
+			return fmt.Errorf("查询待收敛的取消申请失败：%w", err)
+		}
+
+		batch := make([]model.Instance, 0, len(pending))
+		for i := range pending {
+			if _, seen := processed[pending[i].ID]; seen {
+				continue
+			}
+			processed[pending[i].ID] = struct{}{}
+			batch = append(batch, pending[i])
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+
+		for i := range batch {
+			instance := &batch[i]
+			report.CancelScanned++
+			result, err := s.ops.ConvergeTermination(ctx, instance, instanceops.SystemActor())
+			if err != nil {
+				report.CancelFailed++
+				s.logger.Warn("取消申请收敛失败（下一轮重试）",
+					"error", err, "instance_id", instance.ID, "host_id", instance.HostID)
+				continue
+			}
+			if result.Terminated {
+				report.CancelConverged++
+				s.logger.Info("取消申请已收敛为 terminated",
+					"instance_id", instance.ID, "host_id", instance.HostID,
+					"status_changed", result.StatusChanged)
+			}
 		}
 	}
 }

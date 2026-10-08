@@ -229,6 +229,144 @@ func TestDueScanBatches(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// 阶段 5c：取消申请收敛扫描（与到期暂停扫描同一轮）
+// ---------------------------------------------------------------------------
+
+// TestScanConvergesPendingCancels 验证取消申请收敛：上游已删除/已终止 → 本地 terminated；
+// 仍在途（上游未处理）与未到时机的到期取消不动；有在途申请的到期实例不被暂停。
+func TestScanConvergesPendingCancels(t *testing.T) {
+	gdb := testDatabase(t)
+	host := newFakeHostServer(t)
+	engine := newStage5Engine(t, gdb, host.client(t), nil)
+	gateway := newFakeEpayGateway(t)
+	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
+	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
+
+	token, _ := memberTokenFor(t, engine, "scancancel")
+	now := time.Now().UTC()
+
+	// A：立即取消在途、上游已删除（且已过到期时间——不得被暂停，应被收敛）。
+	converged := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceCancel(t, gdb, converged.ID, model.CancelTypeImmediate, now.Add(-2*time.Hour))
+	setInstanceDue(t, gdb, converged.ID, now.Add(-time.Hour))
+	host.deleteHost(converged.HostID)
+
+	// B：立即取消在途、上游仍 Active（申请尚未被上游处理）→ 保持原状、无新增审计。
+	inFlight := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceCancel(t, gdb, inFlight.ID, model.CancelTypeImmediate, now.Add(-time.Hour))
+
+	// C：到期取消在途、到期时间已过、上游已删除 → 收敛。
+	expiredEOB := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceCancel(t, gdb, expiredEOB.ID, model.CancelTypeEndOfBilling, now.Add(-30*24*time.Hour))
+	setInstanceDue(t, gdb, expiredEOB.ID, now.Add(-time.Hour))
+	host.deleteHost(expiredEOB.HostID)
+
+	// D：到期取消在途、尚未到期（上游此时不会终止）→ 本轮不收敛（不浪费回读，也不暂停）。
+	futureEOB := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceCancel(t, gdb, futureEOB.ID, model.CancelTypeEndOfBilling, now.Add(-time.Hour))
+	setInstanceDue(t, gdb, futureEOB.ID, now.Add(72*time.Hour))
+	host.deleteHost(futureEOB.HostID)
+
+	// E：无取消申请的到期实例 → 仍按到期扫描暂停。
+	plain := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceDue(t, gdb, plain.ID, now.Add(-time.Hour))
+
+	scanner := newTestScanner(t, gdb, host, now)
+	report, err := scanner.ScanOnce(context.Background())
+	if err != nil {
+		t.Fatalf("扫描失败: %v", err)
+	}
+	if report.CancelScanned != 3 || report.CancelConverged != 2 || report.CancelFailed != 0 {
+		t.Fatalf("收敛统计 = %+v，期望 cancel_scanned=3 converged=2 failed=0（D 未到时机不扫）", report)
+	}
+	if report.Scanned != 1 || report.Suspended != 1 {
+		t.Fatalf("到期暂停统计 = %+v，期望仅 E 被暂停（A/C 有在途申请不暂停）", report)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		instance *model.Instance
+		want     string
+	}{
+		{"上游已删除（立即取消）", converged, model.InstanceStatusTerminated},
+		{"上游已删除（到期取消且已到期）", expiredEOB, model.InstanceStatusTerminated},
+		{"上游未处理（仍在途）", inFlight, model.InstanceStatusActive},
+		{"到期取消未到到期时间", futureEOB, model.InstanceStatusActive},
+		{"无取消申请", plain, model.InstanceStatusSuspended},
+	} {
+		if got := instanceFromDB(t, gdb, tc.instance.ID); got.Status != tc.want {
+			t.Fatalf("%s：状态 = %s，期望 %s", tc.name, got.Status, tc.want)
+		}
+	}
+	if got := instanceFromDB(t, gdb, converged.ID); got.CancelStatus != model.InstanceCancelDone {
+		t.Fatalf("收敛后 cancel_status = %s，期望 done", got.CancelStatus)
+	}
+	last := lastInstanceLog(t, gdb, converged.ID)
+	if last.Action != model.ActionCancelSync || last.Status != model.InstanceOpSuccess ||
+		last.ActorType != model.ActorTypeSystem {
+		t.Fatalf("收敛审计异常: %+v", last)
+	}
+	// 在途未收敛的实例不应新增审计（避免每轮刷屏）。
+	if logs := instanceLogsFromDB(t, gdb, inFlight.ID); len(logs) != 1 {
+		t.Fatalf("未收敛实例不应新增审计: %+v", logs)
+	}
+
+	// 幂等：再次扫描不再命中已收敛实例（cancel_status=done）。
+	report, err = scanner.ScanOnce(context.Background())
+	if err != nil {
+		t.Fatalf("第二轮扫描失败: %v", err)
+	}
+	if report.CancelScanned != 1 || report.CancelConverged != 0 {
+		t.Fatalf("第二轮应仅剩在途实例（未收敛）: %+v", report)
+	}
+}
+
+// TestScanCancelConvergenceFailureRetries 验证回读故障时不误收敛、不写审计，下一轮恢复后收敛。
+func TestScanCancelConvergenceFailureRetries(t *testing.T) {
+	gdb := testDatabase(t)
+	host := newFakeHostServer(t)
+	engine := newStage5Engine(t, gdb, host.client(t), nil)
+	gateway := newFakeEpayGateway(t)
+	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
+	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
+
+	token, _ := memberTokenFor(t, engine, "scancancelfail")
+	now := time.Now().UTC()
+	instance := newInstanceFor(t, engine, gateway, gdb, token, product.ID)
+	setInstanceCancel(t, gdb, instance.ID, model.CancelTypeImmediate, now.Add(-time.Hour))
+
+	host.setHostinfoFail("上游网关超时")
+	scanner := newTestScanner(t, gdb, host, now)
+	report, err := scanner.ScanOnce(context.Background())
+	if err != nil {
+		t.Fatalf("扫描不应因单实例失败而中断: %v", err)
+	}
+	if report.CancelFailed != 1 || report.CancelConverged != 0 {
+		t.Fatalf("回读故障统计 = %+v，期望 cancel_failed=1", report)
+	}
+	if got := instanceFromDB(t, gdb, instance.ID); got.Status != model.InstanceStatusActive {
+		t.Fatalf("回读故障不得收敛: %s", got.Status)
+	}
+	if logs := instanceLogsFromDB(t, gdb, instance.ID); len(logs) != 1 {
+		t.Fatalf("回读故障不写审计（仅服务日志）: %+v", logs)
+	}
+
+	// 上游删除主机并恢复回读 → 下一轮收敛。
+	host.setHostinfoFail("")
+	host.deleteHost(instance.HostID)
+	report, err = scanner.ScanOnce(context.Background())
+	if err != nil {
+		t.Fatalf("重试扫描失败: %v", err)
+	}
+	if report.CancelConverged != 1 {
+		t.Fatalf("重试后统计 = %+v，期望 cancel_converged=1", report)
+	}
+	if got := instanceFromDB(t, gdb, instance.ID); got.Status != model.InstanceStatusTerminated {
+		t.Fatalf("重试后状态 = %s，期望 terminated", got.Status)
+	}
+}
+
 // TestDueScanNotEnabledByDefault 验证集成测试引擎默认不启动后台扫描（EnableDueScan 零值）。
 func TestDueScanNotEnabledByDefault(t *testing.T) {
 	gdb := testDatabase(t)

@@ -17,8 +17,9 @@ import (
 // msgInstanceMissing 是实例不存在/非本人时的统一提示（对外 404）。
 const msgInstanceMissing = "实例不存在"
 
-// instanceHandler 处理实例接口：会员端本人实例列表/详情/操作/续费/操作记录，
-// 管理端实例列表/暂停/恢复/同步/操作记录（阶段 5a 列表详情 + 阶段 5b 操作）。
+// instanceHandler 处理实例接口：会员端本人实例列表/详情/操作/续费/取消申请/操作记录，
+// 管理端实例列表/暂停/恢复/同步/取消申请/操作记录
+// （阶段 5a 列表详情 + 阶段 5b 操作 + 阶段 5c 终止流程）。
 //
 // 敏感字段可见性（契约 14.4）：列表一律不含主机账号/密码/端口（会员端与管理端相同）；
 // 详情接口仅**会员本人**可见 username / password / port / assigned_ips。
@@ -42,7 +43,12 @@ type instanceSummaryView struct {
 	Status         string  `json:"status"`
 	UpstreamStatus string  `json:"upstream_status"`
 	DedicatedIP    string  `json:"dedicated_ip"`
-	CreatedAt      string  `json:"created_at"`
+	// 取消申请标记（阶段 5c，契约 15.8）：列表与详情一致输出，便于前端展示「终止处理中」。
+	CancelStatus      string  `json:"cancel_status"`
+	CancelType        string  `json:"cancel_type"`
+	CancelRequestID   int     `json:"cancel_request_id"`
+	CancelRequestedAt *string `json:"cancel_requested_at"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 // adminInstanceView 是管理端实例列表项：多 member_id，同样不含敏感字段。
@@ -221,7 +227,12 @@ func newInstanceSummaryView(instance *model.Instance) instanceSummaryView {
 		Status:         instance.Status,
 		UpstreamStatus: instance.UpstreamStatus,
 		DedicatedIP:    instance.DedicatedIP,
-		CreatedAt:      formatTime(instance.CreatedAt),
+
+		CancelStatus:      instance.CancelStatus,
+		CancelType:        instance.CancelType,
+		CancelRequestID:   instance.CancelRequestID,
+		CancelRequestedAt: formatTimePtr(instance.CancelRequestedAt),
+		CreatedAt:         formatTime(instance.CreatedAt),
 	}
 }
 

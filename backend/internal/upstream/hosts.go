@@ -41,7 +41,10 @@ func (c *Client) Hosts(ctx context.Context, hostIDs []int, all bool) (*HostList,
 }
 
 // Host 按上游主机 ID 查询单个主机（内部走 /cart/hostinfo?hostid[]=<id>）。
-// 上游没有单主机详情接口，这里在返回列表里按 ID 精确匹配；找不到返回 ErrBusiness。
+//
+// 上游没有单主机详情接口，这里在返回列表里按 ID 精确匹配；找不到返回 *HostNotFoundError
+// （同时命中 ErrHostNotFound 与 ErrBusiness）——**主机已被删除（终止完成）时也是这一形态**，
+// 因此调用方（阶段 5c 的状态收敛）必须把它与其它业务失败区分开。
 func (c *Client) Host(ctx context.Context, hostID int) (*Host, error) {
 	if hostID <= 0 {
 		return nil, fmt.Errorf("%w: hostID 必须为正整数，收到 %d", ErrBusiness, hostID)
@@ -56,8 +59,7 @@ func (c *Client) Host(ctx context.Context, hostID int) (*Host, error) {
 			return &list.Hosts[i], nil
 		}
 	}
-	return nil, &BusinessError{API: pathCartHostInfo, Status: statusNotLogged,
-		Msg: fmt.Sprintf("上游未返回主机 %d（可能不属于该账号）", hostID)}
+	return nil, &HostNotFoundError{HostID: hostID}
 }
 
 // CloudOS 查询商品可选的操作系统列表，对应 GET /host/cloudos。

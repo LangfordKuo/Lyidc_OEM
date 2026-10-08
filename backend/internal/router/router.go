@@ -177,6 +177,9 @@ func New(opts Options) *gin.Engine {
 			memberAPI.POST("/instances/:id/renew", instances.renewInstance)
 			memberAPI.GET("/instances/:id/logs", instances.listMyInstanceLogs)
 
+			// 取消/终止申请（阶段 5c）：仅本人；active / suspended 可申请，已有在途申请幂等返回。
+			memberAPI.POST("/instances/:id/cancel", instances.cancelInstance)
+
 			memberAPI.POST("/recharges", finance.createRecharge)
 			memberAPI.GET("/recharges", finance.listRecharges)
 			memberAPI.GET("/finance/balance", finance.getBalance)
@@ -235,6 +238,11 @@ func New(opts Options) *gin.Engine {
 				requireAdminRole(model.RoleAdmin), instances.adminUnsuspendInstance)
 			adminGroup.POST("/instances/:id/sync", instances.adminSyncInstance)
 			adminGroup.GET("/instances/:id/logs", instances.listAdminInstanceLogs)
+
+			// 取消/终止申请（阶段 5c）：提交上游终止（代客/强制），仅 admin 角色且 reason 必填；
+			// 状态收敛复用 sync（上游确认删除后本地转 terminated，契约 15.8.2/15.8.3）。
+			adminGroup.POST("/instances/:id/cancel",
+				requireAdminRole(model.RoleAdmin), instances.adminCancelInstance)
 
 			// 商品与计费（阶段 3a）：所有角色可查看；导入/改定价/上下架/改分组要求 admin 或 finance。
 			adminGroup.GET("/products", products.listProducts)

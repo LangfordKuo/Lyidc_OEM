@@ -230,12 +230,36 @@ func (c *Client) provision(ctx context.Context, hostID int, op HostOperation, ex
 
 // provisionResultOf 把上游响应整理为 ProvisionResult（外层状态 + 原始 data）。
 func provisionResultOf(resp *Response) *ProvisionResult {
-	return &ProvisionResult{
+	result := &ProvisionResult{
 		Status:  resp.Status,
 		Msg:     resp.Msg,
 		Data:    resp.Data,
 		HostIDs: resp.HostIDs(),
 	}
+	// 取消申请 ID：依次尝试 data.cancel_request_id / 顶层 cancel_request_id /
+	// data.cancel_id / 顶层 cancel_id（实测与文档两种字段名都出现过）。
+	candidates := []string{
+		result.DataField("cancel_request_id"),
+		resp.CancelRequestID.String(),
+		result.DataField("cancel_id"),
+		resp.CancelID.String(),
+	}
+	for _, candidate := range candidates {
+		if id := atoiPositive(candidate); id > 0 {
+			result.CancelRequestID = id
+			break
+		}
+	}
+	return result
+}
+
+// atoiPositive 解析正整数文本（非法或非正数返回 0）。
+func atoiPositive(value string) int {
+	id, err := strconv.Atoi(value)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
 }
 
 // CreateHost 在上游下单开通主机（上游没有单独的「开通」接口，须走 下单 → 余额支付 两步）。

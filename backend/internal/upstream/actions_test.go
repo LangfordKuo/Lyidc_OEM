@@ -418,3 +418,38 @@ func TestRequestCancelAcceptsUpstreamStatus202(t *testing.T) {
 		t.Errorf("结果 = %+v, 期望 status=202 且保留上游 msg 供调用方判断", result)
 	}
 }
+
+// TestRequestCancelParsesRequestID 验证取消申请 ID 的四种回带写法（阶段 5c）：
+// data/顶层 × cancel_request_id/cancel_id（实测与文档字段名不一致，解析需全部兼容）。
+func TestRequestCancelParsesRequestID(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"data.cancel_request_id", okBody(`{"pending":true,"cancel_request_id":433}`), 433},
+		{"顶层 cancel_request_id", `{"status":202,"msg":"pending","cancel_request_id":"434"}`, 434},
+		{"data.cancel_id（文档口径）", okBody(`{"cancel_id":435}`), 435},
+		{"顶层 cancel_id", `{"status":202,"msg":"pending","cancel_id":436}`, 436},
+		{"无申请 ID", okBody(`{"pending":true}`), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := tc.body
+			fake := newFakeUpstream(t, map[string]handlerFunc{
+				pathHostCancel: func(_ int, _ *http.Request, _ url.Values) (int, string) {
+					return http.StatusOK, body
+				},
+			})
+			client := fake.client(t, nil)
+
+			result, err := client.RequestCancel(context.Background(), 10919, CancelEndOfBilling, "到期取消")
+			if err != nil {
+				t.Fatalf("RequestCancel() 失败: %v", err)
+			}
+			if result.CancelRequestID != tc.want {
+				t.Errorf("CancelRequestID = %d, 期望 %d", result.CancelRequestID, tc.want)
+			}
+		})
+	}
+}

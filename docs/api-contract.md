@@ -2502,7 +2502,7 @@ cancelled                                provisioning ──上游开通成功�
 | `name` | string | 主机名（开通时提交上游的 `host`：`oem-` + 订单号小写） |
 | `billing_cycle` | string | 计费周期（本地 6 周期之一） |
 | `next_due_date` | string \| null | 到期时间（UTC；开通后从上游 `nextduedate` 回读，回读失败留 `null`） |
-| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；5a 只写 `active`，**5b 起 `suspended` 由管理端暂停与到期扫描写入**，`cancelled` / `terminated` 留 5c（操作矩阵见 15.1） |
+| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；5a 只写 `active`，**5b 起 `suspended` 由管理端暂停与到期扫描写入**，**5c 起 `terminated` 由终止收敛写入**；`cancelled` 经 5c 定稿为**不再写入的预留枚举**（申请在途以 `cancel_status=pending` 表达，见 15.8.1，操作矩阵见 15.1） |
 | `upstream_status` | string | 上游 `domainstatus` 原文（如 `Active`；同步字段） |
 | `dedicated_ip` | string | 上游主 IPv4（未回读为空串） |
 | `assigned_ips` | string | 上游附加 IP（库内逗号分隔原文；接口输出为数组） |
@@ -2640,21 +2640,26 @@ cancelled                                provisioning ──上游开通成功�
 ## 15. 实例操作与续费（阶段 5b）
 
 本节描述：实例状态与操作矩阵（15.1）、会员端操作接口（15.2）、管理端操作接口（15.3）、
-操作审计（15.4）、续费链路（15.5）、到期暂停扫描（15.6）、错误码与真机实测（15.7）。
-数据结构由**迁移 0008** 引入（`orders` 扩 `type` / `instance_id` + `instance_operation_logs` 建表）。
+操作审计（15.4）、续费链路（15.5）、到期暂停扫描（15.6）、真机实测（15.7）、
+**取消/终止流程（15.8，阶段 5c）**。
+数据结构由**迁移 0008**（`orders` 扩 `type` / `instance_id` + `instance_operation_logs` 建表）
+与**迁移 0009**（`instances` 扩取消申请 5 列，阶段 5c）引入。
 
 > 本批范围：会员端电源/重装/改密、管理端暂停/恢复/同步、续费下单与自动续费、到期暂停扫描。
-> **实例申请取消/终止（`RequestCancel` 与 `cancelled` / `terminated` 状态）留阶段 5c**，本批不动。
+> 实例申请取消/终止（`RequestCancel`、`terminated` 状态与收敛）由**阶段 5c 补齐，见 15.8**；
+> 本节的同步与扫描口径已按 5c 更新（同步含终止收敛、扫描含取消收敛）。
 
 ### 15.1 实例状态与操作矩阵
 
 `instances.status` 沿用迁移 0007 的四态枚举（`active` / `suspended` / `cancelled` / `terminated`）；
-**本批起产生 `suspended`**（管理端手动暂停与到期未续费自动暂停），后两者仍留 5c：
+**本批起产生 `suspended`**（管理端手动暂停与到期未续费自动暂停）；`terminated` 由 5c 收敛写入；
+`cancelled` 为 5c 定稿的**预留枚举、不再写入**（「取消申请在途」以 `cancel_status=pending` 表达，
+理由见 15.8.1）：
 
 ```
 active ──管理端暂停 / 到期未续费自动扫描──▶ suspended ──管理端恢复 / 续费成功自动恢复──▶ active
    │                                            │
-   └──────────── 阶段 5c 终止流程 ──────────────┴──▶ cancelled ──▶ terminated
+   └── 会员/管理端申请终止（cancel_status=pending，status 不变）──┴──▶ terminated（上游确认删除后收敛）
 ```
 
 **状态与操作的可执行矩阵**（定稿；不满足时返回 `40002`，且**失败尝试同样写审计**）：
@@ -2665,12 +2670,18 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 | 重装系统 | `POST /instances/:id/reinstall` | 会员本人 | 仅 `active` | `POST /provision/default`（`func=reinstall` + `os`/`port`） | 无（仅审计） |
 | 重装可选系统列表 | `GET /instances/:id/reinstall-options` | 会员本人 | 任意 | `GET /host/cloudos` | 无 |
 | 重置密码 | `POST /instances/:id/reset-password` | 会员本人 | 仅 `active` | `POST /provision/default`（`func=crack_pass` + `password`） | 新密码落库到实例记录 |
-| 续费下单 | `POST /instances/:id/renew` | 会员本人 | `active` / `suspended` | 无（仅本地建单） | 创建 `type=renew` 的 pending 订单 |
+| 续费下单 | `POST /instances/:id/renew` | 会员本人 | `active` / `suspended` 且**无在途取消申请**（5c） | 无（仅本地建单） | 创建 `type=renew` 的 pending 订单 |
+| 申请取消/终止 | `POST /instances/:id/cancel` | 会员本人 | `active` / `suspended`（5c） | `POST /host/cancel`（`Immediate` / `Endofbilling`） | `cancel_status → pending`（`status` 不变）；已有在途申请时幂等返回 |
+| 代客终止申请 | `POST /admin/instances/:id/cancel` | **仅 admin** | 同会员端（5c） | 同上 | 同上（审计 `actor=admin`） |
 | 暂停 | `POST /admin/instances/:id/suspend` | **仅 admin** | 仅 `active` | `POST /provision/default`（`func=suspend` + `reason`） | `status → suspended` |
 | 恢复 | `POST /admin/instances/:id/unsuspend` | **仅 admin** | 仅 `suspended` | `POST /provision/default`（`func=unsuspend`） | `status → active` |
-| 同步 | `POST /admin/instances/:id/sync` | admin / finance / support | 任意 | `GET /cart/hostinfo`（all=1）+ `POST /provision/default`（`func=status`） | 回写同步字段；按上游 `domainstatus` 收敛 `active ↔ suspended` |
+| 同步 | `POST /admin/instances/:id/sync` | admin / finance / support | 任意 | `GET /cart/hostinfo`（all=1）+ `POST /provision/default`（`func=status`） | 回写同步字段；按上游 `domainstatus` 收敛 `active ↔ suspended`；**上游已删除/已终止时收敛 `terminated`**（5c） |
 | 操作记录 | `GET /instances/:id/logs`、`GET /admin/instances/:id/logs` | 见 15.4 | 任意 | 无 | 无 |
-| 到期暂停（自动） | 应用内后台任务 | system | `active` 且 `next_due_date < now` | `POST /provision/default`（`func=suspend` + 固定原因） | `status → suspended` |
+| 到期暂停（自动） | 应用内后台任务 | system | `active` 且 `next_due_date < now` 且**无在途取消申请**（5c） | `POST /provision/default`（`func=suspend` + 固定原因） | `status → suspended` |
+| 终止收敛（自动，5c） | 应用内后台任务 | system | `cancel_status=pending` 且到收敛时机（见 15.8.5） | `GET /cart/hostinfo`（all=1） | 上游已删除/已终止 → `status → terminated` + `cancel_status → done` |
+
+**`terminated` 是终态**（5c）：电源/重装/改密/续费/取消申请/暂停/恢复一律拒绝（`40002`，失败尝试同样写审计）；
+后续若需要「重新购买」走新订单（本批不做「恢复已终止实例」）。
 
 **硬操作风险标注**：`hard_off`（强制关机）/ `hard_reboot`（强制重启）等价于直接断电/复位，
 **可能造成主机数据损坏或文件系统异常**，本批**按需开放**（面板类产品的常规能力），
@@ -2769,8 +2780,8 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 | 鉴权 | 管理员 token，**admin / finance / support 均可**（只读回读 + 状态收敛，不影响计费） |
 | 请求体 | 无 |
 | 成功 | HTTP 200，`data` = `{instance_id, action:"sync", message, status, power_state, power_desc, status_changed, instance, next_due_date, upstream_status}`；`instance` 为同步后的实例摘要 |
-| 错误码 | `401`、`40001`、`404`、`50003`（上游回读失败/主机不存在） |
-| 行为 | ① `hostinfo` 回写 `next_due_date` / `upstream_status` / `dedicated_ip` / `assigned_ips` / `port` / 账号密码（回读不到的字段保留原值）；② 按上游 `domainstatus` **收敛本地状态**（`Suspended ↔ Active`，仅在这两态之间，`cancelled` / `terminated` 不动）；③ 附带查询电源状态（失败不影响同步成功，如实记录在 `message`） |
+| 错误码 | `401`、`40001`、`404`、`50003`（上游回读故障：网络/鉴权/业务拒绝。**主机不存在自 5c 起不再是错误**，而是终止收敛信号，返回 200 + `terminated=true`） |
+| 行为 | ① `hostinfo` 回写 `next_due_date` / `upstream_status` / `dedicated_ip` / `assigned_ips` / `port` / 账号密码（回读不到的字段保留原值）；② 按上游 `domainstatus` **收敛本地状态**（`Suspended ↔ Active`，仅在这两态之间）；③ 附带查询电源状态（失败不影响同步成功，如实记录在 `message`）；④ **终止收敛（5c）**：上游主机不存在或 `domainstatus ∈ {Deleted, Terminated}` → 本地 `status=terminated` + `cancel_status=done`（幂等）、写 `cancel_sync` 审计，本次**跳过字段回写与电源查询**，响应 `terminated=true`（见 15.8.3） |
 
 #### `GET /api/v1/admin/instances/:id/logs`
 
@@ -2788,7 +2799,7 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 | `instance_id` | int | 实例 ID（`instances.id`） |
 | `actor_type` | string | `member`（会员操作）/ `admin`（管理员操作）/ `system`（自动：开通、续费、到期暂停） |
 | `actor_id` | int | 操作者 ID（`member_id` / `admin_id`；`system` 恒为 0） |
-| `action` | string | `create` / `power_on` / `power_off` / `reboot` / `hard_off` / `hard_reboot` / `reinstall` / `reset_password` / `suspend` / `unsuspend` / `sync` / `renew` |
+| `action` | string | `create` / `power_on` / `power_off` / `reboot` / `hard_off` / `hard_reboot` / `reinstall` / `reset_password` / `suspend` / `unsuspend` / `sync` / `renew` / **`cancel`（提交取消申请，5c）/ `cancel_sync`（上游确认终止后的本地收敛，5c）** |
 | `status` | string | `success` / `fail` |
 | `message` | string | 结果说明（≤500 字符，**已脱敏：不含密码与密钥**；上游错误原样透传前先做敏感串替换） |
 | `created_at` | string | 发生时间（UTC） |
@@ -2844,11 +2855,12 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 | 项目 | 说明 |
 | --- | --- |
 | 调度 | 服务启动后延迟 **1 分钟**执行首轮，之后每 **24 小时**一轮（常量：`scheduler.DefaultInitialDelay` / `DefaultInterval`）；由 `cmd/server` 在构建路由时启用（`router.Options.EnableDueScan`），单批 50 条循环处理，单轮整体超时 5 分钟 |
-| 命中条件 | `instances.status = active` 且 `next_due_date` 非空且 `< 当前时间`（UTC，按 `next_due_date` 升序） |
+| 命中条件 | `instances.status = active` 且 `next_due_date` 非空且 `< 当前时间`（UTC，按 `next_due_date` 升序）；**排除 `cancel_status=pending` 的实例**（5c：它们已进入终止流程，见 15.8.5） |
 | 动作 | 调上游 `func=suspend`（原因固定「到期未续费，系统自动暂停」）→ 本地条件更新 `active → suspended` → 审计（`actor=system`、`action=suspend`） |
 | 失败重试 | 单实例失败（上游报错等）**不中断本轮**，审计记 `fail`，本地保持 `active`，**下一轮自动重试** |
 | 幂等 | 上游返回业务失败时回读一次主机：若 `domainstatus=Suspended`（上游已自行暂停等）则只收敛本地状态，审计记 `success` 并标注「上游已是暂停状态（幂等）」；本地状态条件更新保证并发下只有一个生效 |
-| 已知边界 | ① 上游自行暂停（非本系统触发）不在扫描范围，由管理端同步接口收敛；② 扫描间隔窗口内到期的实例最迟下一轮被处理（≤24h+1min）；③ 上游不可达时整轮跳过并记 ERROR（不误改本地状态）；④ **不做到期提醒通知**（阶段 6）；⑤ 到期后本地暂停不自动重新计费，续费成功由续费链路自动恢复（15.5） |
+| 终止收敛阶段（5c） | 同一轮扫描在到期暂停之后执行：对「取消申请在途且到收敛时机」的实例回读上游，已删除/已终止 → 收敛 `terminated`（`actor=system`、`action=cancel_sync`）；单批 50 条循环处理，统计字段 `cancel_scanned` / `cancel_converged` / `cancel_failed`（完整口径见 15.8.5） |
+| 已知边界 | ① 上游自行暂停（非本系统触发）不在扫描范围，由管理端同步接口收敛；② 扫描间隔窗口内到期的实例最迟下一轮被处理（≤24h+1min）；③ 上游不可达时整轮跳过并记 ERROR（不误改本地状态）；④ **不做到期提醒通知**（阶段 6）；⑤ 到期后本地暂停不自动重新计费，续费成功由续费链路自动恢复（15.5）；⑥ 上游自行删除主机（非本系统申请）不在终止收敛范围（收敛只覆盖 `cancel_status=pending`），由管理端同步接口收敛 |
 
 ### 15.7 真机实测与差异记录（2026-10-08，生产上游）
 
@@ -2895,10 +2907,136 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
    修复后重跑了完整真机续费链路（第二次续费 ¥20）验证：本地状态直接收敛为 `active`、
    审计为 `unsuspend/success/system`（「上游已自行解除暂停，本地状态已收敛为 active」），问题不再复现。
 
+### 15.8 取消/终止流程（阶段 5c）
+
+本节描述：状态机与取消标记（15.8.1）、接口契约（15.8.2）、上游口径与收敛规则（15.8.3）、
+操作矩阵更新（15.8.4）、扫描收敛（15.8.5）、真机实测与边界（15.8.6）。
+数据结构由**迁移 0009** 引入（`instances` 扩 5 列 + 1 索引；`instance_operation_logs.action` 仅注释扩展，
+`VARCHAR(32)` 无需 DDL 变更）。
+
+> 上游没有「直接删除主机」的开放接口：终止必须走**申请流程**（`POST /host/cancel`，按上游配置可能需人工审核）。
+> 因此本系统的终止 = **申请 → 上游异步处理 → 本地收敛**三步，接口返回「已受理」不等于「已终止」。
+
+#### 15.8.1 状态机与取消标记（定稿）
+
+**取消申请是实例记录上的标记，不引入新的中间状态**：申请在途期间 `instances.status` 保持
+`active` / `suspended` 原值不变，终止完成时一次性转 `terminated`。
+
+| 字段（迁移 0009） | 类型 | 说明 |
+| --- | --- | --- |
+| `cancel_request_id` | int | 上游回带的取消申请 ID（`POST /host/cancel` 的 `cancel_request_id`；上游未回带为 0） |
+| `cancel_type` | string | `immediate`（立即取消 → 上游 `Immediate`）/ `end_of_billing`（到期取消 → 上游 `Endofbilling`）；无申请为空串 |
+| `cancel_status` | string | `none` 无申请（默认）/ `pending` 申请在途 / `done` 已终止（本地已收敛为 `terminated`） |
+| `cancel_reason` | string | 申请原因（会员填写或服务端兜底文案；管理端必填） |
+| `cancel_requested_at` | datetime \| null | 申请提交时间（UTC） |
+
+**为什么不用 `cancelled` 状态**（5c 定稿）：`status` 反映主机的**真实可用状态**（上游仍在运行 →
+本地仍是 `active`/`suspended`），取消申请是与服务状态**正交**的流程元数据；若把在途申请写成
+`cancelled`，就会丢失「主机仍在运行 / 是否已暂停」的信息，且续费、暂停等判定还要叠加第二套状态维度。
+迁移 0007 预留的 `cancelled` 枚举值因此**保留但不再写入**（不改已应用迁移，见 0009 注释）。
+
+```
+      ┌─ active ─────────┐
+      │                  ├─ 申请取消（cancel_status=pending，status 不变）
+      └─ suspended ──────┘        │
+                                  ├─ 上游仍在运行 → 保持 pending（到期取消可能持续到账单周期结束）
+                                  └─ 上游已删除（domainstatus=Deleted / 主机不在列表中）
+                                       → status=terminated + cancel_status=done（终态，幂等）
+```
+
+#### 15.8.2 接口契约
+
+两接口共用服务层实现（`instanceops.Service.Cancel`），差异只在鉴权、归属校验与原因必填。
+
+| 项目 | 会员端 | 管理端（代客/强制终止） |
+| --- | --- | --- |
+| 路径 | `POST /api/v1/instances/:id/cancel` | `POST /api/v1/admin/instances/:id/cancel` |
+| 鉴权 | 会员 token，**仅本人实例**（他人/不存在统一 `404 实例不存在`） | 管理员 token，**仅 `admin` 角色**（finance / support `403`），不限归属 |
+| 请求体 | `type`（必填：`immediate` / `end_of_billing`）、`reason`（**可空**，空时服务端兜底「会员申请终止（未填写原因）」） | 同左，但 `reason` **必填**（≤200 字符） |
+| 允许状态 | `active` / `suspended`；`terminated` 返回 `40002`（已有在途申请走幂等分支而非报错） | 同左 |
+| 成功 | HTTP 200，`data` = `{instance_id, action:"cancel", message, status, cancel_request_id, cancel_type, cancel_status, cancel_requested_at, duplicate}` | 同左（审计 `actor=admin`） |
+| `duplicate` | `true` 表示已有在途申请，**未重复提交上游**（幂等返回现状；同样写审计留痕） | 同左 |
+| 错误码 | `401`、`40001`（type 非法/ID 非法/原因过长）、`404`、`40002`（实例非 active/suspended）、`50003`（上游拒绝） | 加 `403`；`40001` 含 reason 为空 |
+| 上游 | `POST /host/cancel`（`id` / `type` / `reason`），受理即返回；失败不落本地标记 | 同左 |
+
+**幂等锚点**：本地写入用条件更新（`cancel_status <> 'pending'`）保证同一实例同一时刻只有一个申请在途；
+并发重复提交时后者按幂等分支返回（审计注明「并发重复提交」），不会向前台重复发起上游调用。
+
+**实例视图新增字段**（列表与详情一致，管理端同）：`cancel_status` / `cancel_type` / `cancel_request_id` /
+`cancel_requested_at`（14.4 与 15.2 的视图同步扩展，`instance` 摘要见 `sync` 响应）。
+
+#### 15.8.3 上游口径与收敛规则
+
+**上游 `POST /host/cancel` 的三种应答（真机实测，见 15.8.6）**：
+
+| 上游应答 | 语义 | 本地处置 |
+| --- | --- | --- |
+| `status=202` + `data.pending=true` + `cancel_request_id` | 活动主机：终止申请已受理、待上游处理 | `cancel_status=pending`，文案「取消申请已受理，等待上游处理（申请号 N）」 |
+| `status=200` + `data.domainstatus=Deleted`（无申请号） | 主机已被上游终止（重复申请/已删除） | `cancel_status=pending`，文案「上游主机已删除，终止即时生效（等待同步收敛）」，随后同步/扫描立即收敛 |
+| `status=400/406` 等业务失败 | 上游拒绝（如「产品为已激活或者暂停的产品才能申请取消」） | 不写本地标记，`50003` + 审计 `cancel/fail` |
+
+> 申请 ID 的字段名上游出现过两种（`cancel_request_id`，文档口径 `cancel_id`），且可能位于 `data` 内或顶层，
+> 解析按四种组合依次尝试（任一取到即用）。
+
+**收敛判定（`instanceops` 的两个入口共用同一实现）**：
+
+| 上游回读结果 | 本地动作 | 审计 |
+| --- | --- | --- |
+| 主机**不在**主机列表中（`ErrHostNotFound`：`hostinfo` 按 `hostid[]` 查不到） | `status → terminated` + `cancel_status → done` | `cancel_sync/success` |
+| `domainstatus ∈ {Deleted, Terminated}`（主机记录仍在，如真机 10922/10923） | 同上，并把该 `domainstatus` 回写 `upstream_status` | `cancel_sync/success` |
+| `domainstatus ∈ {Active, Suspended}` | **不动作**（申请尚未被上游处理） | 不写审计（避免每轮刷屏） |
+| 回读故障（网络/鉴权/业务拒绝，**非主机不存在**） | 不动作 | 管理端同步：`sync/fail` + `50003`；扫描：仅服务日志（不写审计） |
+
+**幂等**：收敛用条件更新（`status <> 'terminated'`），已是 `terminated` 时不重复写；
+管理端重复同步返回 200 + `terminated=true` + `status_changed=false`，审计文案标注「幂等」。
+**误收敛防护**：回读故障与「主机不存在」严格区分（上游业务失败走 `ErrUpstreamFailed`，绝不触发收敛）。
+
+#### 15.8.4 操作矩阵更新
+
+- **`terminated` 为终态**：电源/重装/改密/续费/取消申请/暂停/恢复全部 `40002`（失败尝试写审计）；
+  实例列表/详情/操作记录仍可读。
+- **续费收紧**：`cancel_status=pending` 时不可续费（`40002`「实例已有在途取消申请，无法续费」）——
+  上游可能按申请终止主机，续费会白付；上游的**撤销申请**能力（`DELETE /host/cancel`，参数 `id`）
+  已在上游文档中存在但**本批未接入**，留后续批次（见 15.8.6 未做项）。
+- **其他操作不受在途申请影响**：申请放弃后主机仍可开关机/重装/改密（上游删除前服务仍可用），
+  暂停/恢复也照常（由上游回答可行性），避免「申请即冻结」影响会员取回数据。
+
+#### 15.8.5 扫描收敛（与到期暂停同一轮）
+
+| 项目 | 说明 |
+| --- | --- |
+| 命中条件 | `cancel_status='pending'` 且 `cancel_requested_at` 非空，且（`cancel_type='immediate'` **或** `cancel_type='end_of_billing'` 且 `next_due_date < now`）——到期取消要等账单周期结束，上游才可能执行终止，提前回读没有意义 |
+| 动作 | 回读上游主机（`hostinfo` all=1）→ 已删除/已终止 → 本地 `terminated` + `cancel_status=done` + 审计 `cancel_sync`（`actor=system`） |
+| 统计 | `cancel_scanned`（本轮尝试）/ `cancel_converged`（成功收敛）/ `cancel_failed`（回读或落库失败，下轮重试） |
+| 到期暂停的配合 | 扫描的到期暂停分支**排除** `cancel_status=pending` 的实例（申请终止中的实例不应被暂停） |
+| 失败重试 | 回读故障/落库失败**只记服务日志**，不写 fail 审计（避免每日刷屏），下一轮自动重试 |
+| 已知边界 | ① immediate 申请后每轮（≤24h）回读一次，上游处理完的实例最迟下一轮收敛；② 上游长期不处理（如人工审核积压）时实例持续运行，本系统不做二次提醒（运营可用管理端同步核对）；③ 收敛只覆盖本地有在途申请（`pending`）的实例，上游自行删除的由管理端同步收敛；④ 回读必须按 `hostid[]` 精确过滤，上游返回空列表会被判为「主机不存在」（真机两台已删除主机仍在列表中带 `Deleted` 状态返回，见 15.8.6，该分支已有真机证据） |
+
+#### 15.8.6 真机实测与差异记录（2026-10-08，生产上游）
+
+在 5b 遗留的两台真机（`host 10922` / `host 10923`）上完成收敛演练与新口径实测：
+
+| 步骤 | 结果 |
+| --- | --- |
+| 上游状态回读 | 两台主机均已在**上游终止完成**：`hostinfo` 仍返回记录，`domainstatus=Deleted`（**不是从列表消失**）；`host/cancelpage` 返回 `406 产品为已激活或者暂停的产品才能申请取消` |
+| 会员申请（实例 2，local 仍 active / 上游已 Deleted） | `POST /host/cancel` 返回 `status=200` + `data.domainstatus=Deleted`（**无 `cancel_request_id`**，与首次申请 202 口径不同）；本地记 `cancel_status=pending`，文案「上游主机已删除，终止即时生效（等待同步收敛）」 |
+| 管理端同步（实例 1 = 10922） | `terminated=true`、`status_changed=true`、`upstream_status=Deleted`、`cancel_status=done`；审计 `cancel_sync/success/admin` + `sync/success/admin` |
+| 管理端同步（实例 2 = 10923） | 同上；审计完整链路 `cancel/success/member`（申请）→ `cancel_sync/success/admin`（收敛）→ `sync/success/admin` |
+| 终态操作矩阵 | 本人开机 → `40002`「开机仅在 active 状态可用」（审计 `power_on/fail`）；续费 → `40002`；再次申请取消 → `40002`；管理端暂停 → `40002`（均未发起上游调用） |
+
+**与 5b 记录的衔接**：5b 第 5 条表格里的终止申请（`202` + `cancel_request_id=433`）即本表的实例 2；
+其上游处理结果就是本次观测到的 `Deleted`（**5b 记录的 `202` 口径与本次的 `200 + Deleted` 口径共同构成
+上游两种应答形态**）。两台主机成为 `terminated` 本地终态后，开发库与上游状态一致。
+
+**未做项（留后续批次）**：① 撤销取消申请（上游 `DELETE /host/cancel`，参数 `id`）与「申请后改主意」的续费恢复；
+② 终止/退款联动（终止后按剩余周期的退款策略，涉及财务口径）；③ 到期提醒通知（阶段 6）；
+④ 管理端实例详情页与前端展示（前端零改动，本批只扩接口字段）。
+
 ## 16. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-08 | v10 | 阶段 5c：新增 **15.8「取消/终止流程」**——**迁移 0009**（`instances` 扩 `cancel_request_id` / `cancel_type` / `cancel_status`(none/pending/done) / `cancel_reason` / `cancel_requested_at` + `idx_instances_cancel`；`instance_operation_logs.action` 仅注释扩展，VARCHAR(32) 无 DDL 变更）；**状态机定稿**（取消申请是与服务状态正交的标记：在途期间 `status` 保持 `active`/`suspended` 不变，上游确认删除后一次性转 `terminated`；迁移 0007 的 `cancelled` 枚举**保留但不再写入**）；**接口**（会员端 `POST /instances/:id/cancel`、管理端 `POST /admin/instances/:id/cancel`（仅 admin、reason 必填）；`type` = `immediate`/`end_of_billing` → 上游 `Immediate`/`Endofbilling`；**重复申请幂等**（在途返回现状 `duplicate=true`，不重复提交上游但留审计）；允许状态 `active`/`suspended`）；**收敛规则**（主机不在列表或 `domainstatus ∈ {Deleted, Terminated}` → `terminated` + `cancel_status=done` + 审计 `cancel_sync`，幂等；回读故障与「主机不存在」严格区分，绝不误收敛）；**操作矩阵更新**（`terminated` 终态全操作拒绝；`cancel_status=pending` 时禁续费；其他操作不受在途申请影响）；**扫描扩展**（到期暂停排除在途申请实例；新增终止收敛阶段 `cancel_scanned/converged/failed`，immediate 每轮回读、end_of_billing 到期后回读，失败不写审计并下轮重试）；**审计 action 扩展** `cancel` / `cancel_sync`；**视图扩展**（实例列表/详情/`sync` 响应新增取消字段，新增 `terminated` 标志）；**真机实测（15.8.6）**——上游终止完成后主机**仍在 `hostinfo` 列表中且 `domainstatus=Deleted`**、对已删除主机的重复申请返回 `200 + data.domainstatus=Deleted`（无申请号，区别于首次申请的 `202 + pending + cancel_request_id`）、两台遗留真机（10922/10923）经同步收敛为 `terminated` 且审计留痕、终态操作矩阵实测全部 `40002`；同步更新 14.2（instances 状态说明）、15.1（矩阵与状态图）、15.2/15.3（renew 收紧、sync 行为与错误码）、15.4（action 枚举）、15.6（扫描范围与边界） |
 | 2026-10-08 | v9 | 阶段 5b：新增第 15 节「实例操作与续费」——**操作矩阵与状态约束**（会员端电源/重装/改密仅 `active`；续费 `active`/`suspended`；管理端 suspend/unsuspend 仅 `admin` 且状态受限、sync 全角色；硬操作 `hard_off`/`hard_reboot` 按需开放并标注风险；上游操作异步受理语义与密码强度口径）；**`instance_operation_logs` 审计表**（迁移 0008：id/instance_id/actor_type(member/admin/system)/actor_id/action/status/message(脱敏)/created_at；全部操作含失败尝试与系统自动操作留痕；审计不参与业务事务）；**续费链路**（orders 扩 `type` ENUM('new','renew') + `instance_id`，`POST /instances/:id/renew` 按当前商品售价建单、**不支持优惠码**；支付成功 → 认领行锁幂等 → `RenewHost` → 回读顺延 `next_due_date` → 订单 active；suspended 续费成功自动 Unsuspend（失败不阻断）；失败置 `failed` + 管理员重试同入口；订单视图新增 `type`/`instance_id`）；**到期暂停扫描**（启动延迟 1 分钟 + 每 24h；`active` 且 `next_due_date < now` → 上游 Suspend + 本地 suspended + 审计 actor=system；失败下轮重试、上游已暂停幂等收敛、上游不可达整轮跳过；不做到期提醒）；**接口**（会员端 `POST /instances/:id/power|reinstall|reset-password|renew`、`GET /instances/:id/reinstall-options|logs`；管理端 `POST /admin/instances/:id/suspend|unsuspend|sync`、`GET /admin/instances/:id/logs`）；错误码新增 `50003`（上游调用失败）；**真机实测差异（15.7）**——`configoption` 口径行为级复核通过（所选 os 精确生效，对照组为默认值）、`/host/details` 可作回读来源、`/host/cloudos` 必须带 `os_config_option_id`、电源/重装/改密为异步受理（`process` 中间态与 `406 重置密码中不能执行该操作`）；同步更新 12.3（orders 两列）/12.4（订单视图 `type`/`instance_id`）/12.7（角色矩阵）/12.8（错误码）/14.1（状态机交付分支按 type 分流）/14.2（instances 状态说明：本批起产生 suspended）；变更记录移到第 16 节 |
 | 2026-10-08 | v8 | 阶段 5a：新增第 14 节「订单交付与自动开通」——**订单状态机扩为 6 态**（`pending → paid → provisioning → active / failed`，`cancelled` 仅 `pending`；迁移 0007 ALTER ENUM 并新增 `host_id` / `provision_error` / `delivered_at` 列；**入账幂等集合扩为交付态**：`paid`/`provisioning`/`active`/`failed` 重复回调一律幂等、不重复触发交付）；**instances 表**（订单↔实例一对一 + 上游主机 ID 唯一；订单快照字段、上游同步字段（到期时间/domainstatus/IP/端口/账号密码）、状态枚举（本期只写 `active`，后三者留 5b）；敏感字段仅会员本人详情可见、不进列表与日志）；**自动交付时序**（入账提交后触发、不阻塞回调；认领行锁幂等；`CreateHost` 开通参数拼装（pid/周期映射/host 生成/16 位随机密码/`configoption` 快照）；回读失败不阻断交付；失败置 `failed` + 脱敏原因；超时与落库兜底；进程崩溃悬挂为已知边界；可测性以 `DeliveryTrigger` 注入同步实现）；**接口**（会员端 `GET /instances`、`GET /instances/:id`；管理端 `GET /admin/instances`、`POST /admin/orders/:id/retry-delivery`（仅 admin，同步执行、失败仍 200 返回订单供处置））；同步更新 12.3（状态机与列）/12.4（订单视图三字段与状态提示）/12.7（角色矩阵）/12.8（错误码）/12.9（边界第 1、5 条）/12.10（第 7 条改为已落地+5b 范围）；**真机实测差异（14.5）**——下单/交付 `configoption` 键值口径修正为上游本地 id（上游源码与生产数据佐证：真实商品 `upstream_id` 恒为 0 且未识别键被静默忽略），10.3/12.3/12.4/14.3 同步；**真机全链路演练**（订单 O20261008105520T0J03J → host 10922 → 回读核对一致 → 终止申请 cancel_request_id=432）；变更记录移到第 15 节 |
 | 2026-10-08 | v7 | 阶段 4+：新增第 13 节「站点安装向导」——**安装状态机**（无 DSN / 库不可达（含修复模式与 `db=down`）/ 表缺失 / 无管理员 / 存量库自动补标记五种场景 + 续装态 `site_missing`/`pending`；`install.progress` 区分「向导走了一半」与「存量库」；任意步刷新页面或重启进程后按 `state`+`progress` 落回正确步骤，不回退不错位）；**安装模式请求分发**（`/install` 与安装 API 放行、`/api/v1/health` 照常、其它 API `503`+`50301`、浏览器导航 `302` 跳转；装完后 `/install` 永久关闭，重访为「系统已安装」提示页，安装 API 一律 `50302`）；**安装页与 9 个安装 API**（内嵌 HTML/CSS/JS 不依赖前端构建产物、字段校验、自动建库、连接失败按 MySQL 错误码给处置建议）；**默认管理员替换策略**（复用迁移 0003 行改写、库内不得残留默认哈希行、禁用 `admin/admin123456` 组合）；**配置文件合并写入规范**（生效路径、保留既有键与注释、原子替换、0600、只写部署级参数）；**并发与一次性保护**（进程内写锁 + `installed` 条件插入）；**免重启热切换**（同锁内换数据库句柄/JWT 密钥/引擎，`restart_required` 恒 false）；**安全边界**（无鉴权的风险与「装完即关」缓解、密钥不回显不落日志）；错误码新增 `50301`/`50302`/`50303`；**安装页「重启续装」两处 UI 修复**（`status` 新增 `admin_username`/`site_name` 供完成页摘要展示库内实况、第 2 步提交后按最新状态落位而非固定跳第 3 步）；12.1 的 settings 键补充 `site`/`installed`/`install.progress`；变更记录移到第 14 节 |
