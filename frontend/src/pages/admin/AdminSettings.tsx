@@ -60,7 +60,7 @@ export default function AdminSettings() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-xl font-semibold text-foreground">设置</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           支付渠道、上游对接、邮件与通知开关。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
         </p>
@@ -214,7 +214,7 @@ function EpaySection() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <CardTitle className="text-base">易支付（payment.epay）</CardTitle>
@@ -416,7 +416,7 @@ function UpstreamSection() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="border-b">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <CardTitle className="text-base">上游对接（upstream）</CardTitle>
@@ -436,14 +436,14 @@ function UpstreamSection() {
           <Alert
             className={
               probe.connected
-                ? 'border-emerald-500/40 bg-emerald-500/5'
-                : 'border-amber-500/40 bg-amber-500/5'
+                ? 'border-success/40 bg-success/5'
+                : 'border-warning/40 bg-warning/5'
             }
           >
             {probe.connected ? (
-              <CheckCircle2Icon className="text-emerald-600" aria-hidden />
+              <CheckCircle2Icon className="text-success" aria-hidden />
             ) : (
-              <AlertCircleIcon className="text-amber-600" aria-hidden />
+              <AlertCircleIcon className="text-warning" aria-hidden />
             )}
             <AlertTitle data-testid="upstream-probe-result">
               {probe.connected ? '上游连通正常' : '上游未连通'}
@@ -647,7 +647,7 @@ function SMTPSection() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="border-b">
         <CardTitle className="text-base">邮件 SMTP（email.smtp）</CardTitle>
         <CardDescription>
           通知邮件与测试邮件的发送通道；未配置时邮件通知静默跳过（站内通知不受影响）。
@@ -781,8 +781,8 @@ function SMTPSection() {
             </Button>
           </div>
           {testResult ? (
-            <Alert className="border-emerald-500/40 bg-emerald-500/5">
-              <CheckCircle2Icon className="text-emerald-600" aria-hidden />
+            <Alert className="border-success/40 bg-success/5">
+              <CheckCircle2Icon className="text-success" aria-hidden />
               <AlertDescription>{testResult}</AlertDescription>
             </Alert>
           ) : null}
@@ -870,7 +870,7 @@ function NotificationSection() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="border-b">
         <CardTitle className="text-base">通知开关（notifications）</CardTitle>
         <CardDescription>
           站内通知、通知邮件与到期提醒的全局开关；缺省全开、提前 7 天提醒。

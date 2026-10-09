@@ -60,7 +60,7 @@ export default function SecretInput({
           <span data-testid={`${name}-status`}>{configured ? `已配置（${masked}）` : '未配置'}</span>
         </span>
         {state.mode === 'replace' ? (
-          <Badge variant="secondary" className="bg-primary/10 text-primary">
+          <Badge variant="secondary" className="bg-accent text-primary">
             保存后替换
           </Badge>
         ) : null}

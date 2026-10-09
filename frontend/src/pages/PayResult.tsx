@@ -168,10 +168,10 @@ export default function PayResult() {
           className={[
             'grid size-12 place-items-center rounded-full',
             tone === 'success'
-              ? 'bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+              ? 'bg-success/10 text-success dark:bg-green-500/15 dark:text-green-400'
               : tone === 'danger'
                 ? 'bg-destructive/10 text-destructive'
-                : 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+                : 'bg-warning/10 text-warning dark:bg-amber-500/15 dark:text-amber-400',
           ].join(' ')}
         >
           <ToneIcon className="size-6" aria-hidden />

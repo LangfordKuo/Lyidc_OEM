@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AlertTriangleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { errorMessage } from '@/api/client'
@@ -51,6 +52,7 @@ export default function PowerActions({
             title={action.description}
             onClick={() => setTarget(action)}
           >
+            {action.danger ? <AlertTriangleIcon aria-hidden /> : null}
             {action.label}
           </Button>
         ))}

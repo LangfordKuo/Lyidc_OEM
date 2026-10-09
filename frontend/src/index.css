@@ -5,9 +5,111 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * 品牌配色：蓝 / 白 / 灰 三色体系（无渐变）。
+ *   品牌蓝 #2563EB（primary）· hover #1D4ED8 · 浅蓝底 #EFF6FF
+ *   深蓝   #1E3A8A（hero / 页脚等深色区的纯色底，禁止渐变）
+ *   白     #FFFFFF（卡片与内容区）
+ *   灰阶   页面底 #F8FAFC · 分区 #F1F5F9 · 边框 #E2E8F0 · 次要文字 #64748B · 主文字 #0F172A
+ * 状态语义色（绿 / 琥珀 / 红）只允许出现在状态 Badge、圆点、状态文字上，不做装饰性使用。
+ */
+:root {
+  --brand-blue: #2563eb;
+  --brand-blue-hover: #1d4ed8;
+  --brand-blue-soft: #eff6ff;
+  --brand-deep: #1e3a8a;
+
+  --success: #16a34a;
+  /* 琥珀取 amber-700 而非 600：作为 Badge/状态文字色时，浅橙底（bg-warning/10）上的对比度约 4.9:1，
+     达到正文可读性要求；#D97706 在该底色上仅约 3.1:1。 */
+  --warning: #b45309;
+
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: var(--brand-blue);
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: var(--brand-blue-soft);
+  --accent-foreground: var(--brand-blue-hover);
+  --destructive: #dc2626;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: var(--brand-blue);
+  --chart-1: #2563eb;
+  --chart-2: #3b82f6;
+  --chart-3: #1d4ed8;
+  --chart-4: #60a5fa;
+  --chart-5: #93c5fd;
+  --radius: 0.625rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: var(--brand-blue);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--brand-blue-soft);
+  --sidebar-accent-foreground: var(--brand-blue-hover);
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: var(--brand-blue);
+}
+
+/* 暗色变量体系保留（当前不做切换器）：同样收敛在蓝 / 灰两色域内。 */
+.dark {
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+  --card: #111c2e;
+  --card-foreground: #e2e8f0;
+  --popover: #111c2e;
+  --popover-foreground: #e2e8f0;
+  --primary: #3b82f6;
+  --primary-foreground: #0b1220;
+  --secondary: #1e293b;
+  --secondary-foreground: #e2e8f0;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #172554;
+  --accent-foreground: #93c5fd;
+  --destructive: #ef4444;
+  /* 暗色底上改用 amber-400，保证橙色状态文字在深色背景上的可读性。 */
+  --warning: #fbbf24;
+  --border: rgb(255 255 255 / 12%);
+  --input: rgb(255 255 255 / 16%);
+  --ring: #3b82f6;
+  --chart-1: #3b82f6;
+  --chart-2: #60a5fa;
+  --chart-3: #2563eb;
+  --chart-4: #93c5fd;
+  --chart-5: #1d4ed8;
+  --sidebar: #111c2e;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #0b1220;
+  --sidebar-accent: #172554;
+  --sidebar-accent-foreground: #93c5fd;
+  --sidebar-border: rgb(255 255 255 / 12%);
+  --sidebar-ring: #3b82f6;
+}
+
 @theme inline {
+    /* 排版尺度：正文 15px（见 base）、次要文字 13px、表格与金额数字等宽对齐。 */
+    --text-xs: 0.8125rem;
+    --text-xs--line-height: 1.55;
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    /* 中文优先的系统字体栈：拉丁与数字用 Geist，中文按平台回退（macOS 苹方 / Windows 雅黑 / 鸿蒙 / 思源）。 */
+    --font-sans: 'Geist Variable', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+        'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei UI', 'Microsoft YaHei',
+        'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+    --color-brand-blue: var(--brand-blue);
+    --color-brand-blue-hover: var(--brand-blue-hover);
+    --color-brand-soft: var(--brand-blue-soft);
+    --color-brand-deep: var(--brand-deep);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,87 +150,20 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/*
- * 品牌主题：主色为靛蓝系（indigo）。
- * light 用 indigo-600，dark 用 indigo-500，ring 与主色一致；其余为 shadcn 缺省中性色。
- */
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.511 0.262 276.966);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.511 0.262 276.966);
-    --chart-1: oklch(0.585 0.233 277.117);
-    --chart-2: oklch(0.673 0.182 276.935);
-    --chart-3: oklch(0.606 0.25 292.717);
-    --chart-4: oklch(0.685 0.169 237.323);
-    --chart-5: oklch(0.769 0.188 70.08);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.511 0.262 276.966);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.511 0.262 276.966);
-}
-
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.585 0.233 277.117);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.585 0.233 277.117);
-    --chart-1: oklch(0.585 0.233 277.117);
-    --chart-2: oklch(0.673 0.182 276.935);
-    --chart-3: oklch(0.606 0.25 292.717);
-    --chart-4: oklch(0.685 0.169 237.323);
-    --chart-5: oklch(0.769 0.188 70.08);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.585 0.233 277.117);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.585 0.233 277.117);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
     }
   body {
     @apply bg-background text-foreground;
+    /* 正文 15px / 行高 1.7：中文长段落更易读。 */
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     }
   html {
     @apply font-sans;
     }
+  /* 金额与计数对齐：价格、表格数字、监控数值统一用 Tailwind 的 tabular-nums 类。 */
 }

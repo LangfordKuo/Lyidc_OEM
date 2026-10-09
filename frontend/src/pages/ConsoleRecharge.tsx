@@ -94,7 +94,7 @@ export default function ConsoleRecharge() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">余额充值</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">余额充值</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             充值到账后可用于余额支付（即时开通，无需跳转渠道）。
           </p>
@@ -106,7 +106,7 @@ export default function ConsoleRecharge() {
 
       <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">账户余额</CardTitle>
             <CardDescription>以服务端实时值为准</CardDescription>
           </CardHeader>
@@ -120,7 +120,7 @@ export default function ConsoleRecharge() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">在线充值</CardTitle>
             <CardDescription>金额范围 ¥1.00 ~ ¥50000.00（最多两位小数）</CardDescription>
           </CardHeader>
@@ -204,7 +204,7 @@ export default function ConsoleRecharge() {
 
         <TabsContent value="recharges" className="pt-2">
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">充值记录</CardTitle>
               <CardDescription>新建在前；渠道下单失败时充值单会保持「待支付」。</CardDescription>
             </CardHeader>
@@ -261,7 +261,7 @@ export default function ConsoleRecharge() {
 
         <TabsContent value="ledger" className="pt-2">
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">余额流水</CardTitle>
               <CardDescription>入账为正、出账为负；每笔都记录变动前后余额。</CardDescription>
             </CardHeader>
@@ -297,7 +297,7 @@ export default function ConsoleRecharge() {
                           'text-sm font-medium',
                           negative
                             ? 'text-destructive'
-                            : 'text-emerald-600 dark:text-emerald-400',
+                            : 'text-success dark:text-green-400',
                         )}
                       >
                         {negative ? '' : '+'}

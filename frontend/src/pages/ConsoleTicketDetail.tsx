@@ -160,7 +160,7 @@ export default function ConsoleTicketDetail() {
       ) : null}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">对话记录</CardTitle>
           <CardDescription>客服的内部备注不会展示在这里。</CardDescription>
         </CardHeader>
@@ -174,7 +174,7 @@ export default function ConsoleTicketDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">回复</CardTitle>
           <CardDescription>
             {closed ? '工单已关闭，无法继续回复。' : '补充说明或追问，客服会收到通知。'}
@@ -243,7 +243,7 @@ function MessageBubble({ message }: { message: TicketMessage }) {
           className={cn(
             'rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap',
             fromMember
-              ? 'bg-primary/10 text-foreground'
+              ? 'bg-accent text-foreground'
               : 'bg-muted text-foreground',
           )}
         >

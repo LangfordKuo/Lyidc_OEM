@@ -208,8 +208,8 @@ export default function AdminInstanceDetail() {
       </header>
 
       {cancelPending ? (
-        <Alert className="border-amber-500/40 bg-amber-500/5">
-          <AlertTriangleIcon className="text-amber-600" aria-hidden />
+        <Alert className="border-warning/40 bg-warning/5">
+          <AlertTriangleIcon className="text-warning" aria-hidden />
           <AlertTitle>终止申请在途</AlertTitle>
           <AlertDescription>
             {instance.cancel_type === 'end_of_billing' ? '到期终止' : '立即终止'}申请已提交
@@ -230,7 +230,7 @@ export default function AdminInstanceDetail() {
       ) : null}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">实例信息</CardTitle>
           <CardDescription>
             管理端详情与会员端详情字段一致（含主机凭据），敏感字段仅在管理后台内部可见。
@@ -264,7 +264,7 @@ export default function AdminInstanceDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">主机凭据</CardTitle>
           <CardDescription>仅管理后台可见；请勿截图外传。</CardDescription>
         </CardHeader>
@@ -295,7 +295,7 @@ export default function AdminInstanceDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">实例操作</CardTitle>
           <CardDescription>
             角色矩阵（契约 15.3）：同步状态所有角色可用；暂停/恢复/终止申请仅超级管理员可用。
@@ -351,7 +351,7 @@ export default function AdminInstanceDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">操作记录</CardTitle>
           <CardDescription>含失败尝试与系统自动操作（message 已脱敏）。</CardDescription>
         </CardHeader>

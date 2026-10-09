@@ -176,7 +176,7 @@ export default function AdminOrders() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-xl font-semibold text-foreground">订单</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">订单</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           全站订单列表（按状态/类型/会员/单号筛选）。详情页可查看交付信息；
           交付失败或未触发交付的订单可由超级管理员重试交付。

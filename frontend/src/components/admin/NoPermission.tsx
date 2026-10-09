@@ -22,8 +22,8 @@ export default function NoPermission({
 
   return (
     <div className="space-y-4">
-      <Alert className="border-amber-500/40 bg-amber-500/5">
-        <ShieldAlertIcon className="text-amber-600" aria-hidden />
+      <Alert className="border-warning/40 bg-warning/5">
+        <ShieldAlertIcon className="text-warning" aria-hidden />
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>
           当前角色无权{permissionLabel(permission)}（{permissionHint(permission)}）。

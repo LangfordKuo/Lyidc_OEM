@@ -98,12 +98,16 @@ export default function ConsoleServerDetail() {
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate font-mono text-lg font-semibold text-foreground">
-            {instance.name}
+          {/* 主标题用商品名（本身即含区域，如「香港二区 CN2 A型」）；实例名与各类 ID 降为次要行。 */}
+          <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
+            {instance.product_name}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {instance.product_name} · {formatCycleLabel(instance.billing_cycle)} · 实例 ID{' '}
-            {instance.id}
+            {formatCycleLabel(instance.billing_cycle)} · 到期{' '}
+            {formatDateTimeOr(instance.next_due_date)}
+          </p>
+          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+            {instance.name} · 实例 ID {instance.id} · 上游主机 #{instance.host_id}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +145,7 @@ export default function ConsoleServerDetail() {
       ) : null}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">实例信息</CardTitle>
           <CardDescription>账号密码仅会员本人可见，请勿泄漏给他人。</CardDescription>
         </CardHeader>
@@ -202,7 +206,7 @@ export default function ConsoleServerDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">实例操作</CardTitle>
           <CardDescription>
             电源与重装/改密仅「运行中」可用；上游为异步受理，操作结果可在下方操作记录中查看。
@@ -252,6 +256,7 @@ export default function ConsoleServerDetail() {
                 disabled={!canCancel}
                 onClick={() => setDialog('cancel')}
               >
+                <AlertTriangleIcon aria-hidden />
                 申请终止
               </Button>
             </div>

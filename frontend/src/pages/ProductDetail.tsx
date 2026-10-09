@@ -149,12 +149,12 @@ export default function ProductDetail() {
         <div className="space-y-8">
           <header>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className="bg-primary/10 text-primary">{data.group.name}</Badge>
+              <Badge className="bg-accent text-primary">{data.group.name}</Badge>
               <Badge variant="secondary">{productTypeLabel(data.type)}</Badge>
               {data.stock_control === 1 ? (
                 <Badge
                   variant="outline"
-                  className={outOfStock ? 'text-destructive' : 'text-emerald-700 dark:text-emerald-400'}
+                  className={outOfStock ? 'text-destructive' : 'text-success dark:text-green-400'}
                 >
                   {outOfStock ? '库存不足' : `库存 ${data.stock_qty}`}
                 </Badge>
@@ -164,7 +164,7 @@ export default function ProductDetail() {
                 </Badge>
               )}
               {data.ontrial_max > 0 ? (
-                <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+                <Badge variant="outline" className="text-warning dark:text-amber-400">
                   支持试用
                 </Badge>
               ) : null}
@@ -230,7 +230,7 @@ export default function ProductDetail() {
               </div>
 
               {outOfStock ? (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+                <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning dark:text-amber-400">
                   <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
                   <span>当前库存不足，仍可下单，实际开通结果由上游库存决定。</span>
                 </div>

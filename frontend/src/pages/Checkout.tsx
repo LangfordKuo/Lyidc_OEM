@@ -410,7 +410,7 @@ export default function Checkout() {
 
           {notice ? (
             <Alert>
-              <CheckCircle2Icon className="text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <CheckCircle2Icon className="text-success dark:text-green-400" aria-hidden />
               <AlertDescription>{notice}</AlertDescription>
             </Alert>
           ) : null}
@@ -424,7 +424,7 @@ export default function Checkout() {
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <Card data-testid="checkout-summary">
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">费用明细</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -472,8 +472,8 @@ export default function Checkout() {
                   </div>
                   {couponError ? <p className="text-xs text-destructive">{couponError}</p> : null}
                   {coupon?.valid ? (
-                    <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
-                      <Badge variant="outline" className="text-emerald-700 dark:text-emerald-400">
+                    <p className="flex items-center gap-2 text-xs text-success dark:text-green-400">
+                      <Badge variant="outline" className="text-success dark:text-green-400">
                         {coupon.code}
                       </Badge>
                       可用：减免 {formatMoney(coupon.discount_amount)}
@@ -507,7 +507,10 @@ export default function Checkout() {
 
               <div className="flex items-baseline justify-between">
                 <span className="text-muted-foreground">应付金额</span>
-                <span className="text-xl font-semibold text-foreground" data-testid="payable-amount">
+                <span
+                  className="text-2xl font-semibold tabular-nums text-foreground"
+                  data-testid="payable-amount"
+                >
                   {formatMoney(order?.final_amount ?? finalAmount)}
                 </span>
               </div>

@@ -166,7 +166,7 @@ export default function AdminTickets() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-xl font-semibold text-foreground">工单</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">工单</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           全站工单（按状态、分类、关键词或会员 ID 筛选）。客服可公开回复、记录内部备注与关闭工单；
           <span className="text-foreground">内部备注不会展示给会员</span>。

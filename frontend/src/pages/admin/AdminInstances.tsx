@@ -146,7 +146,7 @@ export default function AdminInstances() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-xl font-semibold text-foreground">实例</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">实例</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           全站实例列表（按会员/状态筛选）。详情页可执行同步、暂停/恢复与终止申请。
         </p>

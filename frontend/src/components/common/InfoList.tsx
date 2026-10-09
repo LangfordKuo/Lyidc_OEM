@@ -30,7 +30,15 @@ export function InfoList({
       {items.map((item) => (
         <div key={item.label} className="flex items-start justify-between gap-4">
           <dt className="shrink-0 text-muted-foreground">{item.label}</dt>
-          <dd className="min-w-0 text-right text-foreground">{item.value}</dd>
+          {/* 空值占位「—」统一降为次要灰色，避免与真实值同等醒目。 */}
+          <dd
+            className={cn(
+              'min-w-0 text-right',
+              item.value === '—' ? 'text-muted-foreground' : 'text-foreground',
+            )}
+          >
+            {item.value}
+          </dd>
         </div>
       ))}
     </dl>
@@ -47,7 +55,7 @@ export interface TimelineItem {
 
 const DOT_CLASSES: Record<NonNullable<TimelineItem['tone']>, string> = {
   default: 'bg-muted-foreground/40',
-  success: 'bg-emerald-500',
+  success: 'bg-success',
   danger: 'bg-destructive',
 }
 

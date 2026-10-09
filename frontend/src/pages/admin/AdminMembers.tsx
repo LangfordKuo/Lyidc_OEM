@@ -224,7 +224,7 @@ export default function AdminMembers() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">会员</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">会员</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             按用户名或邮箱检索会员，查看资料、余额流水与充值单；必要时可禁用账号。
           </p>
@@ -409,7 +409,7 @@ function MemberDetailDialog({ member, onClose }: { member: Member; onClose: () =
         return (
           <span
             className={
-              negative ? 'font-medium text-destructive' : 'font-medium text-emerald-600'
+              negative ? 'font-medium text-destructive' : 'font-medium text-success'
             }
           >
             {negative ? '' : '+'}

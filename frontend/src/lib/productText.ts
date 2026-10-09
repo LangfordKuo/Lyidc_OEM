@@ -22,7 +22,10 @@ export function valueLabel(name: string): string {
 const TYPE_LABELS: Record<string, string> = {
   dcimcloud: '云服务器',
   dcim: '独立服务器',
+  server: '独立服务器',
   vps: 'VPS',
+  cdn: 'CDN',
+  other: '其他产品',
 }
 
 export function productTypeLabel(type: string): string {

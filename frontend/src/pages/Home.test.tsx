@@ -16,7 +16,10 @@ describe('首页', () => {
     mockCatalog()
     renderApp(['/'])
 
-    expect(screen.getByRole('heading', { level: 1, name: '岭云互联' })).toBeInTheDocument()
+    // R4：Hero 标题由站点名改为价值主张（站点名保留在顶栏与页脚）。
+    expect(
+      screen.getByRole('heading', { level: 1, name: '稳定可靠的云服务器 · 支付后秒级自动开通' }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '为什么选择我们' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '购买流程' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '常见问题' })).toBeInTheDocument()

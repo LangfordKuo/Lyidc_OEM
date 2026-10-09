@@ -27,7 +27,7 @@ export default function InstanceLogsCard({ instanceId }: { instanceId: number })
         <span
           className={
             log.status === 'success'
-              ? 'text-xs text-emerald-600 dark:text-emerald-400'
+              ? 'text-xs text-success dark:text-green-400'
               : 'text-xs text-destructive'
           }
         >
@@ -46,7 +46,7 @@ export default function InstanceLogsCard({ instanceId }: { instanceId: number })
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="border-b">
         <CardTitle className="text-base">操作记录</CardTitle>
         <CardDescription>电源、重装、改密、续费、终止等操作的留痕（含失败尝试）。</CardDescription>
       </CardHeader>

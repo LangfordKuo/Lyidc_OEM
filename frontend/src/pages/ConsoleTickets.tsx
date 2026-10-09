@@ -80,7 +80,7 @@ export default function ConsoleTickets() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">工单</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">工单</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             技术、财务或其他问题都可提交工单，客服回复后会通过站内通知提醒你。
           </p>

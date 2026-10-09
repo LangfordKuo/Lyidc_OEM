@@ -21,12 +21,13 @@ const NAV_ICONS: Record<string, typeof LayoutDashboardIcon> = {
   [paths.consoleNotifications]: BellIcon,
 }
 
+// 侧栏选中态：3px 蓝色左边条 + 浅蓝底 + 蓝字（未选中项保留同宽透明边条，保证文字对齐不位移）。
 function sidebarLinkClass({ isActive }: { isActive: boolean }): string {
   return cn(
-    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+    'flex items-center gap-2.5 rounded-lg border-l-[3px] px-3 py-2 text-sm transition-colors',
     isActive
-      ? 'bg-primary/10 font-medium text-primary'
-      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      ? 'border-primary bg-accent font-medium text-primary'
+      : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
   )
 }
 

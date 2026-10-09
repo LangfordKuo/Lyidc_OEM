@@ -98,7 +98,7 @@ export default function OrderDetailPanel({
 
   return (
     <Card className="border-primary/30 bg-muted/30" data-testid="order-detail-panel">
-      <CardHeader>
+      <CardHeader className="border-b">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base">订单详情</CardTitle>

@@ -89,7 +89,7 @@ export default function ConsoleNotifications() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">通知</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">通知</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             订单交付、续费、实例暂停与工单回复等事件的站内通知，点击条目即标记为已读。
           </p>

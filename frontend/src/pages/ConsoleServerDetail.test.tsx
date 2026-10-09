@@ -38,7 +38,8 @@ function mockDetail() {
 async function renderDetail() {
   seedMemberToken()
   renderApp(['/console/servers/101'])
-  await screen.findByRole('heading', { name: 'oem-o20261008105520t0j03j' })
+  // R4：主标题改为商品名（含区域），实例名与 ID 降为次要行。
+  await screen.findByRole('heading', { name: '香港二区 CN2 A型' })
 }
 
 describe('会员区 · 实例详情', () => {

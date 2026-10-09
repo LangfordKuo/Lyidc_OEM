@@ -43,7 +43,7 @@ export default function CopyButton({
         }
       }}
     >
-      {copied ? <CheckIcon className="text-emerald-600" aria-hidden /> : <CopyIcon aria-hidden />}
+      {copied ? <CheckIcon className="text-success" aria-hidden /> : <CopyIcon aria-hidden />}
     </Button>
   )
 }

@@ -41,12 +41,13 @@ const NAV_ICONS: Record<string, typeof LayoutDashboardIcon> = {
   [paths.adminNotifications]: BellIcon,
 }
 
+// 侧栏选中态：3px 蓝色左边条 + 浅蓝底 + 蓝字（未选中项保留同宽透明边条，保证文字对齐不位移）。
 function sidebarLinkClass({ isActive }: { isActive: boolean }): string {
   return cn(
-    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+    'flex items-center gap-2.5 rounded-lg border-l-[3px] px-3 py-2 text-sm transition-colors',
     isActive
-      ? 'bg-primary/10 font-medium text-primary'
-      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      ? 'border-primary bg-accent font-medium text-primary'
+      : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
   )
 }
 
@@ -83,8 +84,8 @@ export default function AdminLayout() {
   }
 
   return (
-    <div className="flex min-h-svh flex-col bg-muted/20">
-      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
+    <div className="flex min-h-svh flex-col bg-background">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-3 px-4 sm:px-6">
           <NavLink to={paths.admin} className="flex shrink-0 items-center gap-2">
             <span className="grid size-8 place-items-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">
@@ -116,7 +117,8 @@ export default function AdminLayout() {
                     </AvatarFallback>
                   </Avatar>
                   <span className="hidden max-w-28 truncate sm:inline">{displayName}</span>
-                  {role ? (
+                  {/* 昵称与角色名相同时只显示一次，避免顶栏出现两个「超级管理员」。 */}
+                  {role && ADMIN_ROLE_LABELS[role] !== displayName ? (
                     <Badge variant="secondary" className="hidden md:inline-flex">
                       {ADMIN_ROLE_LABELS[role]}
                     </Badge>

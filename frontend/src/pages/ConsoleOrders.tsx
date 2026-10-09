@@ -56,7 +56,7 @@ export default function ConsoleOrders() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">我的订单</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">我的订单</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             查看新购与续费订单的支付、交付进度；待支付订单可继续支付或取消。
           </p>

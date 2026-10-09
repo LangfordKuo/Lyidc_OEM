@@ -48,10 +48,10 @@ export default function AdminTable<T>({
 
   return (
     <div
-      className={cn('overflow-x-auto rounded-xl border border-border bg-card', className)}
+      className={cn('overflow-x-auto rounded-xl border border-border bg-card shadow-sm', className)}
       data-testid="admin-table"
     >
-      <Table aria-label={ariaLabel} className="w-full text-sm">
+      <Table aria-label={ariaLabel} className="w-full text-sm tabular-nums">
         <TableHeader>
           <TableRow className="border-b border-border hover:bg-transparent">
             {columns.map((column) => (

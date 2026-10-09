@@ -101,7 +101,7 @@ export default function AdminNotifications() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">通知</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">通知</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             这里是<span className="font-medium text-foreground">管理员本人</span>
             的收件箱（与会员端通知相互独立）：工单提交、客服回复等事件会推送给管理员与客服；

@@ -208,7 +208,7 @@ export default function AdminOrderDetail() {
 
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">交付信息</CardTitle>
             <CardDescription>上游开通结果；失败时可重试交付（同步调用上游）。</CardDescription>
           </CardHeader>
@@ -265,7 +265,7 @@ export default function AdminOrderDetail() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">会员概要</CardTitle>
             <CardDescription>订单归属会员（资料缺失时只显示 ID）。</CardDescription>
           </CardHeader>
@@ -296,7 +296,7 @@ export default function AdminOrderDetail() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">订单流转</CardTitle>
             <CardDescription>按下单、支付与交付时间线展示。</CardDescription>
           </CardHeader>
@@ -307,7 +307,7 @@ export default function AdminOrderDetail() {
       </section>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">订单信息</CardTitle>
           <CardDescription>下单时的快照字段（金额为定点小数字符串）。</CardDescription>
         </CardHeader>

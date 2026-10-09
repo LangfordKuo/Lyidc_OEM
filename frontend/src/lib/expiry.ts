@@ -50,7 +50,7 @@ export function expiryText(value: string | null | undefined): string {
 export function expiryColorClass(state: ExpiryState): string {
   switch (state) {
     case 'soon':
-      return 'text-amber-600 dark:text-amber-400'
+      return 'text-warning dark:text-amber-400'
     case 'expired':
       return 'text-destructive'
     default:

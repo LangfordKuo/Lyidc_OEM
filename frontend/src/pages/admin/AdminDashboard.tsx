@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom'
-import { ArrowRightIcon, WifiIcon } from 'lucide-react'
+import {
+  ArrowRightIcon,
+  LifeBuoyIcon,
+  ReceiptTextIcon,
+  ServerIcon,
+  UsersIcon,
+  WalletIcon,
+  WifiIcon,
+} from 'lucide-react'
 
 import { listAdminInstances } from '@/api/adminInstances'
 import { listAdminLedger, listAdminMembers, listAdminRecharges } from '@/api/adminMembers'
@@ -100,7 +108,7 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">仪表盘</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">仪表盘</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             欢迎，{admin?.nickname || admin?.username || '管理员'}
             {role ? ` · ${ADMIN_ROLE_LABELS[role]}` : ''}
@@ -121,9 +129,13 @@ export default function AdminDashboard() {
 
       <section>
         <h2 className="mb-3 text-sm font-medium text-muted-foreground">关键指标</h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* 指标卡布局：xl 一行 5 列；lg 前 3 张各占 1/3、后 2 张各占 1/2 铺满整行；
+            sm 下第 5 张占满整行——任何断点都不留大片空白。 */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-5">
           <StatCard
             label="会员总数"
+            className="lg:col-span-2 xl:col-span-1"
+            icon={UsersIcon}
             value={canMembers ? membersState.data?.total : null}
             loading={membersState.loading}
             placeholder={canMembers ? '—' : '无权限'}
@@ -131,6 +143,8 @@ export default function AdminDashboard() {
           />
           <StatCard
             label="订单总数"
+            className="lg:col-span-2 xl:col-span-1"
+            icon={ReceiptTextIcon}
             value={canOrders ? ordersState.data?.total : null}
             loading={ordersState.loading}
             placeholder={canOrders ? '—' : '无权限'}
@@ -147,6 +161,8 @@ export default function AdminDashboard() {
           />
           <StatCard
             label="实例总数"
+            className="lg:col-span-2 xl:col-span-1"
+            icon={ServerIcon}
             value={canInstances ? instancesState.data?.total : null}
             loading={instancesState.loading}
             placeholder={canInstances ? '—' : '无权限'}
@@ -156,13 +172,17 @@ export default function AdminDashboard() {
           />
           <StatCard
             label="待处理工单"
+            className="lg:col-span-3 xl:col-span-1"
+            icon={LifeBuoyIcon}
             value={canTickets ? openTicketsState.data?.total : null}
             loading={openTicketsState.loading}
             placeholder={canTickets ? '—' : '无权限'}
-            hint={canTickets ? '状态为「待客服处理」的工单' : undefined}
+            hint={canTickets ? '待客服处理中的工单' : undefined}
           />
           <StatCard
             label="已到账充值"
+            className="sm:col-span-2 lg:col-span-3 xl:col-span-1"
+            icon={WalletIcon}
             value={canFinance ? paidRechargesState.data?.total : null}
             loading={paidRechargesState.loading}
             placeholder={canFinance ? '—' : '无权限'}
@@ -174,7 +194,7 @@ export default function AdminDashboard() {
       <section className="grid gap-4 lg:grid-cols-2">
         {canOrders ? (
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">最近订单</CardTitle>
               <CardDescription>新建在前，点击进入详情查看交付信息。</CardDescription>
             </CardHeader>
@@ -218,7 +238,7 @@ export default function AdminDashboard() {
 
         {canTickets ? (
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">最近工单</CardTitle>
               <CardDescription>按最近活动排序，点击进入处理。</CardDescription>
             </CardHeader>
@@ -259,7 +279,7 @@ export default function AdminDashboard() {
 
         {canFinance ? (
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="text-base">最近充值单</CardTitle>
               <CardDescription>全站充值记录（对账用，明细见会员详情）。</CardDescription>
             </CardHeader>
@@ -288,7 +308,7 @@ export default function AdminDashboard() {
       <section className="grid gap-4 lg:grid-cols-2">
         {canProbe ? (
           <Card>
-            <CardHeader>
+            <CardHeader className="border-b">
               <CardTitle className="flex items-center gap-2 text-base">
                 <WifiIcon className="size-4" aria-hidden />
                 上游连通性
@@ -330,7 +350,7 @@ export default function AdminDashboard() {
         ) : null}
 
         <Card className="bg-muted/30">
-          <CardHeader>
+          <CardHeader className="border-b">
             <CardTitle className="text-base">暂缺的指标（接口未提供）</CardTitle>
             <CardDescription>以下数据在契约中没有接口，本页不做近似或估算。</CardDescription>
           </CardHeader>

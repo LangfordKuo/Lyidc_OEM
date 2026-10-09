@@ -91,7 +91,7 @@ export default function Products() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">商品列表</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">商品列表</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           共 {data?.total ?? 0} 个已上架商品，价格与库存实时同步，登录后可直接下单。
         </p>
@@ -117,13 +117,14 @@ export default function Products() {
                   className="h-9 pl-9"
                 />
               </div>
-              <Button type="submit" variant="outline">
+              <Button type="submit" variant="outline" className="h-9">
                 搜索
               </Button>
               {queryParam ? (
                 <Button
                   type="button"
                   variant="ghost"
+                  className="h-9"
                   onClick={() => {
                     setKeyword('')
                     updateParams({ q: '', page: 1 })

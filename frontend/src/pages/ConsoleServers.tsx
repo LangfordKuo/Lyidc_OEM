@@ -44,7 +44,7 @@ export default function ConsoleServers() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">我的服务器</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">我的服务器</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             查看实例状态与到期时间，执行开关机、重装、改密、续费与终止申请等操作。
           </p>
@@ -118,7 +118,10 @@ function InstanceCard({ instance }: { instance: InstanceSummary }) {
   const openDetail = () => navigate(paths.consoleServerDetail(instance.id))
 
   return (
-    <Card data-testid={`instance-card-${instance.id}`}>
+    <Card
+      className="transition-shadow hover:ring-primary hover:shadow-md"
+      data-testid={`instance-card-${instance.id}`}
+    >
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <button type="button" className="min-w-0 text-left" onClick={openDetail}>
@@ -142,7 +145,10 @@ function InstanceCard({ instance }: { instance: InstanceSummary }) {
 
         <div className="grid gap-2 text-xs sm:grid-cols-3">
           <span className="text-muted-foreground">
-            IP：<span className="text-foreground">{instance.dedicated_ip || '—'}</span>
+            IP：
+            <span className={instance.dedicated_ip ? 'text-foreground' : 'text-muted-foreground'}>
+              {instance.dedicated_ip || '—'}
+            </span>
           </span>
           <span className="text-muted-foreground">
             到期：
@@ -152,7 +158,10 @@ function InstanceCard({ instance }: { instance: InstanceSummary }) {
             </span>
           </span>
           <span className="text-muted-foreground">
-            上游状态：<span className="text-foreground">{instance.upstream_status || '—'}</span>
+            上游状态：
+            <span className={instance.upstream_status ? 'text-foreground' : 'text-muted-foreground'}>
+              {instance.upstream_status || '—'}
+            </span>
           </span>
         </div>
 

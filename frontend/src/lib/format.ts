@@ -24,7 +24,24 @@ export function formatDateTimeOr(value: string | null | undefined, fallback = '�
   return value ? formatDateTime(value) : fallback
 }
 
-/** 金额（定点小数字符串）统一显示两位小数；非法值原样返回。 */
+// 纯定点小数字面量（可选负号）；不满足时不做任何加工，避免破坏指数形式等罕见输出。
+const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/
+
+/**
+ * 给定点小数字符串的整数部分插千分位，小数部分原样保留。
+ * 全程按字符串处理（不经过 Number），因此不会丢精度、不会二次舍入。
+ */
+function groupThousands(fixed: string): string {
+  if (!PLAIN_DECIMAL.test(fixed)) {
+    return fixed
+  }
+  const negative = fixed.startsWith('-')
+  const [intPart, decimalPart] = (negative ? fixed.slice(1) : fixed).split('.')
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${negative ? '-' : ''}${grouped}${decimalPart ? `.${decimalPart}` : ''}`
+}
+
+/** 金额（定点小数字符串）统一显示两位小数并加千分位；非法值原样返回。 */
 export function formatAmount(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') {
     return '—'
@@ -33,7 +50,7 @@ export function formatAmount(value: string | number | null | undefined): string 
   if (!Number.isFinite(n)) {
     return String(value)
   }
-  return n.toFixed(2)
+  return groupThousands(n.toFixed(2))
 }
 
 /** 带货币符号的金额，用于价格与余额展示（全站人民币）。非法输入原样返回。 */

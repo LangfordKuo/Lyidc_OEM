@@ -54,7 +54,7 @@ export default function ConsoleOverview() {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-lg">
@@ -62,7 +62,7 @@ export default function ConsoleOverview() {
               </CardTitle>
               <CardDescription>欢迎回到会员控制台</CardDescription>
             </div>
-            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+            <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-primary">
               会员 ID {member?.id ?? '—'}
             </span>
           </div>
@@ -93,7 +93,7 @@ export default function ConsoleOverview() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-border p-3">
               <p className="text-xs text-muted-foreground">实例数</p>
-              <p className="mt-1 text-xl font-semibold text-foreground">
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
                 {instancesState.loading ? '…' : (instancesState.data?.total ?? '—')}
               </p>
               {instancesState.error ? (
@@ -102,7 +102,7 @@ export default function ConsoleOverview() {
             </div>
             <div className="rounded-lg border border-border p-3">
               <p className="text-xs text-muted-foreground">订单数</p>
-              <p className="mt-1 text-xl font-semibold text-foreground">
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
                 {ordersState.loading ? '…' : (ordersState.data?.total ?? '—')}
               </p>
               {ordersState.error ? (
@@ -111,7 +111,7 @@ export default function ConsoleOverview() {
             </div>
             <div className="rounded-lg border border-border p-3">
               <p className="text-xs text-muted-foreground">未读通知</p>
-              <p className="mt-1 text-xl font-semibold text-foreground">{unread}</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{unread}</p>
             </div>
           </div>
         </CardContent>
@@ -119,7 +119,7 @@ export default function ConsoleOverview() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">最近订单</CardTitle>
               <Button variant="ghost" size="sm" asChild>
@@ -163,7 +163,7 @@ export default function ConsoleOverview() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">最近工单</CardTitle>
               <Button variant="ghost" size="sm" asChild>
@@ -211,7 +211,7 @@ export default function ConsoleOverview() {
               to={to}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
             >
-              <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
+              <span className="grid size-9 place-items-center rounded-lg bg-accent text-primary">
                 <Icon className="size-4.5" aria-hidden />
               </span>
               <span className="min-w-0 flex-1">

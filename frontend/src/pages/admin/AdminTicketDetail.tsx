@@ -193,7 +193,7 @@ export default function AdminTicketDetail() {
       ) : null}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">消息流</CardTitle>
           <CardDescription>
             含内部备注（会员端看不到）：内部备注以警示色标记，仅管理端可见。
@@ -209,7 +209,7 @@ export default function AdminTicketDetail() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="border-b">
           <CardTitle className="text-base">回复</CardTitle>
           <CardDescription>
             {closed
@@ -308,14 +308,14 @@ function MessageBubble({ message }: { message: TicketMessage }) {
           className={cn(
             'rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap',
             internal
-              ? 'border border-amber-500/60 bg-amber-500/10 text-foreground'
+              ? 'border border-warning/60 bg-warning/10 text-foreground'
               : fromAdmin
-                ? 'bg-primary/10 text-foreground'
+                ? 'bg-accent text-foreground'
                 : 'bg-muted text-foreground',
           )}
         >
           {internal ? (
-            <p className="mb-1.5 text-xs font-medium text-amber-700">内部备注（会员不可见）</p>
+            <p className="mb-1.5 text-xs font-medium text-warning">内部备注（会员不可见）</p>
           ) : null}
           {message.content}
         </div>

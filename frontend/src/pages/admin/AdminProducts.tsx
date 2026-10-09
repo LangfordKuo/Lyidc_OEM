@@ -253,7 +253,7 @@ export default function AdminProducts() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">商品</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">商品</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             管理本地商品目录：从上游导入、配置定价规则、上架或下架商品。
           </p>
@@ -310,11 +310,11 @@ export default function AdminProducts() {
         <Alert
           className={
             importResult.failed > 0
-              ? 'border-amber-500/40 bg-amber-500/5'
-              : 'border-emerald-500/40 bg-emerald-500/5'
+              ? 'border-warning/40 bg-warning/5'
+              : 'border-success/40 bg-success/5'
           }
         >
-          <CheckCircle2Icon className="text-emerald-600" aria-hidden />
+          <CheckCircle2Icon className="text-success" aria-hidden />
           <AlertTitle>上游导入完成</AlertTitle>
           <AlertDescription>
             新建 {importResult.created} 个、更新 {importResult.updated} 个、无变化{' '}
