@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,23 +169,26 @@ func newFakeCatalogClient(t *testing.T, catalog *fakeCatalog) *upstream.Client {
 }
 
 // standardCatalog 是标准测试目录：2 个有商品的分组 + 1 个空分组，共 3 个商品。
+//
+// description 刻意覆盖 R5 的三种数据形态：转义多行（真实上游形态）、转义单行、空简介。
 func standardCatalog() *fakeCatalog {
 	return &fakeCatalog{groups: []fakeGroup{
 		{ID: 1, Name: "香港二区", Products: []fakeProduct{
 			{
-				ID: 101, Name: "香港二区 CN2 A型", Description: "<li>CPU:2核心</li>",
-				Type: "dcimcloud", Module: "idcsmart_common", StockControl: 1, Qty: 70,
+				ID: 101, Name: "香港二区 CN2 A型",
+				Description: "&lt;li&gt;CPU:2核心&lt;/li&gt;\n&lt;li&gt;内存:1G&lt;/li&gt;\n&lt;li&gt;系统盘:Lin30GWin50G&lt;/li&gt;",
+				Type:        "dcimcloud", Module: "idcsmart_common", StockControl: 1, Qty: 70,
 				Prices: fakePrices{Monthly: "20.00", Quarterly: "60.00", SemiAnnually: "120.00", Annually: "200.00"},
 			},
 			{
-				ID: 102, Name: "香港二区 CN2 B型", Description: "<li>CPU:4核心</li>",
+				ID: 102, Name: "香港二区 CN2 B型", Description: "&lt;li&gt;CPU:4核心&lt;/li&gt;",
 				Type: "dcimcloud", Module: "idcsmart_common", StockControl: 1, Qty: 10,
 				Prices: fakePrices{Monthly: "40.00", Quarterly: "120.00", SemiAnnually: "240.00", Annually: "400.00"},
 			},
 		}},
 		{ID: 2, Name: "美国一区", Products: []fakeProduct{
 			{
-				ID: 201, Name: "美国一区 特价", Description: "<li>CPU:1核心</li>",
+				ID: 201, Name: "美国一区 特价", Description: "",
 				Type: "dcimcloud", Module: "idcsmart_common", StockControl: 0, Qty: 0, Ontrial: 3,
 				// 季付与年付上游不售（-1.00），用于验证回退与 null。
 				Prices: fakePrices{Monthly: "30.00", Quarterly: "", SemiAnnually: "150.00", Annually: ""},
@@ -585,6 +589,76 @@ func TestMemberProductDetailAndOffShelfNotFound(t *testing.T) {
 	rec, envelope = doAPI(t, engine, http.MethodGet, "/api/v1/products/abc", "", nil)
 	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeInvalidParam {
 		t.Fatalf("非法商品 ID 应返回 400/40001，实际 HTTP %d, code=%d", rec.Code, envelope.Code)
+	}
+}
+
+// TestProductDescriptionDecodesAndExposesLines 覆盖 R5 简介链路：
+// 导入落库前做一次 HTML 实体反转义（迁移 0012 口径），会员端列表/详情与管理端详情
+// 下发解析好的 description_lines，空简介输出空数组；解码是确定性的，重复导入幂等计数不变。
+func TestProductDescriptionDecodesAndExposesLines(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newProductEngine(t, gdb, newFakeCatalogClient(t, standardCatalog()))
+	token := adminTokenFor(t, engine, gdb, model.RoleAdmin)
+
+	importProducts(t, engine, token)
+
+	// 落库：description 已是「一次 HTML 实体反转义后的原始 HTML」。
+	wantStored := "<li>CPU:2核心</li>\n<li>内存:1G</li>\n<li>系统盘:Lin30GWin50G</li>"
+	idA := productIDByUpstreamPID(t, gdb, 101)
+	var stored model.Product
+	if err := gdb.Take(&stored, idA).Error; err != nil {
+		t.Fatalf("查询商品失败: %v", err)
+	}
+	if stored.Description != wantStored {
+		t.Fatalf("落库 description = %q，期望解码后 %q", stored.Description, wantStored)
+	}
+
+	// 幂等：解码是确定性的，重复导入不产生 Updated。
+	second := importProducts(t, engine, token)
+	if second.Updated != 0 || second.Unchanged != 3 {
+		t.Fatalf("重复导入计数 = %+v，期望 updated=0 / unchanged=3", second)
+	}
+
+	idC := productIDByUpstreamPID(t, gdb, 201)
+	updateProductOK(t, engine, token, idA, map[string]any{"status": model.ProductStatusOn})
+	updateProductOK(t, engine, token, idC, map[string]any{"status": model.ProductStatusOn})
+
+	// 会员端列表：description_lines 与解析口径一致；空简介输出 []（不是 null、不省略键）。
+	wantLines := []string{"CPU:2核心", "内存:1G", "系统盘:Lin30GWin50G"}
+	list, body := memberCatalog(t, engine)
+	linesByID := map[uint64][]string{}
+	for _, group := range list.Groups {
+		for _, product := range group.Products {
+			linesByID[product.ID] = product.DescriptionLines
+		}
+	}
+	if got := linesByID[idA]; !reflect.DeepEqual(got, wantLines) {
+		t.Fatalf("列表 description_lines = %#v，期望 %#v", got, wantLines)
+	}
+	if got, ok := linesByID[idC]; !ok || got == nil || len(got) != 0 {
+		t.Fatalf("空简介商品的 description_lines 应为空数组，实际 %#v", got)
+	}
+	if !strings.Contains(body, `"description_lines":[]`) {
+		t.Fatalf("空简介应以空数组输出：%s", body)
+	}
+
+	// 会员端详情：同一份行数组 + 原文（解码后 HTML）。
+	detail := memberDetail(t, engine, idA)
+	if !reflect.DeepEqual(detail.DescriptionLines, wantLines) {
+		t.Fatalf("详情 description_lines = %#v，期望 %#v", detail.DescriptionLines, wantLines)
+	}
+	if detail.Description != wantStored {
+		t.Fatalf("详情 description = %q，期望 %q", detail.Description, wantStored)
+	}
+
+	// 管理端详情同步带出。
+	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/products/"+itoa(idA), token, nil)
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("管理端商品详情请求失败: HTTP %d, body=%s", rec.Code, rec.Body.String())
+	}
+	adminDetail := decodeData[adminProductDetailView](t, envelope)
+	if !reflect.DeepEqual(adminDetail.DescriptionLines, wantLines) {
+		t.Fatalf("管理端 description_lines = %#v，期望 %#v", adminDetail.DescriptionLines, wantLines)
 	}
 }
 

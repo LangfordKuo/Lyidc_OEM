@@ -47,6 +47,8 @@ export function makeProductSummary(overrides: Partial<ProductSummary> = {}): Pro
     stock_qty: 70,
     stock_control: 1,
     ontrial_max: 0,
+    // 配置简介行（R5）：与 description 的首两行同源（服务端解析），另加一行带宽。
+    description_lines: ['CPU:2核心', '内存:1G', '带宽:20M'],
     ...overrides,
   }
 }
@@ -54,7 +56,7 @@ export function makeProductSummary(overrides: Partial<ProductSummary> = {}): Pro
 export function makeProductDetail(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
     ...makeProductSummary(),
-    description: '&lt;li&gt;CPU:2核心&lt;/li&gt;\n&lt;li&gt;内存:1G&lt;/li&gt;',
+    description: '<li>CPU:2核心</li>\n<li>内存:1G</li>',
     group: { id: 1, name: '香港二区' },
     config_groups: [
       {

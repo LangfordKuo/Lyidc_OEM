@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"strings"
 	"sync"
 	"time"
@@ -189,10 +190,13 @@ func fetchProductDetail(ctx context.Context, client *upstream.Client, job import
 	}
 
 	return importFetchResult{input: store.ProductInput{
-		UpstreamPID:        job.product.ID,
-		UpstreamGroupID:    job.groupID,
-		Name:               firstNonEmpty(job.product.Name, detail.Product.Name),
-		Description:        firstNonEmpty(job.product.Description, detail.Product.Description),
+		UpstreamPID:     job.product.ID,
+		UpstreamGroupID: job.groupID,
+		Name:            firstNonEmpty(job.product.Name, detail.Product.Name),
+		// Description 落库前做一次 HTML 实体反转义（R5 口径，见迁移 0012 与契约 10.3）：
+		// 上游把 <li> 存成 &lt;li&gt;，库里统一存解码后的原始 HTML，接口层再解析成行数组。
+		// 该转换是确定性的：导入幂等口径不变（首次导入刷新存量后，重复导入仍计 unchanged）。
+		Description:        html.UnescapeString(firstNonEmpty(job.product.Description, detail.Product.Description)),
 		Type:               firstNonEmpty(job.product.Type, detail.Product.Type),
 		Module:             firstNonEmpty(job.product.Module, detail.Product.Module),
 		ConfigJSON:         string(raw),

@@ -2,11 +2,11 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v12（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v15（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
-> 实例操作与续费、取消/终止流程；阶段 6a 工单系统；
-> **阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线**）
+> 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
+> 阶段 8 管理端订单接口；**R5 商品简介：上游 description 拉取落库 + 商品卡配置列表（`description_lines`）**）
 
 ## 1. 通用约定
 
@@ -824,7 +824,7 @@ curl -s https://lyew.com/cart/credit
 | `id` | int | 本地 | 本地商品 ID（对外主键，会员端只用它） |
 | `upstream_pid` | int | 上游 | 上游商品 ID（唯一键；阶段 4 下单时作为 `pid`） |
 | `upstream_group_id` | int | 上游 | 所属上游分组 ID |
-| `name` / `description` / `type` / `module` | string | 上游 | 商品名/描述/类型/模块 |
+| `name` / `description` / `type` / `module` | string | 上游 | 商品名/描述/类型/模块；`description` 存**上游原文经一次 HTML 实体反转义后的原始 HTML**（R5 口径：`&lt;li&gt;CPU:2核心&lt;/li&gt;` → `<li>CPU:2核心</li>`，见迁移 0012），接口层再解析成行数组下发，JSON 里敏感字符按常规转义 |
 | `config_json` | object | 上游 | `GET /cart/get_product_config` 的 `data` 原文缓存（可配置项、自定义字段、价格行） |
 | `upstream_prices_json` | object | 上游 | 上游周期价格原文与挑选结果，见 10.2 |
 | `pricing_json` | object | **本地** | 本地定价规则，见 10.2 |
@@ -839,6 +839,8 @@ curl -s https://lyew.com/cart/credit
 **本地字段**（`pricing_json`、`status`、`sort`，分组的 `name`、`sort`）在更新分支**永不覆盖**——
 重复导入不会冲掉本地定价与上下架状态。因此「重复导入仅计数变化」：第二次导入同一批数据必然返回
 `created=0, updated=0, unchanged=<商品总数>`。
+R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 10.1 字段表与迁移 0012）：
+该转换是**确定性**的——R5 前的转义存量在首次导入时计一次 `updated`，之后重复导入仍为 `unchanged`。
 
 ### 10.2 定价模型
 
@@ -947,7 +949,8 @@ curl -s https://lyew.com/cart/credit
             },
             "stock_qty": 70,
             "stock_control": 1,
-            "ontrial_max": 0
+            "ontrial_max": 0,
+            "description_lines": ["CPU:2核心", "内存:1G", "带宽:20M", "流量:不限"]
           }
         ]
       }
@@ -962,6 +965,7 @@ curl -s https://lyew.com/cart/credit
 | `prices` | 六周期本地售价；六个键**始终存在**，`null` 表示该周期不可售 |
 | `stock_qty` / `stock_control` | `stock_control=1` 时 `stock_qty` 才是有效库存；`0` 表示上游不限库存 |
 | `ontrial_max` | 可试用数量（`0` 表示不提供试用） |
+| `description_lines` | 商品简介解析出的**展示行数组**（R5，商品卡配置列表的数据源）：从 `description` 提取 `<li>` 行文本、去 HTML 标签与空行，无 `<li>` 时按 `<br>`/段落/换行切行；**空简介恒为空数组 `[]`**（不是 `null`，也不是省略键）；列表与详情都下发同一份数组，列表**不下发** `description` 原文 |
 
 #### `GET /api/v1/products/:id`
 
@@ -990,7 +994,8 @@ curl -s https://lyew.com/cart/credit
     "stock_qty": 70,
     "stock_control": 1,
     "ontrial_max": 0,
-    "description": "&lt;li&gt;CPU:2核心&lt;/li&gt;\n&lt;li&gt;内存:1G&lt;/li&gt;",
+    "description_lines": ["CPU:2核心", "内存:1G"],
+    "description": "<li>CPU:2核心</li>\n<li>内存:1G</li>",
     "group": { "id": 1, "name": "香港二区" },
     "config_groups": [
       {
@@ -1018,7 +1023,9 @@ curl -s https://lyew.com/cart/credit
    仅作透传展示（商品级的上游 ID 仍不下发）。
 2. 会员端**过滤掉上游标记为隐藏**（`hidden != 0`）的可配置项与可选值；管理端不做过滤。
 3. `name` 是上游文案原文（形如 `area|区域`、`1|HK^香港`），阶段 3a 不做文案清洗。
-4. `description` 是上游原文，含 HTML 实体转义（`&lt;li&gt;`）与换行，前端如需渲染 HTML 需自行反转义。
+4. `description` 是**解码后的原始 HTML**（R5 起导入落库时做一次实体反转义，如 `<li>CPU:2核心</li>` 与换行），
+   仅**详情**下发、列表不下发；展示配置列表请直接用 `description_lines`（服务端已去标签、去空行），
+   前端无需再解析 HTML，也不应把 `description` 当 HTML 注入渲染。
 
 ### 10.4 管理端接口
 
@@ -1129,7 +1136,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
 
 #### `GET /api/v1/admin/products/:id`
 
-商品详情 = 列表项字段 + `description` + `config_groups` + `custom_fields` + `upstream_prices`（上游价格缓存原文，含 `rows`）。`:id` 为本地商品 ID。
+商品详情 = 列表项字段 + `description` + `description_lines` + `config_groups` + `custom_fields` + `upstream_prices`（上游价格缓存原文，含 `rows`）。`:id` 为本地商品 ID。管理端**列表**（`GET /admin/products`）不带 `description` / `description_lines`（避免列表响应膨胀），仅在详情下发。
 
 | 项目 | 说明 |
 | --- | --- |
@@ -1240,8 +1247,11 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
    故 `config_json` 用 `MEDIUMTEXT` 缓存原文。
 5. **可配置项文案是上游原文**：`option_name` 形如 `area|区域`、`1|HK^香港`（`code|名称` / `序号|代码^名称`），
    阶段 3a 不清洗，会员端原样下发（见 10.3）。
-6. **`description` 含 HTML 实体转义**：上游把 `<li>` 存成 `&lt;li&gt;`（实测 159 个商品均是），
-   入库保留原文，前端渲染需自行反转义。
+6. **`description` 的形态与 R5 口径变更（2026-10-09 复核）**：上游把 `<li>` 存成 `&lt;li&gt;`
+   （实测 159 个商品均是，行间为换行 `\n`）。R5 起**导入落库时做一次 HTML 实体反转义**
+   （迁移 0012），库内与接口统一为解码后的原始 HTML；存量转义数据在下一次商品导入时自动刷新
+   （第一次导入 `updated=159`，其后恢复幂等）。行数组展示请统一走 `description_lines`，
+   解析对「转义/未转义」两种输入都兼容（见 10.3）。
 7. **并发抓取安全**：导入对上游是纯只读（`/cart/all` + `/cart/get_product_config`），
    4 并发抓 159 个商品实测约 6.5 秒（串行约 40 秒以上）；客户端自带 405 重登与幂等 GET 重试。
 8. **六周期解析升级的实测表现（阶段 3b，2026-10-08 生产上游复核）**：升级后第一次导入
@@ -3620,6 +3630,7 @@ status = active
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-09 | v15 | R5 商品简介（上游 `description` 拉取 + 商品卡配置列表）——**迁移 0012**：`products.description` 列**自 0004 建立时即存在**，本迁移不重复加列、只把 R5 口径固化进列注释（存「上游原文经一次 HTML 实体反转义后的原始 HTML」；`MODIFY COLUMN` 只改注释，幂等，回滚只还原注释不删列）；**导入链路**：落库前对上游 `description` 做一次 `html.UnescapeString`（确定性转换，转义存量首次导入计一次 `updated`、其后幂等不变）；**解析工具** `descriptionLines`（router 包，纯正则 + strings，无新依赖）：兼容转义/未转义输入 → 提取 `<li>` 行（li 内嵌 `<br>` 再拆）→ 无 `<li>` 时按 `<br>`/块级标签/换行切 → 去标签、折叠空白、去空行、超长不截断，空简介恒为 `[]`；**接口**：会员端 `GET /products`（列表）与 `GET /products/:id`（详情）新增 `description_lines`（列表不下发原文；详情保留解码后 `description` 原文），管理端 `GET /admin/products/:id` 同步带出；**10.1 字段表与写入边界 / 10.3 列表与详情示例+约定 / 10.4 管理端详情 / 10.6 实测第 6 条**同步改写；同步更新安装集成测试的迁移数量断言（11→12）；**测试**：解析工具 13 用例（含双重转义只解码一次、超长不截断）+ 集成用例（落库解码、幂等、列表/详情/管理端 `description_lines`、空简介 `[]`） |
 | 2026-10-08 | v14 | 阶段 8b（补阶段 8 缺口：**管理端订单接口**）——**新增 `GET /api/v1/admin/orders`**（全站订单分页：`page` / `page_size` + `status`（6 态）/ `type`（`new` / `renew`）/ `member_id` / `trade_no`（**模糊匹配**，不区分大小写包含匹配）筛选；视图 = **会员端订单视图（12.4）字段完全相同** + `member` 会员概要（`id` / `username` / `nickname` / `email` / `status`，按当页会员 ID 批量查出；会员行缺失输出 `null`））与 **新增 `GET /api/v1/admin/orders/:id`**（订单全字段 + 会员概要 + 交付信息 `host_id` / `provision_error` / `delivered_at` 与关联实例 `instance_id`；不存在 `404 订单不存在`、ID 非法 `40001`）；**权限定稿**：两个查看类接口 **admin / finance / support 均可读**（客服协助会员查询是日常），**重试交付保持仅 admin**（14.4 不变，仅补一条交叉引用）；**契约 12.6 扩写**为「管理端接口（订单查看与对账）」并给出响应示例，**12.7 矩阵**补一行、**12.8 的 `404` 行**注明管理端只看 ID；阶段 8 的已知缺口（后台订单页只有「重试交付工作台」、仪表盘订单指标标注缺失）在本批消除——后台 `/admin/orders` 升级为**列表（筛选/分页）+ 详情（时间线 / 交付信息 / 会员 / 继续处置）**，仪表盘接入订单总数 / 待支付 / 交付失败与最近订单；**真机冒烟（32 项全通过）**：三角色可读列表与详情、会员 token 与匿名 `401`、`status` / `type` / `member_id` / `trade_no` 筛选逐条口径断言（开发库 12 单：new 9 / renew 3）、组合筛选、6 类 `40001` 负例、详情会员概要 `demo7a` 与交付字段（`host_id=40011` / `instance_id=101` / `delivered_at`）、404 与 retry-delivery 的 `403`（finance / support）/ `401`（会员） |
 | 2026-10-08 | v13 | 阶段 8（管理后台前端 + 两处后端补充）：**新增 `GET /api/v1/admin/instances/:id`**（管理端实例详情——字段与会员端 `GET /instances/:id` 同口径（摘要 + `assigned_ips` / `port` / `username` / `password` / `updated_at`），额外回带 `member_id`；权限沿用管理端实例**列表**口径（admin / finance / support 均可读），ID 非法 `40001`、不存在 `404`；见 14.4 与 12.7 矩阵同步更新）；**契约 16.3 一致性修正**——会员工单详情 `GET /tickets/:id` 与 `GET /admin/tickets/:id` 的成功 `data` 统一为**嵌套** `{ticket, messages}`（此前实现把工单字段平铺在 `data` 上，与契约的 `ticket + messages` 写法不符；本批改实现对齐契约，会员端与管理端同步，前端类型/页面/测试一并更新），16.3 增补结构说明；**本批不含其他后端改动**；管理后台前端（`/admin/*`：登录、仪表盘、商品、订单、会员、实例、工单、设置、通知）按 6.4 / 10.5 / 12.7 / 15.3 / 16.3 / 17.3 的角色矩阵落地界面可见性（无权限的入口隐藏或禁用 + 403 统一提示），**页面不写契约**；已知缺口（不在本批范围）：管理端**订单列表/详情接口不存在**（`GET /admin/orders`、`GET /admin/orders/:id`），后台订单页只提供按订单 ID 的「重试交付」工作台 |
 | 2026-10-08 | v12 | 阶段 6b：新增第 17 节「通知体系」——**迁移 0011**（新建 `notifications` / `email_logs` 两表 + 给 `instances` 扩 `expiry_reminded_due` 列，**不改 0001–0010**）；**站内通知**（会员端 / 管理端同构的 8 个接口：列表（`unread` 筛选 + 回带未读数）/ 未读计数 / 单条已读（**幂等**，不覆盖首次 `read_at`）/ 全部已读；权限定稿：**个人收件箱**——会员仅本人（他人的与不存在的统一 `404`），管理端三类角色各读本人收件箱（通知不属于工单域））；**邮件 SMTP**（设置键 `email.smtp`：enabled/host/port/username/password/from/from_name/encryption(`none`/`starttls`/`ssl`，端口按加密方式取缺省 25/587/465，口令三态脱敏；`POST /admin/settings/email/test` 同步发测试邮件，未配置 `40002`、失败 `50004`；发送器**只用标准库 net/smtp**（`ssl` 用 crypto/tls 建连再 `smtp.NewClient`，无外部依赖）；`email_logs` 同步留痕、error 已脱敏）；**事件接线定稿 9 个事件**（`order_delivered`/`order_failed`/`renew_succeeded`/`instance_suspended`/`instance_terminated`/`ticket_created`/`ticket_replied`(双向同名)/`ticket_closed`/`expiry_reminder`；**事务提交后异步触发、失败只记日志**；管理端站内按在职 admin+support **逐个账号扇出**、邮件发 `settings.site.admin_email`；**内部备注不产生任何通知**、**会员自行关闭不通知客服**）；**到期提醒**（设置键 `notifications`：站内/邮件总开关 + 到期提醒开关与天数，缺省全开、提前 7 天；扫描窗口 `(now, now+N 天]` 且 `status=active`、无在途取消申请；**去重锚点定稿为 `instances.expiry_reminded_due`**——先原子认领再投递，每到期周期**只提醒一次**，续费/同步推进到期时间后**自动重新武装**；该阶段**不需要上游**，在扫描首段执行）；**接线点**：`internal/notify`（新包，事件入口 + SMTP 发送 + 留痕）、delivery/scheduler 通过窄接口 `Notifier` 解耦、router 工单 handler 4 处挂点接线；**顺手修**：`internal/auth` 的篡改 token 用例改为确定性构造（原写法有约 0.1% 概率构造出与原值相同的 token）；**真机实测（17.7）**——开发库（迁移 0010→0011）+ mini SMTP 收信器（标准库 socket）：测试邮件、工单创建/会员回复/客服公开回复/客服关闭四类事件（内部备注与重复关闭零通知）、会员与支持各自收件箱、finance 零扇出、越权 404 与跨端 401、口令仅回显掩码（响应与日志无明文）、到期提醒三轮（首轮投递 → 去重不重复 → 开关关闭不产生 → 重新武装再投递），通知 8 条 / 邮件 8 封全 success；同步更新 12.1（新增两个设置键）/12.7（角色矩阵补通知三行）/错误码表（新增 `50004`）|

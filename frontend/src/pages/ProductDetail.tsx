@@ -170,6 +170,19 @@ export default function ProductDetail() {
               ) : null}
             </div>
             <h1 className="mt-3 text-2xl font-semibold text-foreground sm:text-3xl">{data.name}</h1>
+            {/* 配置速览（R5）：与商品卡同一份 description_lines，进入详情第一屏即可读配置。 */}
+            {data.description_lines.length > 0 ? (
+              <ul
+                className="mt-4 grid gap-x-8 gap-y-1.5 text-sm leading-relaxed text-muted-foreground sm:grid-cols-2"
+                data-testid="product-config-overview"
+              >
+                {data.description_lines.map((line, index) => (
+                  <li key={index} className="break-words">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </header>
 
           <section>

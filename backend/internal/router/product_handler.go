@@ -484,6 +484,7 @@ func (h *productHandler) adminProductDetail(c *gin.Context, product *model.Produ
 	return adminProductDetailView{
 		adminProductView: newAdminProductView(product, group, rule, prices, cache.Product.StockControl),
 		Description:      product.Description,
+		DescriptionLines: descriptionLines(product.Description),
 		ConfigGroups:     newConfigGroupViews(cache, true),
 		CustomFields:     newCustomFieldViews(cache),
 		UpstreamPrices:   upstreamPrices,

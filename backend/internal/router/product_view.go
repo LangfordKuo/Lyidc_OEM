@@ -67,10 +67,11 @@ type adminProductView struct {
 // adminProductDetailView 是管理端商品详情（列表项 + 描述 + 可配置项 + 上游价格原文）。
 type adminProductDetailView struct {
 	adminProductView
-	Description    string                 `json:"description"`
-	ConfigGroups   []configGroupView      `json:"config_groups"`
-	CustomFields   []customFieldView      `json:"custom_fields"`
-	UpstreamPrices pricing.UpstreamPrices `json:"upstream_prices"`
+	Description      string                 `json:"description"`
+	DescriptionLines []string               `json:"description_lines"`
+	ConfigGroups     []configGroupView      `json:"config_groups"`
+	CustomFields     []customFieldView      `json:"custom_fields"`
+	UpstreamPrices   pricing.UpstreamPrices `json:"upstream_prices"`
 }
 
 // adminProductListView 是管理端商品分页列表。
@@ -100,15 +101,19 @@ type adminGroupView struct {
 }
 
 // memberProductView 是会员端商品列表项：不暴露任何上游 ID。
+//
+// DescriptionLines 是商品简介的展示行数组（R5：列表与详情都下发，商品卡直接渲染配置列表；
+// 解析规则见 descriptionLines，空简介恒为 `[]`）。description 原文只在详情下发。
 type memberProductView struct {
-	ID           uint64    `json:"id"`
-	Name         string    `json:"name"`
-	Type         string    `json:"type"`
-	Sort         int       `json:"sort"`
-	Prices       priceView `json:"prices"`
-	StockQty     int       `json:"stock_qty"`
-	StockControl int       `json:"stock_control"`
-	OntrialMax   int       `json:"ontrial_max"`
+	ID               uint64    `json:"id"`
+	Name             string    `json:"name"`
+	Type             string    `json:"type"`
+	Sort             int       `json:"sort"`
+	Prices           priceView `json:"prices"`
+	StockQty         int       `json:"stock_qty"`
+	StockControl     int       `json:"stock_control"`
+	OntrialMax       int       `json:"ontrial_max"`
+	DescriptionLines []string  `json:"description_lines"`
 }
 
 // memberGroupView 是会员端分组（只含已上架商品的分组）。
@@ -198,14 +203,15 @@ func newAdminProductView(product *model.Product, group *model.ProductGroup, rule
 // newMemberProductView 组装会员端商品视图。
 func newMemberProductView(product *model.Product, prices map[string]string, stockControl int) memberProductView {
 	return memberProductView{
-		ID:           product.ID,
-		Name:         product.Name,
-		Type:         product.Type,
-		Sort:         product.Sort,
-		Prices:       newPriceView(prices),
-		StockQty:     product.StockQty,
-		StockControl: stockControl,
-		OntrialMax:   product.OntrialMax,
+		ID:               product.ID,
+		Name:             product.Name,
+		Type:             product.Type,
+		Sort:             product.Sort,
+		Prices:           newPriceView(prices),
+		StockQty:         product.StockQty,
+		StockControl:     stockControl,
+		OntrialMax:       product.OntrialMax,
+		DescriptionLines: descriptionLines(product.Description),
 	}
 }
 

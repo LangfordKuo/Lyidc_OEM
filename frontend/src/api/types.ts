@@ -70,6 +70,8 @@ export interface ProductSummary {
   stock_control: number
   /** 可试用数量，0 表示不提供试用 */
   ontrial_max: number
+  /** 商品简介解析出的展示行（契约 10.3 的 description_lines；空简介恒为 []，商品卡配置列表直接渲染） */
+  description_lines: string[]
 }
 
 export interface ProductGroup {
@@ -547,6 +549,8 @@ export interface UpstreamPrices {
 
 export interface AdminProductDetail extends AdminProduct {
   description: string
+  /** 简介展示行（R5；与会员端同口径，契约 10.3） */
+  description_lines: string[]
   config_groups: ConfigGroup[]
   custom_fields: CustomField[]
   upstream_prices: UpstreamPrices

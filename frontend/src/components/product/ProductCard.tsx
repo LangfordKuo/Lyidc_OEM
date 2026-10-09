@@ -10,12 +10,14 @@ import { formatCycleLabel, formatMoney } from '@/lib/format'
 import { productTypeLabel } from '@/lib/productText'
 import { cn } from '@/lib/utils'
 
+/** 配置简介最多展示的行数（R5：超出截断，保证列表卡片高度收敛）。 */
+const MAX_DESCRIPTION_LINES = 7
+
 /**
- * 商品卡片：名称 / 类型 + 价格大字重 + 配置摘要行（选购要素小标签）+ 两个入口。
+ * 商品卡片（R5 布局）：标题行 → 配置简介列表 → 价格 → 摘要标签 → 按钮。
  *
- * 说明：商品列表接口（ProductSummary）不下发 CPU/内存等配置明细，配置项只在商品详情的
- * config_groups 里；这里不做编造，摘要行只用真实可得的选购要素：所属分组（区域）、
- * 可售计费档数、试用与库存状态，详情页再展示完整配置项。
+ * 配置简介来自接口下发的 description_lines（契约 10.3，服务端已解析为行数组），
+ * 点进详情前就能看到 CPU/内存/带宽等配置；无简介（空数组）时不渲染该区块。
  */
 export default function ProductCard({
   product,
@@ -29,6 +31,7 @@ export default function ProductCard({
   const cycleCount = availableCycles(product.prices).length
   const hasStock = product.stock_control !== 1 || product.stock_qty > 0
   const openDetail = () => navigate(paths.productDetail(product.id))
+  const configLines = product.description_lines.slice(0, MAX_DESCRIPTION_LINES)
 
   return (
     <Card className="flex h-full flex-col transition-all duration-200 hover:-translate-y-0.5 hover:ring-primary hover:shadow-md">
@@ -47,6 +50,20 @@ export default function ProductCard({
       </CardHeader>
 
       <CardContent className="flex-1 space-y-3">
+        {/* 配置简介：每行一条（CPU/内存/带宽/流量/系统盘/数据盘/防御），小字统一行距。 */}
+        {configLines.length > 0 ? (
+          <ul
+            className="space-y-1 text-xs leading-relaxed text-muted-foreground"
+            data-testid="product-config-lines"
+          >
+            {configLines.map((line, index) => (
+              <li key={index} className="break-words">
+                {line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {cheapest ? (
           <p className="flex items-baseline gap-1.5">
             <span className="text-3xl leading-none font-semibold tabular-nums text-foreground">
