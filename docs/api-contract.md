@@ -1004,7 +1004,26 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
         "options": [
           {
             "id": 1, "name": "area|区域", "type": 12, "upstream_id": 0,
-            "values": [ { "id": 1, "name": "1|HK^香港", "upstream_id": 0 } ]
+            "values": [
+              { "id": 1, "name": "1|HK^香港", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "系统",
+        "options": [
+          {
+            "id": 2, "name": "os|操作系统", "type": 5, "upstream_id": 0,
+            "values": [
+              { "id": 3, "name": "15|Debian^Debian-10.3.3-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 },
+              { "id": 9, "name": "66|CentOS^CentOS-7.9.2111-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 }
+            ]
+          },
+          {
+            "id": 7, "name": "bw|带宽", "type": 11, "upstream_id": 0,
+            "values": [ { "id": 34, "name": "带宽", "upstream_id": 0, "qty_minimum": 20, "qty_maximum": 100 } ]
           }
         ]
       }
@@ -1026,6 +1045,35 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
 4. `description` 是**解码后的原始 HTML**（R5 起导入落库时做一次实体反转义，如 `<li>CPU:2核心</li>` 与换行），
    仅**详情**下发、列表不下发；展示配置列表请直接用 `description_lines`（服务端已去标签、去空行），
    前端无需再解析 HTML，也不应把 `description` 当 HTML 注入渲染。
+5. `type` 是上游 `option_type`（选择方式编码），前端按它渲染与上游前台一致的控件
+   （**R6 实测映射**，2026-10-09 对上游 159 个商品全量拉取 + 前台配置页
+   `GET /cart?action=configureproduct&pid=N` 渲染对照）：
+
+   | `option_type` | 上游形态 | 实测键名样例 | 本项目控件 |
+   | --- | --- | --- | --- |
+   | 1 | 下拉 | `network_type` / 快照数量 / 备份数量 | 下拉 |
+   | 4 | 滑条 + 数字输入 | `ip_num` | 数量 |
+   | 5 | 两级（大类 → 版本） | `os` | 二级系统选择 |
+   | 6 | 单选横条 | `cpu` / 网络类型 / 系统盘 | 单选横条 |
+   | 8 | 单选横条 | `memory` | 单选横条 |
+   | 10 | 单选横条 | 带宽（档位）/ 流入带宽 | 单选横条 |
+   | 11 | 滑条 + 数字输入 | `bw` | 数量 |
+   | 12 | 单选横条（带图标） | `area` / 数据中心 | 单选横条 |
+   | 13 | 单选横条 | `system_disk_size` / `data_disk_size` | 单选横条 |
+   | 14 | 滑条 + 数字输入 | `data_disk_size` | 数量 |
+   | 15 | 滑条 + 数字输入 | `ip_num` / 流量 | 数量 |
+   | 19 | 滑条 + 数字输入 | 系统盘 / 数据盘 | 数量 |
+
+   未收录的 `option_type` 前端按值形态兜底：值含 `^` 且存在多个大类 → 二级；
+   单值且值名不是 `id|名` 形态 → 数量型；选项数 > 8 → 下拉；其余 → 单选横条。
+   （实测 159 个商品未出现多选/复选型配置项；上游若新增编码，按上述兜底渲染。）
+6. **数量型（上表「数量」行）的取值口径**：提交的是**数量**而不是值 id
+   （契约 8.3 的 `configoption` 行：数量型传 `qty`）；取值范围与默认值取该值的
+   `qty_minimum` / `qty_maximum`（默认值 = `qty_minimum`，步进 1；
+   选项型的这两个字段恒为 0）。下单校验见 12.3。
+7. 值名里的 `^` 前是「大类」（如 `15|Debian^Debian-10.3.3-x64` 的 `Debian`、
+   `1|HK^香港` 的 `HK`），二级选择以它为大类分组依据（按值出现顺序去重）；
+   `^` 后是具体显示名。
 
 ### 10.4 管理端接口
 
@@ -1762,7 +1810,7 @@ form 参数：
 | `member_id` / `product_id` | int | 下单会员与本地商品 |
 | `product_name` | string | 商品名快照（商品改名后订单仍显示下单时的名称） |
 | `cycle` / `qty` | string / int | 计费周期（6 周期之一）与数量（**本批固定 1**） |
-| `config_json` | string | 所选配置项快照 `{"<配置项 id>": "<所选值 id>"}`（阶段 5a 起交付时原样拼 `configoption`，口径见 14.5 第 1 条） |
+| `config_json` | string | 所选配置项快照 `{"<配置项 id>": "<所选值 id>"}`（数量型配置存**数量**字符串，R6 起；阶段 5a 起交付时原样拼 `configoption`，口径见 10.3 第 6 条与 14.5 第 1 条） |
 | `amount` / `discount_amount` / `final_amount` | string | 原价 / 优惠码折扣额 / 应付金额（定点小数字符串，`final = amount − discount`） |
 | `coupon_id` / `coupon_code` | int \| null / string | 所用优惠码快照（未用码：NULL / 空串） |
 | `status` | string | `pending` / `paid` / `provisioning` / `active` / `failed` / `cancelled`（阶段 5a 扩为 6 态，完整状态机见 14.1） |
@@ -1822,8 +1870,10 @@ form 参数：
 | 请求体 | `product_id`（必填）、`cycle`（必填，6 周期之一）、`config`（可选）、`coupon_code`（可选，空串 = 不用码） |
 | 成功 | HTTP 200，`data` 为订单对象（含金额明细） |
 
-`config` 的键与值都是**上游配置项的本地 ID**：键为该商品可配置项的 `id`（`options[].id`），
-值为所选可选值的 `id`（`values[].id`）；值接受 **JSON 字符串或整数**写法（服务端统一按字符串快照）。
+`config` 的键是**上游配置项的本地 ID**（`options[].id`），值为所选可选值的 `id`（`values[].id`）；
+值接受 **JSON 字符串或整数**写法（服务端统一按字符串快照）。**数量型配置项**（`type` ∈
+{4, 11, 14, 15, 19}，见 10.3 第 5/6 条）的值是**数量**（非负整数，须在该值的
+`qty_minimum`~`qty_maximum` 内），如 `{"7": "50"}` 表示带宽 50Mbps。
 只接受该商品**会员可见**的项与值（上游标记 `hidden` 的项/值按「未知」处理）。
 （键值口径的阶段 5a 真机实测依据见 14.5 第 1 条；`upstream_id` 不再作为下单键值。）
 
@@ -1870,7 +1920,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | 1 | 请求体非合法 JSON、`product_id` 非正整数、`cycle` 非本地周期、`config` 键值类型不符 | `40001` / 400 | 见 12.8 |
 | 2 | 商品不存在**或已下架**（统一 404，不泄露存在性） | `404` / 404 | `商品不存在` |
 | 3 | 该周期无本地售价（不可售） | `40002` / 400 | `该商品在 <cycle> 周期不可售（无本地售价）` |
-| 4 | `config` 含未知配置项/未知取值（含隐藏项与隐藏值）或快照超 1024 字节 | `40002` / 400 | `未知的配置项 "..."（不在该商品的可配置项内）` / `配置项 "..." 不支持所选值 "..."` |
+| 4 | `config` 含未知配置项/未知取值（含隐藏项与隐藏值）、数量型数量非整数或超出 `qty_minimum`~`qty_maximum`，或快照超 1024 字节 | `40002` / 400 | `未知的配置项 "..."（不在该商品的可配置项内）` / `配置项 "..." 不支持所选值 "..."` / `配置项 "..." 的数量必须在 20~100 之间（收到 999）` |
 | 5 | 优惠码不存在 / 无效 / 不适用于该周期 | `40002` / 400 | `优惠码不存在`、`优惠码已停用`、`优惠码尚未生效`、`优惠码已过期`、`优惠码使用次数已用尽`、`优惠码不适用于该周期` |
 | 6 | 落库失败（含单号冲突重试耗尽） | `50001` / 500 | — |
 
@@ -2600,7 +2650,7 @@ cancelled                                provisioning ──上游开通成功�
 | `billingcycle` | `pricing.UpstreamCycle(orders.cycle)`（本地 `semiannual`/`annual`/… → 上游 `semiannually`/`annually`/…；`monthly` / `quarterly` 同名） |
 | `host` | `oem-` + 订单号小写（如 `oem-o20261008143015k7q2zp`，可回溯订单） |
 | `password` | 自动生成 16 位随机密码（大写/小写/数字/特殊四类字符齐备，`crypto/rand`） |
-| `configoption[<配置项 id>]` | `orders.config_json` 快照原样（键为配置项 id、值为所选值 id，见 12.3 与 14.5 第 1 条） |
+| `configoption[<配置项 id>]` | `orders.config_json` 快照原样（键为配置项 id、值为所选值 id；数量型配置的值为数量，见 10.3 第 6 条 / 12.3 / 14.5 第 1 条） |
 | `qty` | `orders.qty`（本批恒 1） |
 | `currencyid` | 由上游 `/cart/clear` 的 `user.currency` 决定（客户端自动处理） |
 
@@ -3630,6 +3680,7 @@ status = active
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-09 | v16 | R6 产品配置交互优化：**① 配置选择控件矩阵**（10.3 新增第 5/6/7 条）——按上游 `option_type` 渲染与上游前台一致的控件（**实测**：2026-10-09 全量拉取上游 159 个商品 + 前台配置页 `/cart?action=configureproduct&pid=N` 渲染对照；映射表入 10.3：1=下拉 / 5=两级系统选择 / 6·8·10·12·13=单选横条 / 4·11·14·15·19=数量；未收录编码按值形态兜底，实测无多选型样本）；**② 数量型（拉条型）取值口径落地**——提交数量而非值 id（8.3 既有口径「数量型传 qty」，此前前端按值 id 提交、上游会把值 id 当数量解释）；`values[]` 视图新增 `qty_minimum` / `qty_maximum` 透传（选项型恒 0），下单校验按范围前置拦截（12.4 请求说明与快照口径、12.8 错误码表第 4 条同步）；**③ 系统选择二级菜单**——下单/结算页与重装弹窗的 `os` 配置（值 `^` 前为系统大类）改为两级（大类 → 版本），重装分组取上游 `/host/cloudos` 的 `group` 字段（无分组信息时退化单级）；**④ 前端**：`ConfigSelector` 重写（四种控件 + 二级系统 + 数量步进）、`ReinstallDialog` 两级改造、订单配置快照的数量型展示（`数据盘 100GB`）；**测试**：前端 33 文件 200 用例全绿（新增 `configControl` 27 + `ConfigSelector` 11 + `ReinstallDialog` 5 + 结算页数量型提交 1），后端 `go test ./...` 全绿（新增数量型下单 1 正例 4 负例 + 混用用例、视图 qty 范围透传断言） |
 | 2026-10-09 | v15 | R5 商品简介（上游 `description` 拉取 + 商品卡配置列表）——**迁移 0012**：`products.description` 列**自 0004 建立时即存在**，本迁移不重复加列、只把 R5 口径固化进列注释（存「上游原文经一次 HTML 实体反转义后的原始 HTML」；`MODIFY COLUMN` 只改注释，幂等，回滚只还原注释不删列）；**导入链路**：落库前对上游 `description` 做一次 `html.UnescapeString`（确定性转换，转义存量首次导入计一次 `updated`、其后幂等不变）；**解析工具** `descriptionLines`（router 包，纯正则 + strings，无新依赖）：兼容转义/未转义输入 → 提取 `<li>` 行（li 内嵌 `<br>` 再拆）→ 无 `<li>` 时按 `<br>`/块级标签/换行切 → 去标签、折叠空白、去空行、超长不截断，空简介恒为 `[]`；**接口**：会员端 `GET /products`（列表）与 `GET /products/:id`（详情）新增 `description_lines`（列表不下发原文；详情保留解码后 `description` 原文），管理端 `GET /admin/products/:id` 同步带出；**10.1 字段表与写入边界 / 10.3 列表与详情示例+约定 / 10.4 管理端详情 / 10.6 实测第 6 条**同步改写；同步更新安装集成测试的迁移数量断言（11→12）；**测试**：解析工具 13 用例（含双重转义只解码一次、超长不截断）+ 集成用例（落库解码、幂等、列表/详情/管理端 `description_lines`、空简介 `[]`） |
 | 2026-10-08 | v14 | 阶段 8b（补阶段 8 缺口：**管理端订单接口**）——**新增 `GET /api/v1/admin/orders`**（全站订单分页：`page` / `page_size` + `status`（6 态）/ `type`（`new` / `renew`）/ `member_id` / `trade_no`（**模糊匹配**，不区分大小写包含匹配）筛选；视图 = **会员端订单视图（12.4）字段完全相同** + `member` 会员概要（`id` / `username` / `nickname` / `email` / `status`，按当页会员 ID 批量查出；会员行缺失输出 `null`））与 **新增 `GET /api/v1/admin/orders/:id`**（订单全字段 + 会员概要 + 交付信息 `host_id` / `provision_error` / `delivered_at` 与关联实例 `instance_id`；不存在 `404 订单不存在`、ID 非法 `40001`）；**权限定稿**：两个查看类接口 **admin / finance / support 均可读**（客服协助会员查询是日常），**重试交付保持仅 admin**（14.4 不变，仅补一条交叉引用）；**契约 12.6 扩写**为「管理端接口（订单查看与对账）」并给出响应示例，**12.7 矩阵**补一行、**12.8 的 `404` 行**注明管理端只看 ID；阶段 8 的已知缺口（后台订单页只有「重试交付工作台」、仪表盘订单指标标注缺失）在本批消除——后台 `/admin/orders` 升级为**列表（筛选/分页）+ 详情（时间线 / 交付信息 / 会员 / 继续处置）**，仪表盘接入订单总数 / 待支付 / 交付失败与最近订单；**真机冒烟（32 项全通过）**：三角色可读列表与详情、会员 token 与匿名 `401`、`status` / `type` / `member_id` / `trade_no` 筛选逐条口径断言（开发库 12 单：new 9 / renew 3）、组合筛选、6 类 `40001` 负例、详情会员概要 `demo7a` 与交付字段（`host_id=40011` / `instance_id=101` / `delivered_at`）、404 与 retry-delivery 的 `403`（finance / support）/ `401`（会员） |
 | 2026-10-08 | v13 | 阶段 8（管理后台前端 + 两处后端补充）：**新增 `GET /api/v1/admin/instances/:id`**（管理端实例详情——字段与会员端 `GET /instances/:id` 同口径（摘要 + `assigned_ips` / `port` / `username` / `password` / `updated_at`），额外回带 `member_id`；权限沿用管理端实例**列表**口径（admin / finance / support 均可读），ID 非法 `40001`、不存在 `404`；见 14.4 与 12.7 矩阵同步更新）；**契约 16.3 一致性修正**——会员工单详情 `GET /tickets/:id` 与 `GET /admin/tickets/:id` 的成功 `data` 统一为**嵌套** `{ticket, messages}`（此前实现把工单字段平铺在 `data` 上，与契约的 `ticket + messages` 写法不符；本批改实现对齐契约，会员端与管理端同步，前端类型/页面/测试一并更新），16.3 增补结构说明；**本批不含其他后端改动**；管理后台前端（`/admin/*`：登录、仪表盘、商品、订单、会员、实例、工单、设置、通知）按 6.4 / 10.5 / 12.7 / 15.3 / 16.3 / 17.3 的角色矩阵落地界面可见性（无权限的入口隐藏或禁用 + 403 统一提示），**页面不写契约**；已知缺口（不在本批范围）：管理端**订单列表/详情接口不存在**（`GET /admin/orders`、`GET /admin/orders/:id`），后台订单页只提供按订单 ID 的「重试交付」工作台 |

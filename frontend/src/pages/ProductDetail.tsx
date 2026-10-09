@@ -16,19 +16,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { useAsync } from '@/hooks/useAsync'
 import { saveCheckoutDraft } from '@/lib/checkout'
+import { defaultConfigValue } from '@/lib/configControl'
 import { availableCycles, cheapestCycle, type BillingCycle } from '@/lib/cycles'
 import { decodeDescription, formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '@/lib/format'
 import { productTypeLabel } from '@/lib/productText'
 import { buildLoginUrl } from '@/lib/redirect'
 
-/** 默认配置：每个可配置项取第一个可选值（契约 10.3：会员端已过滤隐藏项/值）。 */
+/**
+ * 默认配置：选项型取第一个可选值，数量型取 qty_minimum（R6，契约 10.3）。
+ * 会员端已过滤隐藏项/值，这里不再二次处理。
+ */
 function defaultConfig(product: ProductDetailData): Record<string, string> {
   const selected: Record<string, string> = {}
   for (const group of product.config_groups) {
     for (const option of group.options) {
-      const first = option.values[0]
-      if (first) {
-        selected[String(option.id)] = String(first.id)
+      const value = defaultConfigValue(option)
+      if (value !== null) {
+        selected[String(option.id)] = value
       }
     }
   }

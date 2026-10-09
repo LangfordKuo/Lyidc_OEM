@@ -75,6 +75,50 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 	}
 }
 
+// TestOrderCreateQuantityConfig 验证数量型（拉条型）配置项的下单校验与快照（R6，契约 12.4）：
+// 值传数量（configoption 口径，非子项 id），范围取自该值的 qty_minimum~qty_maximum。
+func TestOrderCreateQuantityConfig(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newStage4Engine(t, gdb, nil)
+	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
+	token, _ := memberTokenFor(t, engine, "qtyuser")
+
+	// 范围内数量（数字写法）→ 下单成功并按字符串快照。
+	order := createOrder(t, engine, token, map[string]any{
+		"product_id": product.ID, "cycle": "annual", "config": map[string]any{"13": 66},
+	})
+	if order.Config["13"] != "66" {
+		t.Fatalf("数量型配置快照错误: %+v", order.Config)
+	}
+
+	// 越界 / 非整数 / 负数 → 40002（防篡改：上游按数量计费，范围必须前置校验）。
+	cases := []struct{ name, value string }{
+		{"超出上界", "101"},
+		{"低于下界", "19"},
+		{"非整数", "abc"},
+		{"负数", "-1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, envelope := doAPI(t, engine, http.MethodPost, "/api/v1/orders", token, map[string]any{
+				"product_id": product.ID, "cycle": "annual", "config": map[string]any{"13": tc.value},
+			})
+			if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+				t.Fatalf("应 40002：HTTP %d, body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// 数量型与选项型混用同时通过校验。
+	order = createOrder(t, engine, token, map[string]any{
+		"product_id": product.ID, "cycle": "annual",
+		"config": map[string]any{"11": "111", "13": "20"},
+	})
+	if order.Config["11"] != "111" || order.Config["13"] != "20" {
+		t.Fatalf("混合配置快照错误: %+v", order.Config)
+	}
+}
+
 // TestOrderCreateCouponRejections 验证优惠码在下单链路的统一 40002 口径。
 func TestOrderCreateCouponRejections(t *testing.T) {
 	gdb := testDatabase(t)

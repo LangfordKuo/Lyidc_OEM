@@ -216,14 +216,17 @@ type ConfigOption struct {
 	Values     []ConfigOptionValue `json:"sub"`
 }
 
-// ConfigOptionValue 是可选值。UpstreamID 为上游选项 ID；数量型可配置项用 Qty 提交。
+// ConfigOptionValue 是可选值。UpstreamID 为上游选项 ID；数量型（拉条型）可配置项提交数量
+// （configoption[<id>] = qty，契约 12.4），取值范围为 QtyMinimum~QtyMaximum（实测每个子项都带这两个字段）。
 type ConfigOptionValue struct {
-	ID         int       `json:"id"`
-	ConfigID   int       `json:"config_id"`
-	OptionName string    `json:"option_name"`
-	UpstreamID int       `json:"upstream_id"`
-	Hidden     int       `json:"hidden"`
-	Pricings   []Pricing `json:"pricings"`
+	ID          int       `json:"id"`
+	ConfigID    int       `json:"config_id"`
+	OptionName  string    `json:"option_name"`
+	UpstreamID  int       `json:"upstream_id"`
+	Hidden      int       `json:"hidden"`
+	QtyMinimum  int       `json:"qty_minimum"`
+	QtyMaximum  int       `json:"qty_maximum"`
+	Pricings    []Pricing `json:"pricings"`
 }
 
 // AdvancedLink 是「可配置项联动」规则（选项级联）。

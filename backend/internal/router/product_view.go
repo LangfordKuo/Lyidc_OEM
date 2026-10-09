@@ -11,10 +11,15 @@ type priceView map[string]*string
 
 // configOptionValueView 是可配置项的一个可选值（upstream_id 是下单参数 configoption 的键，
 // 阶段 4 下单直接回传）。
+//
+// R6：qty_minimum / qty_maximum 是数量型（拉条型）配置的取值上下界，前端按此渲染
+// 数字输入控件；选项型恒为 0。
 type configOptionValueView struct {
 	ID         int    `json:"id"`
 	Name       string `json:"name"`
 	UpstreamID int    `json:"upstream_id"`
+	QtyMinimum int    `json:"qty_minimum"`
+	QtyMaximum int    `json:"qty_maximum"`
 }
 
 // configOptionView 是一个可配置项；name 为上游客服文案原文（形如 `area|区域`，阶段 3a 不清洗）。
@@ -243,6 +248,8 @@ func newConfigGroupViews(cache productConfigCache, includeHidden bool) []configG
 					ID:         value.ID,
 					Name:       value.OptionName,
 					UpstreamID: value.UpstreamID,
+					QtyMinimum: value.QtyMinimum,
+					QtyMaximum: value.QtyMaximum,
 				})
 			}
 			options = append(options, configOptionView{

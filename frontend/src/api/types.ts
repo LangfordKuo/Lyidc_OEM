@@ -90,11 +90,15 @@ export interface ConfigOptionValue {
   id: number
   name: string
   upstream_id: number
+  /** 数量型配置（契约 10.3 备注）：取值下界与上界；选项型为 0。 */
+  qty_minimum?: number
+  qty_maximum?: number
 }
 
 export interface ConfigOption {
   id: number
   name: string
+  /** 上游 option_type（选择方式编码）：控件映射与实测依据见 lib/configControl.ts（R6）。 */
   type: number
   upstream_id: number
   values: ConfigOptionValue[]

@@ -29,10 +29,11 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { useAsync } from '@/hooks/useAsync'
 import { readCheckoutDraft, rememberOrder } from '@/lib/checkout'
+import { defaultConfigValue, describeConfigSelection } from '@/lib/configControl'
 import { cheapestCycle, type BillingCycle } from '@/lib/cycles'
 import { formatCycleLabel, formatDateTimeOr, formatMoney } from '@/lib/format'
 import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES } from '@/lib/orderStatus'
-import { optionLabel, valueLabel } from '@/lib/productText'
+import { optionLabel } from '@/lib/productText'
 
 // 校验失败原因文案（契约 11.2 的 5 个 reason 枚举，固定不扩展）。
 const COUPON_REASON_MESSAGES: Record<CouponInvalidReason, string> = {
@@ -43,14 +44,17 @@ const COUPON_REASON_MESSAGES: Record<CouponInvalidReason, string> = {
   cycle_not_applicable: '优惠码不适用于该周期',
 }
 
-/** 默认配置：每个可配置项取第一个可选值（契约 10.3：会员端已过滤隐藏项/值）。 */
+/**
+ * 默认配置：选项型取第一个可选值，数量型取 qty_minimum（R6，契约 10.3）。
+ * 会员端已过滤隐藏项/值，这里不再二次处理。
+ */
 function defaultConfig(product: ProductDetailData): Record<string, string> {
   const selected: Record<string, string> = {}
   for (const group of product.config_groups) {
     for (const option of group.options) {
-      const first = option.values[0]
-      if (first) {
-        selected[String(option.id)] = String(first.id)
+      const value = defaultConfigValue(option)
+      if (value !== null) {
+        selected[String(option.id)] = value
       }
     }
   }
@@ -244,11 +248,12 @@ export default function Checkout() {
     const items: { label: string; value: string }[] = []
     for (const group of product.config_groups) {
       for (const option of group.options) {
-        const valueId = config[String(option.id)]
-        const value = option.values.find((item) => String(item.id) === valueId)
-        if (value) {
-          items.push({ label: optionLabel(option.name), value: valueLabel(value.name) })
+        const raw = config[String(option.id)]
+        if (raw === undefined || raw === '') {
+          continue
         }
+        // 数量型的快照值是数量（Qty 口径），展示走 describeConfigSelection 分支。
+        items.push({ label: optionLabel(option.name), value: describeConfigSelection(option, raw) })
       }
     }
     return items

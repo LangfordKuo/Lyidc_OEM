@@ -351,7 +351,8 @@ export default function AdminOrderDetail() {
                 }))}
               />
               <p className="text-xs text-muted-foreground">
-                配置项与取值为上游本地 ID（下单时原样快照，交付时按此拼装 configoption）。
+                配置项为上游本地 ID；选项型值为所选值 ID，数量型值为数量（R6；下单时原样快照，
+                交付时按此拼装 configoption）。
               </p>
             </div>
           ) : null}

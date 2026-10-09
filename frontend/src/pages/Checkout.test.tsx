@@ -248,4 +248,69 @@ describe('结算页', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
     expect(router.state.location.search).toBe('?redirect=%2Fcheckout%2F1')
   })
+
+  it('数量型配置按 Qty 口径提交数量（而非值 id），快照显示数量+单位', async () => {
+    const fetchMock = installFetchMock((url, init) => {
+      if (url.pathname === '/api/v1/members/me') {
+        return ok(makeMember({ balance: BALANCE }))
+      }
+      if (url.pathname === '/api/v1/products/1') {
+        // R6：数量型配置（option_type=11，qty 范围 20~100，默认取 qty_minimum）。
+        return ok(
+          makeProductDetail({
+            config_groups: [
+              {
+                id: 1,
+                name: '带宽',
+                options: [
+                  {
+                    id: 13,
+                    name: 'bw|带宽',
+                    type: 11,
+                    upstream_id: 0,
+                    values: [{ id: 131, name: '带宽', upstream_id: 0, qty_minimum: 20, qty_maximum: 100 }],
+                  },
+                ],
+              },
+            ],
+          }),
+        )
+      }
+      if (url.pathname === '/api/v1/finance/balance') {
+        return ok({ member_id: 1, balance: BALANCE })
+      }
+      if (url.pathname === '/api/v1/orders' && init.method === 'POST') {
+        return ok(makeOrder({ id: 7, trade_no: 'O20261008TEST0001', config: { '13': '21' } }))
+      }
+      return undefined
+    })
+    seedMemberToken()
+    renderApp(['/checkout/1'])
+    await screen.findByRole('heading', { name: '确认订单' })
+    const user = userEvent.setup()
+
+    // 默认值 = qty_minimum；步进一次 → 21。
+    expect(screen.getByRole('spinbutton', { name: '带宽' })).toHaveValue(20)
+    await user.click(screen.getByRole('button', { name: '增加带宽' }))
+
+    await user.click(screen.getByRole('button', { name: '提交订单' }))
+
+    const orderCall = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/orders') && (init as RequestInit)?.method === 'POST',
+      )
+      expect(call).toBeTruthy()
+      return call as [RequestInfo | URL, RequestInit]
+    })
+    expect(requestBody(orderCall[1])).toEqual({
+      product_id: 1,
+      cycle: 'monthly',
+      config: { '13': '21' },
+      coupon_code: '',
+    })
+
+    // 订单快照摘要按「数量 + 单位」展示（非 `值 #id`）。
+    expect(await screen.findByText('带宽 21Mbps')).toBeInTheDocument()
+  })
 })

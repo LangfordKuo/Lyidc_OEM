@@ -217,10 +217,11 @@ func seedEpaySetting(t *testing.T, gdb *gorm.DB, gatewayURL, notifyURL string) {
 var seededProductPIDs atomic.Int64
 
 // seedOrderProduct 写库创建一个已上架商品：固定价 monthly 100.00 / annual 200.00，
-// 含两个会员可见可配置项——区域（配置项 id=11，可见取值 id=111/112、隐藏取值 id=113）与
+// 含三个会员可见可配置项——区域（配置项 id=11，可见取值 id=111/112、隐藏取值 id=113）、
 // 操作系统（配置项 id=12，取值 id=121=CentOS-7.9 / 122=Debian-12；阶段 5b 重装列表按该项取
-// `os_config_option_id`）；upstream_id 为 0 或展示值——真实数据恒为 0，仅作透传展示，
-// 不参与下单与交付口径（契约 14.5）。
+// `os_config_option_id`）与数量型带宽（配置项 id=13，option_type=11，值 id=131，
+// qty 范围 20~100；R6 用于数量口径的下单校验）；upstream_id 为 0 或展示值——真实数据恒为 0，
+// 仅作透传展示，不参与下单与交付口径（契约 14.5）。
 func seedOrderProduct(t *testing.T, gdb *gorm.DB, status string) *model.Product {
 	t.Helper()
 
@@ -241,7 +242,11 @@ func seedOrderProduct(t *testing.T, gdb *gorm.DB, status string) *model.Product 
 			`{"id":2,"name":"系统","options":[{"id":12,"gid":2,"option_name":"os|操作系统",` +
 			`"option_type":5,"upstream_id":0,"hidden":0,"sub":[` +
 			`{"id":121,"config_id":12,"option_name":"CentOS-7.9","upstream_id":0,"hidden":0,"pricings":[]},` +
-			`{"id":122,"config_id":12,"option_name":"Debian-12","upstream_id":0,"hidden":0,"pricings":[]}]}]}],` +
+			`{"id":122,"config_id":12,"option_name":"Debian-12","upstream_id":0,"hidden":0,"pricings":[]}]}]},` +
+			`{"id":3,"name":"带宽","options":[{"id":13,"gid":3,"option_name":"bw|带宽",` +
+			`"option_type":11,"upstream_id":0,"hidden":0,"sub":[` +
+			`{"id":131,"config_id":13,"option_name":"带宽","upstream_id":0,"hidden":0,` +
+			`"qty_minimum":20,"qty_maximum":100,"pricings":[]}]}]}],` +
 			`"customfields":[]}`,
 		UpstreamPricesJSON: `{"code":"CNY","prices":{"monthly":"90.00","annual":"180.00"}}`,
 		PricingJSON:        `{"mode":"fixed","fixed":{"monthly":"100.00","annual":"200.00"}}`,

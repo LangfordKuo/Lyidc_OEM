@@ -19,12 +19,20 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
     },
+  },
+  preview: {
+    // 生产构建预览（npm run preview）：临时对外（如 Cloudflare 隧道）时放开 host 白名单。
+    // proxy 默认继承 server.proxy（/api → 127.0.0.1:8080）。
+    host: '0.0.0.0',
+    port: 4173,
+    allowedHosts: true,
   },
   test: {
     environment: 'jsdom',

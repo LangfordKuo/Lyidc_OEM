@@ -127,11 +127,15 @@ func detailBody(product fakeProduct) string {
 		product.ID, product.ID, product.Prices.monthly(), product.Prices.quarterly(),
 		product.Prices.semi(), product.Prices.annual(), product.Prices.biennial(), product.Prices.triennial())
 
-	// 配置项里刻意带一个 hidden=1 的选项与一个 hidden=1 的值，用于验证会员端过滤。
+	// 配置项里刻意带一个 hidden=1 的选项与一个 hidden=1 的值，用于验证会员端过滤；
+	// 另带一个数量型（拉条型，option_type=11）配置项，用于验证 qty 范围透传（R6）。
 	configGroups := `[{"id":1,"name":"区域","description":"","options":[` +
 		`{"id":1,"gid":1,"option_name":"area|区域","option_type":12,"upstream_id":0,"hidden":0,"sub":[` +
 		`{"id":1,"config_id":1,"option_name":"1|HK^香港","upstream_id":0,"hidden":0,"pricings":[]},` +
 		`{"id":2,"config_id":1,"option_name":"2|US^美国","upstream_id":0,"hidden":1,"pricings":[]}]},` +
+		`{"id":3,"gid":1,"option_name":"bw|带宽","option_type":11,"upstream_id":0,"hidden":0,"sub":[` +
+		`{"id":31,"config_id":3,"option_name":"带宽","upstream_id":0,"hidden":0,` +
+		`"qty_minimum":20,"qty_maximum":100,"pricings":[]}]},` +
 		`{"id":2,"gid":1,"option_name":"hidden_option","option_type":1,"upstream_id":0,"hidden":1,"sub":[]}]}]`
 
 	return fmt.Sprintf(
@@ -568,11 +572,19 @@ func TestMemberProductDetailAndOffShelfNotFound(t *testing.T) {
 		t.Fatalf("库存/试用信息异常: qty=%d control=%d ontrial=%d",
 			detail.StockQty, detail.StockControl, detail.OntrialMax)
 	}
-	if len(detail.ConfigGroups) != 1 || len(detail.ConfigGroups[0].Options) != 1 {
+	if len(detail.ConfigGroups) != 1 || len(detail.ConfigGroups[0].Options) != 2 {
 		t.Fatalf("配置项应过滤 hidden，实际 %+v", detail.ConfigGroups)
 	}
 	if values := detail.ConfigGroups[0].Options[0].Values; len(values) != 1 || values[0].Name != "1|HK^香港" {
 		t.Fatalf("可配置值应过滤 hidden，实际 %+v", values)
+	}
+	// 数量型（R6）：option_type 透传 + qty 范围透传（前端据此渲染数字输入）。
+	bw := detail.ConfigGroups[0].Options[1]
+	if bw.Type != 11 || len(bw.Values) != 1 {
+		t.Fatalf("数量型配置项透传异常: %+v", bw)
+	}
+	if bw.Values[0].QtyMinimum != 20 || bw.Values[0].QtyMaximum != 100 {
+		t.Fatalf("数量型 qty 范围透传异常: %+v", bw.Values[0])
 	}
 
 	// 下架商品对会员端不可见（404）。
@@ -993,8 +1005,8 @@ func TestAdminProductDetailExposesUpstreamPrices(t *testing.T) {
 	if detail.UpstreamPID != 101 || detail.UpstreamGroupID != 1 {
 		t.Fatalf("管理端应暴露上游 ID: %+v", detail.adminProductView)
 	}
-	if len(detail.ConfigGroups) != 1 || len(detail.ConfigGroups[0].Options) != 2 {
-		// 管理端不做 hidden 过滤，应看到 2 个选项。
+	if len(detail.ConfigGroups) != 1 || len(detail.ConfigGroups[0].Options) != 3 {
+		// 管理端不做 hidden 过滤，应看到 3 个选项（区域 + 数量型带宽 + hidden_option）。
 		t.Fatalf("管理端配置项应包含全部选项，实际 %+v", detail.ConfigGroups)
 	}
 }

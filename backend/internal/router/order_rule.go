@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
@@ -28,8 +29,28 @@ var couponReasonMessage = map[string]string{
 	ReasonCycleNotApplicable: "优惠码不适用于该周期",
 }
 
+// quantityOptionType 判定数量型（拉条型）可配置项：值传数量而非子项 id（契约 12.4）。
+// 编码取自 2026-10-09 上游实测（159 个商品 + 上游前台配置页渲染对照，契约 10.3 备注）。
+func quantityOptionType(optionType int) bool {
+	switch optionType {
+	case 4, 11, 14, 15, 19:
+		return true
+	default:
+		return false
+	}
+}
+
+// quantityLimit 是数量型配置的取值范围；bounded=false 时只要求非负整数
+// （上游数据缺范围或范围异常时的兜底，避免误拦正常下单）。
+type quantityLimit struct {
+	min     int
+	max     int
+	bounded bool
+}
+
 // validateOrderConfig 校验下单配置项：键必须是该商品**会员可见**的可配置项 id（`options[].id`），
-// 值必须是该配置项某个可见可选值的 id（`values[].id`）（未知配置项/取值一律拒绝，契约 12.3）。
+// 值必须是该配置项某个可见可选值的 id（`values[].id`）；数量型配置（拉条型）的值是数量
+// （整数，且在 qty_minimum~qty_maximum 内）——未知配置项/取值一律拒绝（契约 12.3 / 12.4）。
 //
 // 口径依据（阶段 5a 真机实测，契约 14.5）：上游直连下单接口按
 // `product_config_options.id`（键）与 `product_config_options_sub.id`（值）查库取配置，
@@ -38,9 +59,24 @@ var couponReasonMessage = map[string]string{
 // id 非正数的异常数据项同样视为不可用（避免拼出上游不认的 configoption）。
 func validateOrderConfig(cache productConfigCache, config map[string]string) error {
 	allowed := make(map[string]map[string]bool, len(cache.ConfigGroups))
+	quantities := make(map[string]quantityLimit, len(cache.ConfigGroups))
 	for _, group := range cache.ConfigGroups {
 		for _, option := range group.Options {
 			if option.Hidden != 0 || option.ID <= 0 {
+				continue
+			}
+			key := strconv.Itoa(option.ID)
+			if quantityOptionType(option.OptionType) {
+				// 范围取自第一个可见子项（上游数量型恒为单个子项）；无可见子项时不做范围校验。
+				limit := quantityLimit{}
+				for _, value := range option.Values {
+					if value.Hidden != 0 || value.ID <= 0 {
+						continue
+					}
+					limit = quantityLimit{min: value.QtyMinimum, max: value.QtyMaximum, bounded: true}
+					break
+				}
+				quantities[key] = limit
 				continue
 			}
 			values := make(map[string]bool, len(option.Values))
@@ -50,11 +86,25 @@ func validateOrderConfig(cache productConfigCache, config map[string]string) err
 				}
 				values[strconv.Itoa(value.ID)] = true
 			}
-			allowed[strconv.Itoa(option.ID)] = values
+			allowed[key] = values
 		}
 	}
 
 	for key, value := range config {
+		if limit, ok := quantities[key]; ok {
+			amount, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil {
+				return fmt.Errorf("%w: 配置项 %q 的数量 %q 必须是整数", errFinanceRule, key, value)
+			}
+			if amount < 0 {
+				return fmt.Errorf("%w: 配置项 %q 的数量不能为负数（收到 %d）", errFinanceRule, key, amount)
+			}
+			if limit.bounded && (amount < limit.min || amount > limit.max) {
+				return fmt.Errorf("%w: 配置项 %q 的数量必须在 %d~%d 之间（收到 %d）",
+					errFinanceRule, key, limit.min, limit.max, amount)
+			}
+			continue
+		}
 		values, ok := allowed[key]
 		if !ok {
 			return fmt.Errorf("%w: 未知的配置项 %q（不在该商品的可配置项内）", errFinanceRule, key)
