@@ -67,14 +67,26 @@ func validateOrderConfig(cache productConfigCache, config map[string]string) err
 			}
 			key := strconv.Itoa(option.ID)
 			if quantityOptionType(option.OptionType) {
-				// 范围取自第一个可见子项（上游数量型恒为单个子项）；无可见子项时不做范围校验。
+				// 数量区间取**全部可见子项（档位）的并集**（R7 修正，契约 10.3 第 6 条）：
+				// 上游数量型常带多个价格档位（如商品 2 数据盘 [30-30]/[31-256]），
+				// 只取首个档位会把数量锁死在下界、无法加盘。无可见子项时不做范围校验。
 				limit := quantityLimit{}
+				first := true
 				for _, value := range option.Values {
 					if value.Hidden != 0 || value.ID <= 0 {
 						continue
 					}
-					limit = quantityLimit{min: value.QtyMinimum, max: value.QtyMaximum, bounded: true}
-					break
+					if first {
+						limit = quantityLimit{min: value.QtyMinimum, max: value.QtyMaximum, bounded: true}
+						first = false
+						continue
+					}
+					if value.QtyMinimum < limit.min {
+						limit.min = value.QtyMinimum
+					}
+					if value.QtyMaximum > limit.max {
+						limit.max = value.QtyMaximum
+					}
 				}
 				quantities[key] = limit
 				continue

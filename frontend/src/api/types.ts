@@ -78,13 +78,43 @@ export interface ProductGroup {
   id: number
   name: string
   sort: number
+  /** R7：所属主分类（两级分类） */
+  parent: CategoryRef
   products: ProductSummary[]
 }
 
+/** 主分类精简引用（R7） */
+export interface CategoryRef {
+  id: number
+  name: string
+}
+
+/** 主分类下的子分类索引（R7，两级筛选用） */
+export interface Subcategory {
+  id: number
+  name: string
+  sort: number
+  product_count: number
+}
+
+/** 主分类（R7） */
+export interface ProductCategory {
+  id: number
+  name: string
+  sort: number
+  subcategories: Subcategory[]
+}
+
 export interface ProductCatalog {
+  /** R7：主分类树，供「主分类 → 子分类」两级筛选 */
+  categories: ProductCategory[]
+  /** R7 起语义为**子分类**（骨架 id/name/sort/products 不变，新增 parent） */
   groups: ProductGroup[]
   total: number
 }
+
+/** 六周期配置差价（R7，契约 10.3 第 8 条）；null = 该周期无差价数据（按 0 计） */
+export type ConfigValuePrices = Record<BillingCycle, string | null>
 
 export interface ConfigOptionValue {
   id: number
@@ -93,6 +123,8 @@ export interface ConfigOptionValue {
   /** 数量型配置（契约 10.3 备注）：取值下界与上界；选项型为 0。 */
   qty_minimum?: number
   qty_maximum?: number
+  /** R7：该值六周期配置差价（已按定价模式换算）；数量型为**单位差价** */
+  pricings?: ConfigValuePrices
 }
 
 export interface ConfigOption {
@@ -112,7 +144,7 @@ export interface ConfigGroup {
 
 export interface ProductDetail extends ProductSummary {
   description: string
-  group: { id: number; name: string }
+  group: CategoryRef & { parent: CategoryRef }
   config_groups: ConfigGroup[]
   custom_fields: unknown[]
   updated_at: string
@@ -158,6 +190,33 @@ export type OrderStatus =
 
 export type OrderType = 'new' | 'renew'
 
+/**
+ * R7 成交价明细（契约 10.2.1 / 12.4）：成交价 = base + Σ deltas[].amount。
+ * 服务端与前端同口径，前端只做预览，下单仍以服务端计算为准。
+ */
+export interface PriceDeltaLine {
+  option_id: number
+  option_name: string
+  /** select=选项型（value_id 有值）/ quantity=数量型（qty/billable 有值） */
+  kind: 'select' | 'quantity'
+  value_id?: number
+  qty?: number
+  /** 单位差价（数量型为单位价；已按定价模式换算） */
+  unit: string
+  billable?: number
+  amount: string
+  /** 「无差价数据」时该项按 0.00 计 */
+  note?: string
+}
+
+export interface PriceBreakdown {
+  /** 基础价（不含配置差价） */
+  base: string
+  deltas: PriceDeltaLine[]
+  /** base + Σ deltas[].amount */
+  total: string
+}
+
 export interface Order {
   id: number
   trade_no: string
@@ -172,6 +231,8 @@ export interface Order {
   discount_amount: string
   final_amount: string
   coupon_code: string
+  /** R7 成交价差价明细快照（契约 10.2.1 / 12.4）；存量订单为 null */
+  price_breakdown: PriceBreakdown | null
   status: OrderStatus
   type: OrderType
   pay_channel: string

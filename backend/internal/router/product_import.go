@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/category"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
@@ -75,7 +76,9 @@ func (h *productHandler) importProducts(c *gin.Context) {
 
 	groups := make([]store.ProductGroupInput, 0, len(catalog.Groups))
 	jobs := make([]importJob, 0)
+	groupNames := make(map[int]string, len(catalog.Groups))
 	for groupIndex, group := range catalog.Groups {
+		groupNames[group.ID] = group.Name
 		groups = append(groups, store.ProductGroupInput{
 			UpstreamGroupID: group.ID,
 			Name:            group.Name,
@@ -105,7 +108,12 @@ func (h *productHandler) importProducts(c *gin.Context) {
 			failedPIDs = append(failedPIDs, jobs[i].product.ID)
 			continue
 		}
-		inputs = append(inputs, results[i].input)
+		input := results[i].input
+		// R7：导入时自动派生两级分类（契约 10.1）。派生是纯函数，重复导入收敛；
+		// 已被管理员改挂（category_source=manual）的商品由 store 跳过覆盖。
+		derived := category.Derive(input.Name, groupNames[jobs[i].groupID], jobs[i].groupID, jobs[i].sort)
+		input.Category = &derived
+		inputs = append(inputs, input)
 	}
 
 	// 目录里有商品但一个详情都没抓到，属上游整体异常：直接失败，而不是回一个「0 商品」的成功。

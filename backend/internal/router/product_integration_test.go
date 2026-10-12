@@ -62,6 +62,8 @@ type fakeProduct struct {
 	StockControl int
 	Qty          int
 	Ontrial      int
+	// ConfigGroups 非空时覆盖 detailBody 的默认可配置项（R7 价格联动/档位测试用）。
+	ConfigGroups string
 }
 
 // fakeGroup 是假上游里的产品分组。
@@ -129,14 +131,17 @@ func detailBody(product fakeProduct) string {
 
 	// 配置项里刻意带一个 hidden=1 的选项与一个 hidden=1 的值，用于验证会员端过滤；
 	// 另带一个数量型（拉条型，option_type=11）配置项，用于验证 qty 范围透传（R6）。
-	configGroups := `[{"id":1,"name":"区域","description":"","options":[` +
-		`{"id":1,"gid":1,"option_name":"area|区域","option_type":12,"upstream_id":0,"hidden":0,"sub":[` +
-		`{"id":1,"config_id":1,"option_name":"1|HK^香港","upstream_id":0,"hidden":0,"pricings":[]},` +
-		`{"id":2,"config_id":1,"option_name":"2|US^美国","upstream_id":0,"hidden":1,"pricings":[]}]},` +
-		`{"id":3,"gid":1,"option_name":"bw|带宽","option_type":11,"upstream_id":0,"hidden":0,"sub":[` +
-		`{"id":31,"config_id":3,"option_name":"带宽","upstream_id":0,"hidden":0,` +
-		`"qty_minimum":20,"qty_maximum":100,"pricings":[]}]},` +
-		`{"id":2,"gid":1,"option_name":"hidden_option","option_type":1,"upstream_id":0,"hidden":1,"sub":[]}]}]`
+	configGroups := product.ConfigGroups
+	if configGroups == "" {
+		configGroups = `[{"id":1,"name":"区域","description":"","options":[` +
+			`{"id":1,"gid":1,"option_name":"area|区域","option_type":12,"upstream_id":0,"hidden":0,"sub":[` +
+			`{"id":1,"config_id":1,"option_name":"1|HK^香港","upstream_id":0,"hidden":0,"pricings":[]},` +
+			`{"id":2,"config_id":1,"option_name":"2|US^美国","upstream_id":0,"hidden":1,"pricings":[]}]},` +
+			`{"id":3,"gid":1,"option_name":"bw|带宽","option_type":11,"upstream_id":0,"hidden":0,"sub":[` +
+			`{"id":31,"config_id":3,"option_name":"带宽","upstream_id":0,"hidden":0,` +
+			`"qty_minimum":20,"qty_maximum":100,"pricings":[]}]},` +
+			`{"id":2,"gid":1,"option_name":"hidden_option","option_type":1,"upstream_id":0,"hidden":1,"sub":[]}]}]`
+	}
 
 	return fmt.Sprintf(
 		`{"status":200,"msg":"请求成功","data":{"flag":1,`+

@@ -75,9 +75,94 @@ describe('结算页', () => {
     expect(await screen.findByText('香港二区 · 香港二区 CN2 A型')).toBeInTheDocument()
     // 草稿里的年付被选中，金额与明细取年付价
     expect(screen.getByRole('radio', { name: /^年付/ })).toHaveAttribute('aria-checked', 'true')
-    expect(within(summary).getByText('年付原价')).toBeInTheDocument()
+    expect(within(summary).getByText('年付成交价')).toBeInTheDocument()
     expect(within(summary).getByTestId('payable-amount')).toHaveTextContent('¥220.00')
     expect(within(summary).getByText('¥250.00')).toBeInTheDocument()
+  })
+
+  it('改配置实时重算金额：换 CPU 后应付变化且明细可展开（R7 价格联动）', async () => {
+    sessionStorage.setItem(
+      'lyidc.checkout.draft.1',
+      JSON.stringify({ productId: 1, cycle: 'annual', config: {}, productName: '香港二区 CN2 A型' }),
+    )
+    installFetchMock((url) => {
+      if (url.pathname === '/api/v1/members/me') {
+        return ok(makeMember())
+      }
+      if (url.pathname === '/api/v1/products/1') {
+        return ok(
+          makeProductDetail({
+            config_groups: [
+              {
+                id: 1,
+                name: 'CPU',
+                options: [
+                  {
+                    id: 10,
+                    name: 'cpu|CPU',
+                    type: 6,
+                    upstream_id: 0,
+                    values: [
+                      {
+                        id: 101,
+                        name: '1|1核',
+                        upstream_id: 0,
+                        pricings: {
+                          monthly: '0.00',
+                          quarterly: null,
+                          semiannual: null,
+                          annual: '0.00',
+                          biennial: null,
+                          triennial: null,
+                        },
+                      },
+                      {
+                        id: 102,
+                        name: '2|2核',
+                        upstream_id: 0,
+                        pricings: {
+                          monthly: '20.00',
+                          quarterly: null,
+                          semiannual: null,
+                          annual: '200.00',
+                          biennial: null,
+                          triennial: null,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+        )
+      }
+      if (url.pathname === '/api/v1/finance/balance') {
+        return ok({ member_id: 1, balance: BALANCE })
+      }
+      return undefined
+    })
+    seedMemberToken()
+    renderApp(['/checkout/1'])
+    await screen.findByRole('heading', { name: '确认订单' })
+    const summary = screen.getByTestId('checkout-summary')
+    const user = userEvent.setup()
+
+    // 默认选中第一个 CPU 值（1核，差价 0）→ 年付成交价 = 基础 220.00
+    expect(within(summary).getByTestId('payable-amount')).toHaveTextContent('¥220.00')
+
+    // 换 2核 → +200.00 → 420.00（实时重算）
+    await user.click(screen.getByText('2核'))
+    await waitFor(() =>
+      expect(within(summary).getByTestId('payable-amount')).toHaveTextContent('¥420.00'),
+    )
+
+    // 明细可展开：基础价 + CPU 差价 + 合计
+    await user.click(within(summary).getByRole('button', { name: /价格明细/ }))
+    const detail = await within(summary).findByTestId('price-breakdown-detail')
+    expect(within(detail).getByText('基础价')).toBeInTheDocument()
+    expect(within(detail).getByText('¥200.00')).toBeInTheDocument()
+    expect(within(detail).getByText('¥420.00')).toBeInTheDocument()
   })
 
   it('优惠码校验成功后展示减免并更新应付金额', async () => {

@@ -48,7 +48,7 @@ func TestProductUpstreamColumnsUnchanged(t *testing.T) {
 	input := sampleProductInput()
 	existing := productFromInput(input)
 
-	if columns := productUpstreamColumns(existing, input); len(columns) != 0 {
+	if columns := productUpstreamColumns(existing, input, 0); len(columns) != 0 {
 		t.Fatalf("上游字段完全一致时应无更新列，实际 %v", columns)
 	}
 }
@@ -62,7 +62,7 @@ func TestProductUpstreamColumnsIgnoresLocalFields(t *testing.T) {
 	existing.Status = model.ProductStatusOn
 	existing.Sort = 99
 
-	columns := productUpstreamColumns(existing, input)
+	columns := productUpstreamColumns(existing, input, 0)
 	if len(columns) != 0 {
 		t.Fatalf("本地字段差异不应触发更新，实际更新列 %v", columns)
 	}
@@ -129,7 +129,7 @@ func TestProductUpstreamColumnsDetectsChanges(t *testing.T) {
 			input := sampleProductInput()
 			testCase.mutate(&input)
 
-			columns := productUpstreamColumns(productFromInput(sampleProductInput()), input)
+			columns := productUpstreamColumns(productFromInput(sampleProductInput()), input, 0)
 			if !reflect.DeepEqual(columns, testCase.want) {
 				t.Fatalf("更新列 = %v，期望 %v", columns, testCase.want)
 			}

@@ -83,30 +83,33 @@ func IsOrderSettled(status string) bool {
 //   - Type / InstanceID 由阶段 5b 引入（迁移 0008）：type 区分新购（new）/ 续费（renew），
 //     续费单记录 instance_id（新购单为 NULL，实例由 instances.order_id 反向关联）。
 type Order struct {
-	ID             uint64     `gorm:"column:id;primaryKey;autoIncrement"`
-	TradeNo        string     `gorm:"column:trade_no"`
-	MemberID       uint64     `gorm:"column:member_id"`
-	ProductID      uint64     `gorm:"column:product_id"`
-	ProductName    string     `gorm:"column:product_name"`
-	Cycle          string     `gorm:"column:cycle"`
-	Qty            int        `gorm:"column:qty"`
-	ConfigJSON     string     `gorm:"column:config_json"`
-	Amount         Money      `gorm:"column:amount"`
-	DiscountAmount Money      `gorm:"column:discount_amount"`
-	FinalAmount    Money      `gorm:"column:final_amount"`
-	CouponID       *uint64    `gorm:"column:coupon_id"`
-	CouponCode     string     `gorm:"column:coupon_code"`
-	Status         string     `gorm:"column:status"`
-	Type           string     `gorm:"column:type"`
-	PayChannel     string     `gorm:"column:pay_channel"`
-	ChannelTradeNo string     `gorm:"column:channel_trade_no"`
-	PayTime        *time.Time `gorm:"column:pay_time"`
-	HostID         *int       `gorm:"column:host_id"`
-	InstanceID     *uint64    `gorm:"column:instance_id"`
-	ProvisionError string     `gorm:"column:provision_error"`
-	DeliveredAt    *time.Time `gorm:"column:delivered_at"`
-	CreatedAt      time.Time  `gorm:"column:created_at"`
-	UpdatedAt      time.Time  `gorm:"column:updated_at"`
+	ID             uint64 `gorm:"column:id;primaryKey;autoIncrement"`
+	TradeNo        string `gorm:"column:trade_no"`
+	MemberID       uint64 `gorm:"column:member_id"`
+	ProductID      uint64 `gorm:"column:product_id"`
+	ProductName    string `gorm:"column:product_name"`
+	Cycle          string `gorm:"column:cycle"`
+	Qty            int    `gorm:"column:qty"`
+	ConfigJSON     string `gorm:"column:config_json"`
+	Amount         Money  `gorm:"column:amount"`
+	DiscountAmount Money  `gorm:"column:discount_amount"`
+	FinalAmount    Money  `gorm:"column:final_amount"`
+	// PriceBreakdownJSON 是 R7 成交价差价明细快照（迁移 0013，契约 10.2.1 / 12.4）：
+	// {base, deltas[], total}，amount = base + Σ deltas[].amount。存量订单为 NULL。
+	PriceBreakdownJSON string     `gorm:"column:price_breakdown_json"`
+	CouponID           *uint64    `gorm:"column:coupon_id"`
+	CouponCode         string     `gorm:"column:coupon_code"`
+	Status             string     `gorm:"column:status"`
+	Type               string     `gorm:"column:type"`
+	PayChannel         string     `gorm:"column:pay_channel"`
+	ChannelTradeNo     string     `gorm:"column:channel_trade_no"`
+	PayTime            *time.Time `gorm:"column:pay_time"`
+	HostID             *int       `gorm:"column:host_id"`
+	InstanceID         *uint64    `gorm:"column:instance_id"`
+	ProvisionError     string     `gorm:"column:provision_error"`
+	DeliveredAt        *time.Time `gorm:"column:delivered_at"`
+	CreatedAt          time.Time  `gorm:"column:created_at"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at"`
 }
 
 // TableName 返回订单表名。

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -33,6 +34,9 @@ type ProductInput struct {
 	OntrialMax         int
 	// Sort 仅在首次导入（新建商品）时写入，之后由管理端控制。
 	Sort int
+	// Category 是 R7 派生的两级分类归属（契约 10.1）；nil 表示不参与分类派生。
+	// category_source=manual 的商品由调用方置 nil，导入不覆盖其归属。
+	Category *model.ProductCategoryInput
 }
 
 // ImportResult 是导入的计数结果：分组数 + 商品的三态计数。
@@ -62,6 +66,8 @@ type ProductUpdate struct {
 	PricingJSON *string
 	Status      *string
 	Sort        *int
+	// CategoryID 改挂子分类（R7，契约 10.4）：设置后 category_source 置 manual，导入不再覆盖。
+	CategoryID *uint64
 }
 
 // ProductGroupUpdate 描述 PUT /admin/product-groups/:id 的可选字段：nil 表示不修改。
@@ -96,7 +102,12 @@ func (s *Store) ImportCatalog(ctx context.Context, groups []ProductGroupInput, p
 		if err := importGroups(tx, groups, now, &result); err != nil {
 			return err
 		}
-		return importProducts(tx, products, now, &result)
+		// R7：先按稳定键解析/创建两级分类，再把子分类 id 挂到商品上（契约 10.1）。
+		categoryIDs, err := importCategories(tx, products, now)
+		if err != nil {
+			return err
+		}
+		return importProducts(tx, products, categoryIDs, now, &result)
 	})
 	if err != nil {
 		return ImportResult{}, err
@@ -145,8 +156,86 @@ func importGroups(tx *gorm.DB, groups []ProductGroupInput, now time.Time, result
 	return nil
 }
 
+// importCategories 按派生稳定键 find-or-create 两级分类，返回 key → 子分类 id。
+//
+// 幂等（契约 10.1）：key 唯一，已存在的分类**不改 name / sort**（都是本地字段），
+// 因此重复导入不会新建、不改名、不漂移。返回的 map 的值是**子分类** id。
+func importCategories(tx *gorm.DB, products []ProductInput, now time.Time) (map[string]uint64, error) {
+	ids := make(map[string]uint64)
+	if len(products) == 0 {
+		return ids, nil
+	}
+
+	// 先收集本批用到的主/子分类键与首次出现的展示信息（保证同一 key 只创建一次）。
+	type pending struct {
+		key       string
+		name      string
+		sort      int
+		parentKey string // 子分类的父键；空串表示自身是主分类
+	}
+	order := make([]string, 0)
+	pendingByKey := make(map[string]*pending)
+
+	for _, product := range products {
+		if product.Category == nil {
+			continue
+		}
+		cat := product.Category
+		if _, ok := pendingByKey[cat.MainKey]; !ok {
+			pendingByKey[cat.MainKey] = &pending{key: cat.MainKey, name: cat.MainName, sort: cat.MainSort}
+			order = append(order, cat.MainKey)
+		}
+		if _, ok := pendingByKey[cat.SubKey]; !ok {
+			pendingByKey[cat.SubKey] = &pending{
+				key: cat.SubKey, name: cat.SubName, sort: cat.SubSort, parentKey: cat.MainKey,
+			}
+			order = append(order, cat.SubKey)
+		}
+	}
+
+	// 读出已存在的分类（按 key），只补缺的。
+	keys := make([]string, 0, len(order))
+	keys = append(keys, order...)
+	existing := make([]model.ProductCategory, 0, len(keys))
+	if err := tx.Where("`key` IN ?", keys).Find(&existing).Error; err != nil {
+		return nil, err
+	}
+	existingByKey := make(map[string]model.ProductCategory, len(existing))
+	for _, item := range existing {
+		existingByKey[item.Key] = item
+	}
+
+	for _, key := range order {
+		item := pendingByKey[key]
+		if found, ok := existingByKey[key]; ok {
+			ids[key] = found.ID
+			continue
+		}
+		// 新建：主分类先建（子分类要引用它的 id）。
+		created := model.ProductCategory{
+			Key:       item.key,
+			Name:      item.name,
+			Sort:      item.sort,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if item.parentKey != "" {
+			parentID, ok := ids[item.parentKey]
+			if !ok {
+				return nil, fmt.Errorf("父分类未解析: %s", item.parentKey)
+			}
+			created.ParentID = &parentID
+		}
+		if err := tx.Create(&created).Error; err != nil {
+			return nil, err
+		}
+		ids[key] = created.ID
+	}
+	return ids, nil
+}
+
 // importProducts 创建缺失的商品、更新上游字段有变化的商品、跳过完全一致的商品。
-func importProducts(tx *gorm.DB, products []ProductInput, now time.Time, result *ImportResult) error {
+func importProducts(tx *gorm.DB, products []ProductInput, categoryIDs map[string]uint64, now time.Time, result *ImportResult) error {
 	if len(products) == 0 {
 		return nil
 	}
@@ -166,11 +255,14 @@ func importProducts(tx *gorm.DB, products []ProductInput, now time.Time, result 
 	}
 
 	for _, product := range products {
+		categoryID := resolveCategoryID(product, categoryIDs)
 		current, ok := byPID[product.UpstreamPID]
 		if !ok {
 			created := model.Product{
 				UpstreamPID:        product.UpstreamPID,
 				UpstreamGroupID:    product.UpstreamGroupID,
+				CategoryID:         categoryID,
+				CategorySource:     model.CategorySourceDerived,
 				Name:               product.Name,
 				Description:        product.Description,
 				Type:               product.Type,
@@ -193,7 +285,7 @@ func importProducts(tx *gorm.DB, products []ProductInput, now time.Time, result 
 			continue
 		}
 
-		columns := productUpstreamColumns(current, product)
+		columns := productUpstreamColumns(current, product, categoryID)
 		if len(columns) == 0 {
 			result.Unchanged++
 			continue
@@ -207,15 +299,29 @@ func importProducts(tx *gorm.DB, products []ProductInput, now time.Time, result 
 	return nil
 }
 
+// resolveCategoryID 解析商品归属的子分类 id；无派生信息时返回 0。
+func resolveCategoryID(in ProductInput, categoryIDs map[string]uint64) uint64 {
+	if in.Category == nil {
+		return 0
+	}
+	return categoryIDs[in.Category.SubKey]
+}
+
 // productUpstreamColumns 比较上游字段并返回需要更新的列（无变化时返回空 map）。
 //
 // 这是「重复导入即幂等」的判定核心：返回空即计为 unchanged。
 // 本地字段（pricing_json / status / sort）不在比较与写入范围内。
-func productUpstreamColumns(existing *model.Product, in ProductInput) map[string]any {
+// R7：category_id 参与比较，但**仅当 category_source != manual**——
+// 管理员手工改挂的商品（manual）导入不得覆盖（契约 10.1）。
+func productUpstreamColumns(existing *model.Product, in ProductInput, categoryID uint64) map[string]any {
 	columns := make(map[string]any)
 
 	if existing.UpstreamGroupID != in.UpstreamGroupID {
 		columns["upstream_group_id"] = in.UpstreamGroupID
+	}
+	if in.Category != nil && existing.CategorySource != model.CategorySourceManual && existing.CategoryID != categoryID {
+		columns["category_id"] = categoryID
+		columns["category_source"] = model.CategorySourceDerived
 	}
 	if existing.Name != in.Name {
 		columns["name"] = in.Name
@@ -306,6 +412,11 @@ func (s *Store) UpdateProduct(ctx context.Context, id uint64, upd ProductUpdate)
 	}
 	if upd.Sort != nil {
 		columns["sort"] = *upd.Sort
+	}
+	if upd.CategoryID != nil {
+		// R7 改挂子分类：标记为 manual，后续导入不再自动派生覆盖（契约 10.1 / 10.4）。
+		columns["category_id"] = *upd.CategoryID
+		columns["category_source"] = model.CategorySourceManual
 	}
 	if err := db.Model(&model.Product{}).Where("id = ?", id).Updates(columns).Error; err != nil {
 		return nil, err

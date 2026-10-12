@@ -75,11 +75,27 @@ export function isQuantityOption(option: ConfigOption): boolean {
   return configControl(option) === 'quantity'
 }
 
-/** 数量型的取值范围与默认值（取自值的 qty_minimum / qty_maximum，缺省回退 0）。 */
+/**
+ * 数量型的取值范围（契约 10.3 第 6 条）：取**全部可见值（档位）的并集**。
+ *
+ * R7 修正：数量型可配置项下有多个价格档位（如 `[30-30]`/`[31-256]`），
+ * 只取首个值会把区间锁死在下界、无法加盘。后端下发时已把各值区间收敛为并集，
+ * 这里仍做并集运算以兼容原始夹具与管理端未过滤数据。
+ */
 export function quantityRange(option: ConfigOption): { min: number; max: number } {
-  const value = option.values[0]
-  const min = value?.qty_minimum ?? 0
-  const max = value?.qty_maximum ?? min
+  const values = option.values.filter((value) => (value.qty_maximum ?? 0) >= (value.qty_minimum ?? 0))
+  const source = values.length > 0 ? values : option.values
+  if (source.length === 0) {
+    return { min: 0, max: 0 }
+  }
+  let min = source[0].qty_minimum ?? 0
+  let max = source[0].qty_maximum ?? min
+  for (const value of source.slice(1)) {
+    const valueMin = value.qty_minimum ?? 0
+    const valueMax = value.qty_maximum ?? valueMin
+    if (valueMin < min) min = valueMin
+    if (valueMax > max) max = valueMax
+  }
   return max < min ? { min: max, max: min } : { min, max }
 }
 

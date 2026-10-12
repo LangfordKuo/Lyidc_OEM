@@ -21,6 +21,7 @@ import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageSt
 import StatusBadge from '@/components/common/StatusBadge'
 import ConfigSelector from '@/components/product/ConfigSelector'
 import CycleSelector from '@/components/product/CycleSelector'
+import PriceBreakdownView from '@/components/product/PriceBreakdown'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,7 @@ import { cheapestCycle, type BillingCycle } from '@/lib/cycles'
 import { formatCycleLabel, formatDateTimeOr, formatMoney } from '@/lib/format'
 import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES } from '@/lib/orderStatus'
 import { optionLabel } from '@/lib/productText'
+import { quotePrice } from '@/lib/priceQuote'
 
 // 校验失败原因文案（契约 11.2 的 5 个 reason 枚举，固定不扩展）。
 const COUPON_REASON_MESSAGES: Record<CouponInvalidReason, string> = {
@@ -122,7 +124,14 @@ export default function Checkout() {
   const cycle = active?.cycle ?? defaults.cycle
   const config = active?.config ?? defaults.config
 
-  const price = product && product.prices[cycle] !== null ? product.prices[cycle] : null
+  // R7 价格联动：成交价 = 基础价 + Σ 配置差价，配置一变就重算（契约 10.2.1）。
+  // 优惠码继续对**成交总额**抵扣；下单后以订单快照为准。
+  const basePrice = product && product.prices[cycle] !== null ? product.prices[cycle] : null
+  const quote = useMemo(
+    () => (product ? quotePrice(product.config_groups, config, cycle, basePrice) : null),
+    [product, config, cycle, basePrice],
+  )
+  const price = quote && basePrice !== null ? quote.total : null
   const discount = coupon?.valid ? coupon.discount_amount : '0.00'
   const finalAmount = coupon?.valid ? coupon.final_amount : price
 
@@ -434,9 +443,17 @@ export default function Checkout() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{formatCycleLabel(cycle)}原价</span>
+                <span className="text-muted-foreground">{formatCycleLabel(cycle)}成交价</span>
                 <span className="text-foreground">{formatMoney(order?.amount ?? price)}</span>
               </div>
+
+              {orderCreated ? (
+                order.price_breakdown ? (
+                  <PriceBreakdownView breakdown={order.price_breakdown} />
+                ) : null
+              ) : quote ? (
+                <PriceBreakdownView breakdown={quote} />
+              ) : null}
 
               {orderCreated ? (
                 <div className="flex justify-between">

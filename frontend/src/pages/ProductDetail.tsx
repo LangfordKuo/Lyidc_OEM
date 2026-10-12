@@ -10,6 +10,7 @@ import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageSt
 import ConfigSelector from '@/components/product/ConfigSelector'
 import CyclePriceTable from '@/components/product/CyclePriceTable'
 import CycleSelector from '@/components/product/CycleSelector'
+import PriceBreakdownView from '@/components/product/PriceBreakdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,6 +21,7 @@ import { defaultConfigValue } from '@/lib/configControl'
 import { availableCycles, cheapestCycle, type BillingCycle } from '@/lib/cycles'
 import { decodeDescription, formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '@/lib/format'
 import { productTypeLabel } from '@/lib/productText'
+import { quotePrice } from '@/lib/priceQuote'
 import { buildLoginUrl } from '@/lib/redirect'
 
 /**
@@ -91,7 +93,14 @@ export default function ProductDetail() {
     }
   }
 
-  const price = data?.prices[cycle] ?? null
+  // R7 价格联动：成交价 = 基础价 + Σ 配置差价，配置/周期一变就重算（契约 10.2.1 / 10.3 第 9 条）。
+  // 展示价只是预览，下单仍以服务端计算为准。
+  const basePrice = data?.prices[cycle] ?? null
+  const quote = useMemo(
+    () => (data ? quotePrice(data.config_groups, config, cycle, basePrice) : null),
+    [data, config, cycle, basePrice],
+  )
+  const price = quote && basePrice !== null ? quote.total : null
   const perMonth = useMemo(() => (price ? monthlyEquivalent(price, cycle) : null), [price, cycle])
 
   const handleBuy = () => {
@@ -245,6 +254,13 @@ export default function ProductDetail() {
                     : `时长 ${formatDuration(cycle)}`}
                 </p>
               </div>
+
+              {quote ? (
+                <PriceBreakdownView
+                  breakdown={quote}
+                  className="rounded-lg border border-border bg-muted/30 p-2.5"
+                />
+              ) : null}
 
               {outOfStock ? (
                 <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning dark:text-amber-400">

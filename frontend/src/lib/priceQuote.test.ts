@@ -1,0 +1,229 @@
+import { describe, expect, it } from 'vitest'
+
+import type { ConfigGroup, ConfigOption, ConfigOptionValue, ConfigValuePrices } from '@/api/types'
+import {
+  NO_PRICING_DATA_NOTE,
+  billableQuantity,
+  fromCents,
+  nonZeroDeltaCount,
+  quotePrice,
+  toCents,
+} from './priceQuote'
+
+/**
+ * R7 价格联动纯函数测试（契约 10.2.1）：
+ * 成交价 = 基础价 + Σ 配置差价；数量型差价 = 单位差价 × 可计费数量。
+ * 前端只做预览累加，不重套定价规则（差价已由服务端按定价模式换算后下发）。
+ */
+
+function prices(overrides: Partial<ConfigValuePrices> = {}): ConfigValuePrices {
+  return {
+    monthly: null,
+    quarterly: null,
+    semiannual: null,
+    annual: null,
+    biennial: null,
+    triennial: null,
+    ...overrides,
+  }
+}
+
+function value(
+  id: number,
+  name: string,
+  overrides: Partial<ConfigOptionValue> = {},
+): ConfigOptionValue {
+  return { id, name, upstream_id: 0, ...overrides }
+}
+
+function option(
+  overrides: Partial<ConfigOption> & Pick<ConfigOption, 'id' | 'name' | 'values'>,
+): ConfigOption {
+  return { type: 6, upstream_id: 0, ...overrides }
+}
+
+function catalog(...items: ConfigOption[]): ConfigGroup[] {
+  return [{ id: 1, name: '配置', options: items }]
+}
+
+describe('priceQuote 金额换算', () => {
+  it('toCents 解析两位小数字符串为整数分', () => {
+    expect(toCents('0')).toBe(0)
+    expect(toCents('20.00')).toBe(2000)
+    expect(toCents('0.5')).toBe(50)
+    expect(toCents('12.34')).toBe(1234)
+  })
+
+  it('toCents 对非法/空值返回 null（按无差价数据处理）', () => {
+    expect(toCents(null)).toBeNull()
+    expect(toCents(undefined)).toBeNull()
+    expect(toCents('')).toBeNull()
+    expect(toCents('abc')).toBeNull()
+    expect(toCents('-1.00')).toBeNull()
+    expect(toCents('1.234')).toBeNull()
+  })
+
+  it('fromCents 始终输出两位小数', () => {
+    expect(fromCents(0)).toBe('0.00')
+    expect(fromCents(50)).toBe('0.50')
+    expect(fromCents(2000)).toBe('20.00')
+    expect(fromCents(1234)).toBe('12.34')
+  })
+})
+
+describe('quotePrice 选型差价', () => {
+  it('选项型换值：成交价 = 基础价 + 该值差价', () => {
+    const groups = catalog(
+      option({
+        id: 10,
+        name: 'cpu|CPU',
+        values: [
+          value(101, '1|1核', { pricings: prices({ monthly: '0.00' }) }),
+          value(102, '2|2核', { pricings: prices({ monthly: '20.00' }) }),
+        ],
+      }),
+    )
+
+    const picked = quotePrice(groups, { '10': '102' }, 'monthly', '20.00')
+    expect(picked.base).toBe('20.00')
+    expect(picked.total).toBe('40.00')
+    expect(picked.deltas).toHaveLength(1)
+    expect(picked.deltas[0]).toMatchObject({
+      option_id: 10,
+      option_name: 'CPU',
+      kind: 'select',
+      value_id: 102,
+      amount: '20.00',
+    })
+  })
+
+  it('各周期差价独立（月付 0 / 年付 200）', () => {
+    const groups = catalog(
+      option({
+        id: 10,
+        name: 'cpu|CPU',
+        values: [
+          value(102, '2|2核', { pricings: prices({ monthly: '0.00', annual: '200.00' }) }),
+        ],
+      }),
+    )
+
+    expect(quotePrice(groups, { '10': '102' }, 'monthly', '20.00').total).toBe('20.00')
+    expect(quotePrice(groups, { '10': '102' }, 'annual', '200.00').total).toBe('400.00')
+  })
+})
+
+describe('quotePrice 数量型差价', () => {
+  it('单档位：差价 = 单位差价 × 数量（数据盘 0.50 × 50 = 25.00）', () => {
+    const groups = catalog(
+      option({
+        id: 11,
+        name: 'data_disk_size|数据盘',
+        type: 14,
+        values: [
+          value(111, '数据盘', {
+            qty_minimum: 0,
+            qty_maximum: 100,
+            pricings: prices({ monthly: '0.50' }),
+          }),
+        ],
+      }),
+    )
+
+    const quote = quotePrice(groups, { '11': '50' }, 'monthly', '20.00')
+    expect(quote.total).toBe('45.00')
+    expect(quote.deltas[0]).toMatchObject({
+      kind: 'quantity',
+      qty: 50,
+      billable: 50,
+      unit: '0.50',
+      amount: '25.00',
+    })
+  })
+
+  it('多档位：可计费数量 = 数量 − 低一档上限（30 落在 [21-100]，可计费 10）', () => {
+    const opt = option({
+      id: 12,
+      name: 'bw|带宽',
+      type: 11,
+      values: [
+        value(121, '带宽', { qty_minimum: 20, qty_maximum: 20, pricings: prices({ monthly: '0.00' }) }),
+        value(122, '带宽', { qty_minimum: 21, qty_maximum: 100, pricings: prices({ monthly: '1.00' }) }),
+      ],
+    })
+    const groups = catalog(opt)
+
+    expect(billableQuantity(opt, opt.values[1], 30)).toBe(10)
+    expect(billableQuantity(opt, opt.values[1], 21)).toBe(1)
+    expect(billableQuantity(opt, opt.values[0], 20)).toBe(20)
+
+    const quote = quotePrice(groups, { '12': '30' }, 'monthly', '0.00')
+    expect(quote.deltas[0]).toMatchObject({ billable: 10, unit: '1.00', amount: '10.00' })
+    expect(quote.total).toBe('10.00')
+  })
+})
+
+describe('quotePrice 降级与边界', () => {
+  it('该周期无差价数据（pricings 为 null）→ 按 0.00 计并标注', () => {
+    const groups = catalog(
+      option({
+        id: 13,
+        name: 'area|区域',
+        type: 12,
+        values: [value(131, '1|HK^香港', { pricings: prices() })],
+      }),
+    )
+
+    const quote = quotePrice(groups, { '13': '131' }, 'monthly', '20.00')
+    expect(quote.total).toBe('20.00') // 基础价不变
+    expect(quote.deltas[0]).toMatchObject({ amount: '0.00', note: NO_PRICING_DATA_NOTE })
+  })
+
+  it('未知配置项 / 未知值被跳过，不影响成交价', () => {
+    const groups = catalog(
+      option({
+        id: 10,
+        name: 'cpu|CPU',
+        values: [value(101, '1|1核', { pricings: prices({ monthly: '5.00' }) })],
+      }),
+    )
+
+    const quote = quotePrice(groups, { '10': '999', '99': '1' }, 'monthly', '20.00')
+    expect(quote.total).toBe('20.00')
+    expect(quote.deltas).toHaveLength(0)
+  })
+
+  it('基础价不可售（null）时按 0 计，仅剩配置差价', () => {
+    const groups = catalog(
+      option({
+        id: 10,
+        name: 'cpu|CPU',
+        values: [value(102, '2|2核', { pricings: prices({ monthly: '20.00' }) })],
+      }),
+    )
+
+    const quote = quotePrice(groups, { '10': '102' }, 'monthly', null)
+    expect(quote.base).toBe('0.00')
+    expect(quote.total).toBe('20.00')
+  })
+
+  it('nonZeroDeltaCount 统计有差价的项数', () => {
+    const groups = catalog(
+      option({
+        id: 10,
+        name: 'cpu|CPU',
+        values: [value(102, '2|2核', { pricings: prices({ monthly: '20.00' }) })],
+      }),
+      option({
+        id: 13,
+        name: 'area|区域',
+        type: 12,
+        values: [value(131, '1|HK^香港', { pricings: prices() })],
+      }),
+    )
+
+    const quote = quotePrice(groups, { '10': '102', '13': '131' }, 'monthly', '20.00')
+    expect(quote.deltas).toHaveLength(2)
+    expect(nonZeroDeltaCount(quote)).toBe(1)
+  })
+})

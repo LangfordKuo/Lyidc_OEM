@@ -14,12 +14,15 @@ type priceView map[string]*string
 //
 // R6：qty_minimum / qty_maximum 是数量型（拉条型）配置的取值上下界，前端按此渲染
 // 数字输入控件；选项型恒为 0。
+// R7：Pricings 是该值六周期的**配置差价**（已按定价模式换算，数量型为单位差价），
+// null 表示该周期无差价数据（契约 10.3 第 8 条）。
 type configOptionValueView struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	UpstreamID int    `json:"upstream_id"`
-	QtyMinimum int    `json:"qty_minimum"`
-	QtyMaximum int    `json:"qty_maximum"`
+	ID         int                `json:"id"`
+	Name       string             `json:"name"`
+	UpstreamID int                `json:"upstream_id"`
+	QtyMinimum int                `json:"qty_minimum"`
+	QtyMaximum int                `json:"qty_maximum"`
+	Pricings   map[string]*string `json:"pricings"`
 }
 
 // configOptionView 是一个可配置项；name 为上游客服文案原文（形如 `area|区域`，阶段 3a 不清洗）。
@@ -121,18 +124,45 @@ type memberProductView struct {
 	DescriptionLines []string  `json:"description_lines"`
 }
 
-// memberGroupView 是会员端分组（只含已上架商品的分组）。
+// memberCategoryRefView 是主分类的精简引用（R7）。
+type memberCategoryRefView struct {
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
+}
+
+// memberSubcategoryView 是主分类下的子分类索引（R7，两级筛选用）。
+type memberSubcategoryView struct {
+	ID           uint64 `json:"id"`
+	Name         string `json:"name"`
+	Sort         int    `json:"sort"`
+	ProductCount int    `json:"product_count"`
+}
+
+// memberCategoryView 是会员端主分类（R7）。
+type memberCategoryView struct {
+	ID            uint64                  `json:"id"`
+	Name          string                  `json:"name"`
+	Sort          int                     `json:"sort"`
+	Subcategories []memberSubcategoryView `json:"subcategories"`
+}
+
+// memberGroupView 是会员端子分类分组（只含已上架商品）。
+//
+// R7：groups[] 的语义从「上游产品组」演进为「子分类」，骨架 id/name/sort/products 不变，
+// 新增 parent（所属主分类）——旧客户端读 groups[].products 仍可用。
 type memberGroupView struct {
-	ID       uint64              `json:"id"`
-	Name     string              `json:"name"`
-	Sort     int                 `json:"sort"`
-	Products []memberProductView `json:"products"`
+	ID       uint64                `json:"id"`
+	Name     string                `json:"name"`
+	Sort     int                   `json:"sort"`
+	Parent   memberCategoryRefView `json:"parent"`
+	Products []memberProductView   `json:"products"`
 }
 
 // memberProductListView 是会员端商品目录。
 type memberProductListView struct {
-	Groups []memberGroupView `json:"groups"`
-	Total  int               `json:"total"`
+	Categories []memberCategoryView `json:"categories"`
+	Groups     []memberGroupView    `json:"groups"`
+	Total      int                  `json:"total"`
 }
 
 // memberProductDetailView 是会员端商品详情（配置项 + 六周期价格 + 库存/试用信息）。
@@ -145,10 +175,11 @@ type memberProductDetailView struct {
 	UpdatedAt    string              `json:"updated_at"`
 }
 
-// productGroupRefView 是商品详情里的所属分组引用。
+// productGroupRefView 是商品详情里的所属分类引用（R7 起为子分类 + 所属主分类）。
 type productGroupRefView struct {
-	ID   uint64 `json:"id"`
-	Name string `json:"name"`
+	ID     uint64                `json:"id"`
+	Name   string                `json:"name"`
+	Parent memberCategoryRefView `json:"parent"`
 }
 
 // productPrices 解析商品的定价规则与上游价格缓存，返回本地售价、规则与上游价格。
@@ -225,13 +256,19 @@ type productConfigCache struct {
 	Product      upstream.Product       `json:"products"`
 	ConfigGroups []upstream.ConfigGroup `json:"config_groups"`
 	CustomFields []upstream.CustomField `json:"customfields"`
+	// RawJSON 是 config_json 原文（R7 配置差价解析用，见 pricing.ParseConfigPricings）。
+	RawJSON string `json:"-"`
 }
 
 // newConfigGroupViews 把上游可配置项转成对外视图。
 //
 // includeHidden=false（会员端）时过滤掉上游标记为隐藏（hidden != 0）的项与值；
 // includeHidden=true（管理端）时全量返回，便于管理员了解商品全部可配置项。
-func newConfigGroupViews(cache productConfigCache, includeHidden bool) []configGroupView {
+//
+// R7：每个可选值带 `pricings`（六周期配置差价，已按定价模式换算）；
+// 数量型的取值区间是**全部可见档位的并集**（契约 10.3 第 6 条，避免多档位被锁死在下界）。
+func newConfigGroupViews(cache productConfigCache, rule pricing.Rule, includeHidden bool) []configGroupView {
+	pricings := pricing.ParseConfigPricings(cache.RawJSON)
 	groups := make([]configGroupView, 0, len(cache.ConfigGroups))
 	for _, source := range cache.ConfigGroups {
 		options := make([]configOptionView, 0, len(source.Options))
@@ -239,18 +276,37 @@ func newConfigGroupViews(cache productConfigCache, includeHidden bool) []configG
 			if option.Hidden != 0 && !includeHidden {
 				continue
 			}
+			optionPricing := pricings.Option(option.ID)
 			values := make([]configOptionValueView, 0, len(option.Values))
 			for _, value := range option.Values {
 				if value.Hidden != 0 && !includeHidden {
 					continue
 				}
+				tier := optionPricing.TierByID(value.ID)
 				values = append(values, configOptionValueView{
 					ID:         value.ID,
 					Name:       value.OptionName,
 					UpstreamID: value.UpstreamID,
 					QtyMinimum: value.QtyMinimum,
 					QtyMaximum: value.QtyMaximum,
+					Pricings:   tier.UnitView(rule),
 				})
+			}
+			if pricing.IsQuantityOptionType(option.OptionType) && len(values) > 0 {
+				// 档位并集：把各值的区间收敛到同一个 [min, max]，前端按一个数量控件渲染。
+				min, max := values[0].QtyMinimum, values[0].QtyMaximum
+				for _, value := range values[1:] {
+					if value.QtyMinimum < min {
+						min = value.QtyMinimum
+					}
+					if value.QtyMaximum > max {
+						max = value.QtyMaximum
+					}
+				}
+				for i := range values {
+					values[i].QtyMinimum = min
+					values[i].QtyMaximum = max
+				}
 			}
 			options = append(options, configOptionView{
 				ID:         option.ID,
@@ -268,6 +324,8 @@ func newConfigGroupViews(cache productConfigCache, includeHidden bool) []configG
 	}
 	return groups
 }
+
+// mustConfigJSON 已并入 productConfigCache.RawJSON（见上）。
 
 // newCustomFieldViews 把上游自定义字段转成对外视图。
 func newCustomFieldViews(cache productConfigCache) []customFieldView {

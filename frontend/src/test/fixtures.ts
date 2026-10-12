@@ -57,7 +57,7 @@ export function makeProductDetail(overrides: Partial<ProductDetail> = {}): Produ
   return {
     ...makeProductSummary(),
     description: '<li>CPU:2核心</li>\n<li>内存:1G</li>',
-    group: { id: 1, name: '香港二区' },
+    group: { id: 1, name: '香港二区', parent: { id: 101, name: '香港' } },
     config_groups: [
       {
         id: 1,
@@ -69,8 +69,33 @@ export function makeProductDetail(overrides: Partial<ProductDetail> = {}): Produ
             type: 12,
             upstream_id: 0,
             values: [
-              { id: 111, name: '1|HK^香港', upstream_id: 0 },
-              { id: 112, name: '2|US^美国', upstream_id: 0 },
+              // R7：区域/系统类上游无差价数据（pricings 为 null）。
+              {
+                id: 111,
+                name: '1|HK^香港',
+                upstream_id: 0,
+                pricings: {
+                  monthly: null,
+                  quarterly: null,
+                  semiannual: null,
+                  annual: null,
+                  biennial: null,
+                  triennial: null,
+                },
+              },
+              {
+                id: 112,
+                name: '2|US^美国',
+                upstream_id: 0,
+                pricings: {
+                  monthly: null,
+                  quarterly: null,
+                  semiannual: null,
+                  annual: null,
+                  biennial: null,
+                  triennial: null,
+                },
+              },
             ],
           },
         ],
@@ -84,11 +109,26 @@ export function makeProductDetail(overrides: Partial<ProductDetail> = {}): Produ
 
 export function makeCatalog(): ProductCatalog {
   return {
+    categories: [
+      {
+        id: 101,
+        name: '香港',
+        sort: 0,
+        subcategories: [{ id: 1, name: '香港二区', sort: 0, product_count: 2 }],
+      },
+      {
+        id: 102,
+        name: '国内',
+        sort: 1,
+        subcategories: [{ id: 2, name: '襄阳云服务器', sort: 0, product_count: 1 }],
+      },
+    ],
     groups: [
       {
         id: 1,
         name: '香港二区',
         sort: 0,
+        parent: { id: 101, name: '香港' },
         products: [
           makeProductSummary({ id: 1, name: '香港二区 CN2 A型' }),
           makeProductSummary({ id: 2, name: '香港二区 CN2 B型', prices: makePrices({ monthly: '45.00' }) }),
@@ -98,6 +138,7 @@ export function makeCatalog(): ProductCatalog {
         id: 2,
         name: '襄阳云服务器',
         sort: 1,
+        parent: { id: 102, name: '国内' },
         products: [
           makeProductSummary({
             id: 112,
@@ -141,6 +182,11 @@ export function makeOrder(overrides: Partial<Order> = {}): Order {
     discount_amount: '0.00',
     final_amount: '220.00',
     coupon_code: '',
+    price_breakdown: {
+      base: '220.00',
+      deltas: [],
+      total: '220.00',
+    },
     status: 'pending',
     type: 'new',
     pay_channel: '',

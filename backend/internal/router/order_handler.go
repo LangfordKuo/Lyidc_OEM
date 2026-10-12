@@ -74,17 +74,20 @@ type orderView struct {
 	DiscountAmount string            `json:"discount_amount"`
 	FinalAmount    string            `json:"final_amount"`
 	CouponCode     string            `json:"coupon_code"`
-	Status         string            `json:"status"`
-	Type           string            `json:"type"`
-	PayChannel     string            `json:"pay_channel"`
-	ChannelTradeNo string            `json:"channel_trade_no"`
-	PayTime        *string           `json:"pay_time"`
-	HostID         *int              `json:"host_id"`
-	InstanceID     *uint64           `json:"instance_id"`
-	ProvisionError string            `json:"provision_error"`
-	DeliveredAt    *string           `json:"delivered_at"`
-	CreatedAt      string            `json:"created_at"`
-	UpdatedAt      string            `json:"updated_at"`
+	// PriceBreakdown 是 R7 成交价差价明细快照（契约 10.2.1 / 12.4）；
+	// 存量订单没有快照时输出 null。
+	PriceBreakdown *pricing.Breakdown `json:"price_breakdown"`
+	Status         string             `json:"status"`
+	Type           string             `json:"type"`
+	PayChannel     string             `json:"pay_channel"`
+	ChannelTradeNo string             `json:"channel_trade_no"`
+	PayTime        *string            `json:"pay_time"`
+	HostID         *int               `json:"host_id"`
+	InstanceID     *uint64            `json:"instance_id"`
+	ProvisionError string             `json:"provision_error"`
+	DeliveredAt    *string            `json:"delivered_at"`
+	CreatedAt      string             `json:"created_at"`
+	UpdatedAt      string             `json:"updated_at"`
 }
 
 // orderListView 是订单分页列表。
@@ -178,7 +181,7 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 	}
 
 	// 该周期须有本地售价（null 表示不可售）。定价数据异常时按不可售处理，与会员端一致。
-	_, _, prices, priceErr := productPrices(product)
+	rule, _, prices, priceErr := productPrices(product)
 	if priceErr != nil {
 		h.logger.Warn("商品定价数据异常，按不可售处理", "error", priceErr, "product_id", product.ID)
 		prices = nil
@@ -209,9 +212,20 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 		return
 	}
 
+	// R7 成交价 = 基础价 + Σ 配置差价（契约 10.2.1）；差价跟随定价模式，数量型按档位计。
+	// 无差价数据按 0 计并标注，不阻断下单。
+	breakdown := pricing.ParseConfigPricings(product.ConfigJSON).Quote(rule, config, cycle, price)
+	amount := breakdown.Total
+	breakdownJSON, err := breakdown.Marshal()
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+
 	// 优惠码：不存在 / 无效 / 不适用于该周期一律 40002 + 明确提示（契约 12.5）。
+	// 抵扣对象是**成交总额**（基础价 + Σ 配置差价），口径不变。
 	discount := pricing.FormatAmount(0)
-	final := price
+	final := amount
 	var coupon *model.Coupon
 	if code := strings.TrimSpace(req.CouponCode); code != "" {
 		coupon, err = h.store.CouponByCode(ctx, code)
@@ -228,7 +242,7 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 			h.logger.Warn("优惠码适用周期解析失败，按全部周期处理", "error", err, "coupon_id", coupon.ID)
 			cycles = nil
 		}
-		discount, final, err = applyCoupon(coupon, cycles, cycle, price, time.Now().UTC())
+		discount, final, err = applyCoupon(coupon, cycles, cycle, amount, time.Now().UTC())
 		if err != nil {
 			failRuleError(c, err)
 			return
@@ -236,16 +250,17 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 	}
 
 	input := store.OrderInput{
-		MemberID:       member.ID,
-		ProductID:      product.ID,
-		ProductName:    product.Name,
-		Cycle:          cycle,
-		Qty:            1,
-		ConfigJSON:     configJSON,
-		Amount:         price,
-		DiscountAmount: discount,
-		FinalAmount:    final,
-		CouponCode:     strings.TrimSpace(req.CouponCode),
+		MemberID:           member.ID,
+		ProductID:          product.ID,
+		ProductName:        product.Name,
+		Cycle:              cycle,
+		Qty:                1,
+		ConfigJSON:         configJSON,
+		Amount:             amount,
+		DiscountAmount:     discount,
+		FinalAmount:        final,
+		PriceBreakdownJSON: breakdownJSON,
+		CouponCode:         strings.TrimSpace(req.CouponCode),
 	}
 	if coupon != nil {
 		input.CouponID = &coupon.ID
@@ -707,6 +722,7 @@ func newOrderView(order *model.Order, logger *slog.Logger) orderView {
 		DiscountAmount: string(order.DiscountAmount),
 		FinalAmount:    string(order.FinalAmount),
 		CouponCode:     order.CouponCode,
+		PriceBreakdown: pricing.ParseBreakdown(order.PriceBreakdownJSON),
 		Status:         order.Status,
 		Type:           order.Type,
 		PayChannel:     order.PayChannel,

@@ -2,11 +2,13 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v15（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v17（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
-> 阶段 8 管理端订单接口；**R5 商品简介：上游 description 拉取落库 + 商品卡配置列表（`description_lines`）**）
+> 阶段 8 管理端订单接口；R5 商品简介：上游 description 拉取落库 + 商品卡配置列表（`description_lines`）；
+> R6 配置控件矩阵 + 数量型取值口径 + 系统二级选择；
+> **R7 配置差价联动计价 + 商品两级分类（主分类 / 子分类）**）
 
 ## 1. 通用约定
 
@@ -842,6 +844,52 @@ curl -s https://lyew.com/cart/credit
 R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 10.1 字段表与迁移 0012）：
 该转换是**确定性**的——R5 前的转义存量在首次导入时计一次 `updated`，之后重复导入仍为 `unchanged`。
 
+**商品两级分类（R7，迁移 0014）**
+
+会员端要「选择香港分类 → 香港二区 / 香港三区」两级筛选，因此在 `product_groups`（上游产品组的本地映射）
+**之外**新增独立的分类树。取舍说明：
+
+- **不选「给 `product_groups` 加 `parent_id`」**：子分类名与上游组名不是一一对应——
+  子分类「香港二区」由**商品名**派生，而它的 6 个商品分属上游组「二区 CN2标准性能」；
+  子分类「美国一区」更是横跨 3 个上游组（「一区 Kurun精品」「传家宝」「美国一区 CERA高防」）。
+  一个上游组也可能需要拆到多个子分类，单表父子列表达不了这种多对多。
+- **选「新表 `product_categories` + `products.category_id`」**：分类是**商品级**归属，
+  与上游组映射正交；`product_groups` 继续只服务导入幂等与管理端按上游组过滤，互不干扰。
+
+**`product_categories`（本地表，导入只创建不覆盖）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 本地分类 ID |
+| `parent_id` | int \| null | **null = 主分类**；非空 = 子分类，指向主分类的 `id`（两级，不再往下嵌套） |
+| `key` | string | **派生稳定键**（唯一，见下），导入按它查找，管理员改名不漂移 |
+| `name` | string | 展示名（**本地字段**：首次派生写入，之后只能在管理端改） |
+| `sort` | int | 排序（升序；主分类按地域固定序，子分类按派生出现序） |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+`products` 新增 `category_id`（int，指向**子分类**的 `id`；`0` = 尚未归类）与
+`category_source`（string：`derived` / `manual`，缺省 `derived`）。
+`category_source=manual` 表示管理员已手工改挂，**导入不再覆盖**；`derived` 时导入按派生结果刷新。
+
+**派生规则（导入时自动，管理端可后改）**
+
+1. **主分类**：按地域关键词在**商品名**中查找，找不到再在**上游组名**中查找，仍找不到归「其他」。
+   关键词（按此优先序匹配，取第一个命中）：`香港` / `日本` / `美国` / `韩国` / `新加坡` / `台湾` /
+   `马来` / `德国` / `国内` / `亚太`。
+   另按实测数据把大陆机房地域并入 `国内`：`西安` / `襄阳` / `内蒙` / `内蒙古` / `绍兴` / `十堰`
+   （这 5 个地域共 40 个商品，关键词表本身不含它们，不并入则会全部落进「其他」）。
+2. **子分类**：商品名匹配「地域 + 区段」形态（`^(香港|日本|美国|韩国|新加坡|台湾|马来|德国|国内|亚太)[0-9一二三四五六七八九十]+区`）
+   时取该形态原文（`香港二区 CN2 A型` → `香港二区`）；否则取**上游组名原文**（`香港精品网`、`传家宝` 等）。
+3. **派生稳定键 `key`**（保证重复导入不漂移、管理员改名后不重建）：
+   主分类 `m:<地域>`；子分类命中区段形态时 `z:<区段>`（如 `z:香港二区`），
+   未命中时 `g:<upstream_group_id>`（按上游组 id 而非组名，组名被改名也不漂移）。
+   `name` 只在**首次创建**时写入，之后导入永不改写。
+
+**导入幂等**：`key` 唯一，find-or-create；派生结果与当前 `category_id` 一致时零写入。
+连续两次导入必然 `created=0, updated=0, unchanged=<商品数>`（分类行不新建、不改名、不漂移）。
+R7 首次导入会因 `category_id` 从 `0` 变为派生值而计一次 `updated=<商品数>`，属预期（同 10.4 第 5 条），
+**再导入一次必回到 `unchanged`**。`category_source=manual` 的商品不参与派生比较与写入。
+
 ### 10.2 定价模型
 
 **计费周期（6 个）与中文显示名**
@@ -912,6 +960,57 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
 加价率小数超两位）→ `40001`；规则类（`mode=markup` 缺 `markup_percent`、`mode=fixed` 的 `fixed` 为空、
 `mode=upstream` 携带 `markup_percent`/`fixed`、加价率越界）→ `40002`。
 
+#### 10.2.1 配置差价（R7）
+
+**成交价 = 基础价 + Σ 配置差价**。基础价是上面 10.2 的单周期计算结果（上游价 → 加价 → 固定价覆盖）；
+配置差价是用户所选每个配置项在该周期的加价，**跟随商品定价模式**：
+
+| 定价模式 | 基础价 | 配置差价 |
+| --- | --- | --- |
+| `upstream` | 上游价 | 差价原样 |
+| `markup` | 上游价 ×(1+markup_percent%) | **差价 ×(1+markup_percent%)**（同一加价率，四舍五入到分） |
+| `fixed` | 固定价覆盖基础价 | **差价原样叠加在固定价之上**（固定价只覆盖基础价，不吞差价） |
+
+组合模式（`markup` + `fixed`）：基础价按 `fixed` 覆盖，差价按 `markup` 加价后叠加。
+
+**差价数据来源**：上游 `GET /cart/get_product_config` 的 `data.config_groups[].options[].sub[].pricings[]`
+（`type:"configoptions"`，`relid` = 子项 id），已在导入时随 `products.config_json` 原文落库，
+**无需新增列**。单行含 6 个周期字段，但键名是**上游副词形态**（`semiannually`/`annually`/`biennially`/`triennially`），
+按 10.2 的周期映射表转成本地周期名；`code` 取 CNY 行（无则取首行）。
+
+**数量型（拉条型）的差价口径**：一个数量型配置项下有**多个子项 = 价格档位**，各档位 `qty_minimum~qty_maximum`
+互不重叠且**上下衔接**（实测 153 个单档位 + 133 个多档位，多档位 100% 衔接无空洞）。
+选中数量落入哪一档，就用**该档位的单位差价**；**可计费数量 = 数量 − 低一档的 `qty_maximum`**（无低一档时为 0）：
+
+```
+数量型差价 = 档位单位差价 × 可计费数量
+```
+
+实测依据（2026-10-13 全量核对 159 个商品的 `config_json`）：
+
+- 单档位（如商品 1「香港二区 CN2 A型」`data_disk_size`）：`[0-256 @0.50]`，可计费数量 = 数量，
+  退化为**单位差价 × 数量**（20GB → `10.00`，50GB → `25.00`）。
+- 多档位（如商品 2「香港二区 CN2 B型」`data_disk_size`）：`[30-30 @0.00] [31-256 @0.50]`，
+  30GB 落在免费档差价 `0.00`，31GB 起每 GB `0.50`（31GB → `0.50`，256GB → `113.00`）。
+- 多档位（如商品 74 `ip_num`）：`[1-1 @0.00] [2-10 @38.00]`，首个 IP 免费，第 2 个起每个 `38.00`
+  （2 个 → `38.00`，10 个 → `342.00`）。若按「单位差价 × 数量」会把免费档也计费，故以档位为准。
+
+**提交口径不变**：`config` / `configoption` 仍提交**数量**（`qty`），不提交子项 id（见 12.4）；
+档位只影响计价，不影响提交。数量的合法区间取该配置项**全部可见档位的并集**
+（`min(档位.qty_minimum)` ~ `max(档位.qty_maximum)`），不得只取首个档位。
+
+**无差价数据的降级**：子项无 `pricings`、无 CNY/首行、或该周期字段缺失/非法/为负
+（上游以 `-1.00` 表示不适用）时，该配置项差价按 **`0.00`** 计，明细里 `note:"无差价数据"`，
+**不阻断下单**。
+
+**金额口径**：差价与成交价一律整数分计算，接口输出两位小数字符串。**优惠码对成交总额抵扣**
+（即对 `基础价 + Σ配置差价` 抵扣），既有 12.5 口径不变。
+
+**明细快照**：订单落库时把差价明细写入 `orders.price_breakdown_json`（迁移 0013），对账可查：
+`{"base":"20.00","deltas":[{"option_id":10,"option_name":"data_disk_size|数据盘","kind":"quantity",
+"qty":50,"unit":"0.50","billable":50,"amount":"25.00","note":""}],"total":"45.00"}`。
+`kind` 取 `select`（选项型，`value_id` 有值）/ `quantity`（数量型，`qty` 有值）。
+
 ### 10.3 会员端接口（只读）
 
 商品目录**无需鉴权**：商品与价格对访客可见（阶段 4 的下单/支付接口才要求会员 token）。
@@ -919,24 +1018,38 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
 
 #### `GET /api/v1/products`
 
-按分组组织的上架商品目录（不含空分组；分组与商品均按 `sort` 升序）。
+按**子分类**组织的上架商品目录（不含空分类；分类与商品均按 `sort` 升序）。
+R7 起 `groups[]` 的语义从「上游产品组」演进为「**子分类**」，字段骨架 `id` / `name` / `sort` / `products` **保持不变**，
+只新增 `parent`（所属主分类）——旧客户端读 `groups[].products` 仍可用；新增 `categories[]` 供两级筛选。
 
 | 项目 | 说明 |
 | --- | --- |
 | 鉴权 | 不需要 |
 | 查询参数 | 无 |
-| 成功 | HTTP 200，`data` 为 `{groups, total}` |
+| 成功 | HTTP 200，`data` 为 `{categories, groups, total}` |
 
 ```json
 {
   "code": 0,
   "message": "ok",
   "data": {
+    "categories": [
+      {
+        "id": 101,
+        "name": "香港",
+        "sort": 0,
+        "subcategories": [
+          { "id": 201, "name": "香港二区", "sort": 0, "product_count": 6 },
+          { "id": 202, "name": "香港三区", "sort": 1, "product_count": 6 }
+        ]
+      }
+    ],
     "groups": [
       {
-        "id": 1,
+        "id": 201,
         "name": "香港二区",
         "sort": 0,
+        "parent": { "id": 101, "name": "香港" },
         "products": [
           {
             "id": 1,
@@ -962,7 +1075,9 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
 
 | 字段 | 说明 |
 | --- | --- |
-| `prices` | 六周期本地售价；六个键**始终存在**，`null` 表示该周期不可售 |
+| `categories` | 主分类树（R7）：`subcategories` 只含**有上架商品**的子分类；`product_count` 是该子分类下上架商品数 |
+| `groups[].parent` | 所属主分类 `{id, name}`（R7 新增） |
+| `prices` | 六周期本地**基础价**（不含配置差价，见 10.2.1）；六个键**始终存在**，`null` 表示该周期不可售 |
 | `stock_qty` / `stock_control` | `stock_control=1` 时 `stock_qty` 才是有效库存；`0` 表示上游不限库存 |
 | `ontrial_max` | 可试用数量（`0` 表示不提供试用） |
 | `description_lines` | 商品简介解析出的**展示行数组**（R5，商品卡配置列表的数据源）：从 `description` 提取 `<li>` 行文本、去 HTML 标签与空行，无 `<li>` 时按 `<br>`/段落/换行切行；**空简介恒为空数组 `[]`**（不是 `null`，也不是省略键）；列表与详情都下发同一份数组，列表**不下发** `description` 原文 |
@@ -996,7 +1111,7 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
     "ontrial_max": 0,
     "description_lines": ["CPU:2核心", "内存:1G"],
     "description": "<li>CPU:2核心</li>\n<li>内存:1G</li>",
-    "group": { "id": 1, "name": "香港二区" },
+    "group": { "id": 201, "name": "香港二区", "parent": { "id": 101, "name": "香港" } },
     "config_groups": [
       {
         "id": 1,
@@ -1005,7 +1120,8 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
           {
             "id": 1, "name": "area|区域", "type": 12, "upstream_id": 0,
             "values": [
-              { "id": 1, "name": "1|HK^香港", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 }
+              { "id": 1, "name": "1|HK^香港", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0,
+                "pricings": { "monthly": "0.00", "quarterly": "0.00", "semiannual": "0.00", "annual": "0.00", "biennial": null, "triennial": null } }
             ]
           }
         ]
@@ -1017,13 +1133,16 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
           {
             "id": 2, "name": "os|操作系统", "type": 5, "upstream_id": 0,
             "values": [
-              { "id": 3, "name": "15|Debian^Debian-10.3.3-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 },
-              { "id": 9, "name": "66|CentOS^CentOS-7.9.2111-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0 }
+              { "id": 3, "name": "15|Debian^Debian-10.3.3-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0,
+                "pricings": { "monthly": "0.00", "quarterly": "0.00", "semiannual": "0.00", "annual": "0.00", "biennial": null, "triennial": null } },
+              { "id": 9, "name": "66|CentOS^CentOS-7.9.2111-x64", "upstream_id": 0, "qty_minimum": 0, "qty_maximum": 0,
+                "pricings": { "monthly": "0.00", "quarterly": "0.00", "semiannual": "0.00", "annual": "0.00", "biennial": null, "triennial": null } }
             ]
           },
           {
             "id": 7, "name": "bw|带宽", "type": 11, "upstream_id": 0,
-            "values": [ { "id": 34, "name": "带宽", "upstream_id": 0, "qty_minimum": 20, "qty_maximum": 100 } ]
+            "values": [ { "id": 34, "name": "带宽", "upstream_id": 0, "qty_minimum": 20, "qty_maximum": 100,
+              "pricings": { "monthly": "0.50", "quarterly": "1.50", "semiannual": "3.00", "annual": "6.00", "biennial": "0.00", "triennial": "0.00" } } ]
           }
         ]
       }
@@ -1068,12 +1187,21 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
    单值且值名不是 `id|名` 形态 → 数量型；选项数 > 8 → 下拉；其余 → 单选横条。
    （实测 159 个商品未出现多选/复选型配置项；上游若新增编码，按上述兜底渲染。）
 6. **数量型（上表「数量」行）的取值口径**：提交的是**数量**而不是值 id
-   （契约 8.3 的 `configoption` 行：数量型传 `qty`）；取值范围与默认值取该值的
-   `qty_minimum` / `qty_maximum`（默认值 = `qty_minimum`，步进 1；
-   选项型的这两个字段恒为 0）。下单校验见 12.3。
+   （契约 8.3 的 `configoption` 行：数量型传 `qty`）。**取值范围取该配置项全部可见值（档位）的并集**：
+   `min(值.qty_minimum)` ~ `max(值.qty_maximum)`，默认值取该下界，步进 1；选项型的这两个字段恒为 0。
+   （R7 修正：此前只取**首个**值的范围，遇到多档位数量型——如商品 2 数据盘 `[30-30]`/`[31-256]`——
+   会被锁死在 30 无法加盘；档位结构见 10.2.1。）下单校验见 12.4。
 7. 值名里的 `^` 前是「大类」（如 `15|Debian^Debian-10.3.3-x64` 的 `Debian`、
    `1|HK^香港` 的 `HK`），二级选择以它为大类分组依据（按值出现顺序去重）；
    `^` 后是具体显示名。
+8. **`pricings`（R7）**：该值在六个周期的**配置差价**，已按 10.2.1 的定价模式换算
+   （`markup` 已乘加价率，`fixed` 下仍为原差价），前端直接累加即可，**不必也不应**在前端再套定价规则。
+   六个键**始终存在**；`null` 表示该周期**无差价数据**（按 `0.00` 计，明细标注「无差价数据」，见 10.2.1）。
+   数量型的 `pricings` 是**单位差价**（成交时乘可计费数量，见 10.2.1）。
+   `base` 类价格字段不在值上——基础价仍看商品级 `prices`。
+9. **成交价实时重算**：前端在配置/周期变化时按 `基础价(cycle) + Σ 配置差价(cycle)` 重算
+   （数量型乘可计费数量），并展示可展开明细；**服务端下单时仍以同一公式为准**，
+   前端展示价只是预览（10.3 结尾既有声明「最终以提交订单时的金额为准」继续有效）。
 
 ### 10.4 管理端接口
 
@@ -1265,6 +1393,69 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 
 说明：分组名与排序是**本地字段**，导入不会覆盖（见 10.1），因此可以放心按自己的品牌重命名。
 
+#### `GET /api/v1/admin/categories`
+
+列出全部分类树（主分类 → 子分类）与每个子分类下的商品计数。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（**所有角色**，只读） |
+| 成功 | HTTP 200，`data` 为 `{items}`，主分类按 `sort` 升序、子分类按 `sort` 升序 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "id": 101,
+        "key": "m:香港",
+        "name": "香港",
+        "sort": 0,
+        "created_at": "2026-10-13T00:00:00Z",
+        "updated_at": "2026-10-13T00:00:00Z",
+        "subcategories": [
+          {
+            "id": 201,
+            "key": "z:香港二区",
+            "name": "香港二区",
+            "sort": 0,
+            "products": { "total": 6, "on": 3, "off": 3 },
+            "created_at": "2026-10-13T00:00:00Z",
+            "updated_at": "2026-10-13T00:00:00Z"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`key` 是派生稳定键（见 10.1），仅供排查与导入对照，管理端**不可修改**。
+
+#### `PUT /api/v1/admin/categories/:id`
+
+分类改名（主/子通用）与子分类改挂主分类。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin`**（分类管理属目录结构，财务/客服只读） |
+| 请求体 | `name`（1-128 字符，自动去首尾空格）、`parent_id`（**仅子分类**可传：改挂到另一个主分类；主分类传 `parent_id` 一律 `40002`）、`sort`（`-999999` ~ `999999`）；至少提供一个 |
+| 成功 | HTTP 200，`data` 为更新后的分类（主分类带 `subcategories`，子分类带 `products` 计数） |
+| 错误码 | `40001`（无字段、空名称、名称超长、`sort` 越界、ID 非正整数）、`40002`（主分类传 `parent_id`、`parent_id` 指向自身/子分类/不存在、子分类改成主分类）、`403`（`finance` / `support`）、`404`（`分类不存在`） |
+
+**改挂子分类**（把子分类移到别的主分类）走本接口的 `parent_id`；
+**商品改挂子分类**走 `PUT /api/v1/admin/products/:id` 的 `category_id`（见下）。
+
+说明：分类的 `name` 是**本地字段**，导入不会覆盖（见 10.1 的 `key` 稳定键），改名后不漂移、不重建。
+
+#### `PUT /api/v1/admin/products/:id` 的 `category_id`（R7 扩展）
+
+请求体新增可选 `category_id`：把商品改挂到某个**子分类**（传 `0` 表示取消归类）。
+设置后该商品的 `category_source` 置为 `manual`，**后续导入不再自动派生覆盖**（见 10.1）。
+非法/不存在的子分类 id → `40002`；传主分类 id（`parent_id` 为空的行）→ `40002`（必须挂到子分类）。
+
 ### 10.5 角色权限矩阵（商品部分）
 
 | 接口 | admin | finance | support |
@@ -1272,9 +1463,11 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 | `GET /api/v1/products`、`GET /api/v1/products/:id` | 公开（无需 token） | 公开 | 公开 |
 | `GET /api/v1/admin/products`、`GET /api/v1/admin/products/:id` | ✓ | ✓ | ✓ |
 | `GET /api/v1/admin/product-groups` | ✓ | ✓ | ✓ |
+| `GET /api/v1/admin/categories`（R7，只读） | ✓ | ✓ | ✓ |
 | `POST /api/v1/admin/products/import` | ✓ | ✓ | ✗（`403`） |
-| `PUT /api/v1/admin/products/:id`（改定价/上下架/排序） | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/products/:id`（改定价/上下架/排序/改挂子分类） | ✓ | ✓ | ✗（`403`） |
 | `PUT /api/v1/admin/product-groups/:id` | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/categories/:id`（R7，改名/改挂主分类，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） |
 
 ### 10.6 实测差异与约定（2026-10-08，生产上游）
 
@@ -1858,10 +2051,12 @@ form 参数：
 
 **订单对象字段**（下单/详情/列表/支付返回统一结构，字段语义见 12.3 的 orders 表）：
 `id` / `trade_no` / `member_id` / `product_id` / `product_name` / `cycle` / `qty` / `config`（对象）/
-`amount` / `discount_amount` / `final_amount` / `coupon_code` / `status` / **`type`** /
-`pay_channel` / `channel_trade_no` / `pay_time` / `host_id` / **`instance_id`** / `provision_error` /
-`delivered_at` / `created_at` / `updated_at`（加粗两项为阶段 5b 新增：`type` 区分新购 `new` /
-续费 `renew`，`instance_id` 为续费单对应的实例 ID）。
+`amount` / `discount_amount` / `final_amount` / `coupon_code` / **`price_breakdown`** / `status` /
+**`type`** / `pay_channel` / `channel_trade_no` / `pay_time` / `host_id` / **`instance_id`** /
+`provision_error` / `delivered_at` / `created_at` / `updated_at`
+（加粗为历次新增：阶段 5b 的 `type` 区分新购 `new` / 续费 `renew`、`instance_id` 为续费单对应的实例 ID；
+R7 的 `price_breakdown` 为配置差价明细快照，见 10.2.1 与下方算例）。
+`amount` 自 R7 起为**基础价 + Σ 配置差价**（此前为基础价）。
 
 #### `POST /api/v1/orders`
 
@@ -1880,7 +2075,7 @@ form 参数：
 ```bash
 curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
   -H 'Authorization: Bearer <member-token>' -H 'Content-Type: application/json' \
-  -d '{"product_id":1,"cycle":"annual","config":{"11":111},"coupon_code":"CASH20"}'
+  -d '{"product_id":1,"cycle":"monthly","config":{"10":"50"}}'
 ```
 
 ```json
@@ -1893,13 +2088,22 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
     "member_id": 1,
     "product_id": 1,
     "product_name": "香港二区 CN2 A型",
-    "cycle": "annual",
+    "cycle": "monthly",
     "qty": 1,
-    "config": {"11": "111"},
-    "amount": "200.00",
-    "discount_amount": "20.00",
-    "final_amount": "180.00",
-    "coupon_code": "CASH20",
+    "config": {"10": "50"},
+    "amount": "45.00",
+    "discount_amount": "0.00",
+    "final_amount": "45.00",
+    "coupon_code": "",
+    "price_breakdown": {
+      "base": "20.00",
+      "deltas": [
+        { "option_id": 10, "option_name": "data_disk_size|数据盘", "kind": "quantity",
+          "value_id": 37, "qty": 50, "unit": "0.50", "billable": 50,
+          "amount": "25.00", "note": "" }
+      ],
+      "total": "45.00"
+    },
     "status": "pending",
     "pay_channel": "",
     "channel_trade_no": "",
@@ -1912,6 +2116,17 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
   }
 }
 ```
+
+算例：商品 1「香港二区 CN2 A型」月付基础价 `20.00`，`data_disk_size`（配置项 id `10`）单档位
+`[0-256 @0.50]`，提交数量 `50` → 可计费数量 `50`，差价 `0.50 × 50 = 25.00`，
+`amount = 20.00 + 25.00 = 45.00`。
+
+**金额口径（R7，见 10.2.1）**：`amount` = **基础价 + Σ 配置差价**（成交总额），
+`discount_amount` 为优惠码对**该总额**的抵扣，`final_amount = amount − discount_amount`。
+`price_breakdown` 是差价明细快照（同内容写入 `orders.price_breakdown_json`，迁移 0013，对账可查）：
+`base` = 基础价，`deltas[]` 为逐配置项差价，`total` = `base + Σ deltas.amount`（= `amount`）。
+`deltas[].note` 为 `"无差价数据"` 时该项按 `0.00` 计（见 10.2.1）。`kind=quantity` 时 `qty`/`billable` 有值，
+`kind=select` 时 `value_id` 有值。
 
 校验顺序（依次判断，命中即返回）：
 
@@ -2155,6 +2370,8 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `GET/PUT /api/v1/admin/settings/payment/epay` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/admin/settings/upstream` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/orders`、`GET /api/v1/admin/orders/:id`（阶段 8b，查看类） | ✓ | ✓ | ✓ | ✗（`401`） |
+| `GET /api/v1/admin/categories`（R7，分类树只读） | ✓ | ✓ | ✓ | ✗（`401`） |
+| `PUT /api/v1/admin/categories/:id`（R7，分类管理：改名 / 子分类改挂主分类，**仅 admin**） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/recharges`、`GET /api/v1/admin/ledger` | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/instances`（阶段 5a）、`GET /api/v1/admin/instances/:id`（阶段 8 新增） | ✓ | ✓ | ✓ | ✗（`401`） |
 | `POST /api/v1/admin/orders/:id/retry-delivery`（阶段 5a，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
@@ -2906,7 +3123,8 @@ active ──管理端暂停 / 到期未续费自动扫描──▶ suspended �
 | 项目 | 说明 |
 | --- | --- |
 | 请求体 | `cycle`（必填，6 周期之一）；**本批不支持优惠码**（无 `coupon_code` 字段，传入被忽略，订单折扣恒为 `0.00`） |
-| 金额 | 按**当前商品**该周期本地售价（商品下架仍可续费：已购实例不受上架状态影响；该周期无售价返回 `40002`） |
+| 金额 | 按**当前商品**该周期售价计算（R7 起 = **基础价 + Σ 配置差价**，见 10.2.1）：基础价取商品当前本地售价，配置差价按**该实例开通时的配置快照**（原订单 `config_json`）重算，与新购同公式；商品下架仍可续费（已购实例不受上架状态影响），该周期无售价返回 `40002`。实例原配置缺失或已无对应配置项时，缺失部分差价按 `0.00`（`note:"无差价数据"`），不阻断续费 |
+| 明细 | 续费单同样写 `price_breakdown`（`kind`/`qty`/`value_id` 取自实例原配置快照） |
 | 成功 | HTTP 200，`data` 为订单对象（`type=renew`、`instance_id` 已填、`status=pending`） |
 | 错误码 | `401`、`40001`（cycle 非法/ID 非法）、`404`、`40002`（实例非 active/suspended、商品不存在、周期不可售）、`50001` |
 | 后续 | 支付成功（在线/余额）→ 自动续费交付（15.5）；失败可经管理员重试同入口 `POST /admin/orders/:id/retry-delivery` |
@@ -3680,6 +3898,7 @@ status = active
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-13 | v17 | R7 配置价格联动 + 商品两级分类：**① 配置差价联动计价（新增 10.2.1）**——成交价 = **基础价 + Σ 配置差价**，差价数据取上游 `config_groups[].options[].sub[].pricings[]`（`type:"configoptions"`，已随 `config_json` 落库，**无需新增列**）；差价跟随定价模式（`upstream` 原样 / `markup` 同率加价 / `fixed` 原样叠加在固定价之上），全链路整数分；**数量型差价 = 档位单位差价 × 可计费数量**，可计费数量 = 数量 − 低一档 `qty_maximum`（无低一档为 0）——实测 286 个数量型里 153 单档位 / 133 多档位且多档位 100% 上下衔接（典型如商品 74 `ip_num` `[1-1 @0.00][2-10 @38.00]`：首个 IP 免费、第 2 个起每个 38.00），单档位时退化为「单位差价 × 数量」；无 pricings / 该周期缺失 / 负值（上游 `-1.00` 哨兵）→ 差价 `0.00` + 明细标注「无差价数据」，不阻断下单；优惠码继续对**总额**抵扣；**② 差价明细快照（迁移 0013）**——`orders.price_breakdown_json` 落库（base / deltas[] / total）并随订单对象下发 `price_breakdown`，续费单同口径（按实例开通时配置快照重算）；**③ 数量型取值范围修正**——由「首个值的 qty 区间」改为**全部档位并集**（此前多档位会被锁死，如商品 2 数据盘 `[30-30]`/`[31-256]` 无法加盘），契约 10.3 第 6 条与下单校验同步；**④ 商品两级分类（10.1 新增，迁移 0014）**——新表 `product_categories`（`parent_id` 两级）+ `products.category_id`/`category_source`（**不**给 `product_groups` 加父级：子分类「香港二区」来自商品名、「美国一区」横跨 3 个上游组，与上游组多对多）；导入按地域关键词派生主分类（含西安/襄阳/内蒙/绍兴/十堰 → `国内` 的实测别名）、按「地域+区」形态或组名派生子分类，`key` 稳定键保证改名不漂移、重复导入收敛（R7 首次导入计一次 `updated`，再导入必回 `unchanged`）；会员端 `GET /products` 新增 `categories[]` 树、`groups[]` 语义演进为**子分类**并新增 `parent`（骨架 `id`/`name`/`sort`/`products` 不变，向后兼容）；管理端新增 `GET /admin/categories`、`PUT /admin/categories/:id`（改名 / 子分类改挂主分类，**仅 admin**，10.5 与 12.7 矩阵同步）、`PUT /admin/products/:id` 扩 `category_id`（改挂后 `category_source=manual`，导入不再覆盖）；**⑤ 前端**：配置变化实时重算金额 + 可展开差价明细（商品详情 / 下单页 / 结算页）、两级分类筛选、配置控件文字前 23px 幽灵空隙修复（Tailwind v4 下 `.relative` 生成顺序晚于 `.sr-only`，shadcn `RadioGroupItem` 的 `relative`+`size-4` 把「隐藏」单选撑成 16px flex 项 + `gap-2` = 23px；改为 `absolute sr-only` 由 cn 合并掉 `relative`） |
 | 2026-10-09 | v16 | R6 产品配置交互优化：**① 配置选择控件矩阵**（10.3 新增第 5/6/7 条）——按上游 `option_type` 渲染与上游前台一致的控件（**实测**：2026-10-09 全量拉取上游 159 个商品 + 前台配置页 `/cart?action=configureproduct&pid=N` 渲染对照；映射表入 10.3：1=下拉 / 5=两级系统选择 / 6·8·10·12·13=单选横条 / 4·11·14·15·19=数量；未收录编码按值形态兜底，实测无多选型样本）；**② 数量型（拉条型）取值口径落地**——提交数量而非值 id（8.3 既有口径「数量型传 qty」，此前前端按值 id 提交、上游会把值 id 当数量解释）；`values[]` 视图新增 `qty_minimum` / `qty_maximum` 透传（选项型恒 0），下单校验按范围前置拦截（12.4 请求说明与快照口径、12.8 错误码表第 4 条同步）；**③ 系统选择二级菜单**——下单/结算页与重装弹窗的 `os` 配置（值 `^` 前为系统大类）改为两级（大类 → 版本），重装分组取上游 `/host/cloudos` 的 `group` 字段（无分组信息时退化单级）；**④ 前端**：`ConfigSelector` 重写（四种控件 + 二级系统 + 数量步进）、`ReinstallDialog` 两级改造、订单配置快照的数量型展示（`数据盘 100GB`）；**测试**：前端 33 文件 200 用例全绿（新增 `configControl` 27 + `ConfigSelector` 11 + `ReinstallDialog` 5 + 结算页数量型提交 1），后端 `go test ./...` 全绿（新增数量型下单 1 正例 4 负例 + 混用用例、视图 qty 范围透传断言） |
 | 2026-10-09 | v15 | R5 商品简介（上游 `description` 拉取 + 商品卡配置列表）——**迁移 0012**：`products.description` 列**自 0004 建立时即存在**，本迁移不重复加列、只把 R5 口径固化进列注释（存「上游原文经一次 HTML 实体反转义后的原始 HTML」；`MODIFY COLUMN` 只改注释，幂等，回滚只还原注释不删列）；**导入链路**：落库前对上游 `description` 做一次 `html.UnescapeString`（确定性转换，转义存量首次导入计一次 `updated`、其后幂等不变）；**解析工具** `descriptionLines`（router 包，纯正则 + strings，无新依赖）：兼容转义/未转义输入 → 提取 `<li>` 行（li 内嵌 `<br>` 再拆）→ 无 `<li>` 时按 `<br>`/块级标签/换行切 → 去标签、折叠空白、去空行、超长不截断，空简介恒为 `[]`；**接口**：会员端 `GET /products`（列表）与 `GET /products/:id`（详情）新增 `description_lines`（列表不下发原文；详情保留解码后 `description` 原文），管理端 `GET /admin/products/:id` 同步带出；**10.1 字段表与写入边界 / 10.3 列表与详情示例+约定 / 10.4 管理端详情 / 10.6 实测第 6 条**同步改写；同步更新安装集成测试的迁移数量断言（11→12）；**测试**：解析工具 13 用例（含双重转义只解码一次、超长不截断）+ 集成用例（落库解码、幂等、列表/详情/管理端 `description_lines`、空简介 `[]`） |
 | 2026-10-08 | v14 | 阶段 8b（补阶段 8 缺口：**管理端订单接口**）——**新增 `GET /api/v1/admin/orders`**（全站订单分页：`page` / `page_size` + `status`（6 态）/ `type`（`new` / `renew`）/ `member_id` / `trade_no`（**模糊匹配**，不区分大小写包含匹配）筛选；视图 = **会员端订单视图（12.4）字段完全相同** + `member` 会员概要（`id` / `username` / `nickname` / `email` / `status`，按当页会员 ID 批量查出；会员行缺失输出 `null`））与 **新增 `GET /api/v1/admin/orders/:id`**（订单全字段 + 会员概要 + 交付信息 `host_id` / `provision_error` / `delivered_at` 与关联实例 `instance_id`；不存在 `404 订单不存在`、ID 非法 `40001`）；**权限定稿**：两个查看类接口 **admin / finance / support 均可读**（客服协助会员查询是日常），**重试交付保持仅 admin**（14.4 不变，仅补一条交叉引用）；**契约 12.6 扩写**为「管理端接口（订单查看与对账）」并给出响应示例，**12.7 矩阵**补一行、**12.8 的 `404` 行**注明管理端只看 ID；阶段 8 的已知缺口（后台订单页只有「重试交付工作台」、仪表盘订单指标标注缺失）在本批消除——后台 `/admin/orders` 升级为**列表（筛选/分页）+ 详情（时间线 / 交付信息 / 会员 / 继续处置）**，仪表盘接入订单总数 / 待支付 / 交付失败与最近订单；**真机冒烟（32 项全通过）**：三角色可读列表与详情、会员 token 与匿名 `401`、`status` / `type` / `member_id` / `trade_no` 筛选逐条口径断言（开发库 12 单：new 9 / renew 3）、组合筛选、6 类 `40001` 负例、详情会员概要 `demo7a` 与交付字段（`host_id=40011` / `instance_id=101` / `delivered_at`）、404 与 retry-delivery 的 `403`（finance / support）/ `401`（会员） |

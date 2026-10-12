@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/category"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
@@ -63,6 +65,9 @@ type updateProductRequest struct {
 	PricingJSON json.RawMessage `json:"pricing_json"`
 	Status      *string         `json:"status"`
 	Sort        *int            `json:"sort"`
+	// CategoryID 改挂子分类（R7，契约 10.4）：必须是子分类 id，0 表示取消归类。
+	// 设置后 category_source 置 manual，后续导入不再自动派生覆盖。
+	CategoryID *uint64 `json:"category_id"`
 }
 
 // updateProductGroupRequest 是 PUT /admin/product-groups/:id 请求体。
@@ -170,8 +175,8 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if len(req.PricingJSON) == 0 && req.Status == nil && req.Sort == nil {
-		response.Fail(c, response.CodeInvalidParam, "至少提供一个字段：pricing_json / status / sort")
+	if len(req.PricingJSON) == 0 && req.Status == nil && req.Sort == nil && req.CategoryID == nil {
+		response.Fail(c, response.CodeInvalidParam, "至少提供一个字段：pricing_json / status / sort / category_id")
 		return
 	}
 
@@ -204,6 +209,21 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 			return
 		}
 		update.Sort = req.Sort
+	}
+	if req.CategoryID != nil {
+		// R7 改挂子分类：0 = 取消归类；非 0 必须是**子分类**（契约 10.4）。
+		if *req.CategoryID > 0 {
+			if _, err := h.store.SubCategoryByID(c.Request.Context(), *req.CategoryID); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					response.Fail(c, response.CodeValidationFailed,
+						"category_id 必须是存在的子分类 ID（主分类 id 不可直接挂商品）")
+					return
+				}
+				failDB(c, h.logger, err)
+				return
+			}
+		}
+		update.CategoryID = req.CategoryID
 	}
 
 	ctx := c.Request.Context()
@@ -361,7 +381,8 @@ func (h *productHandler) updateProductGroup(c *gin.Context) {
 	})
 }
 
-// listMemberProducts 处理 GET /api/v1/products：已上架商品按分组组织的只读目录。
+// listMemberProducts 处理 GET /api/v1/products：已上架商品按**子分类**组织的只读目录
+// （R7：groups[] 语义为子分类并带 parent，另下发 categories[] 主分类树）。
 func (h *productHandler) listMemberProducts(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -375,33 +396,116 @@ func (h *productHandler) listMemberProducts(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	// 读时兜底：升级后未重跑导入期间 category_id 可能全是 0，按同一派生规则补齐（幂等）。
+	if err := h.store.EnsureProductCategories(ctx, groups, products, category.Derive); err != nil {
+		h.logger.Warn("商品分类兜底归类失败", "error", err)
+	}
+	categories, err := h.store.ListProductCategories(ctx)
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
 
-	byGroup := make(map[int][]memberProductView)
+	subByID := make(map[uint64]*model.ProductCategory, len(categories))
+	mainByID := make(map[uint64]*model.ProductCategory, len(categories))
+	for i := range categories {
+		item := &categories[i]
+		if item.IsMain() {
+			mainByID[item.ID] = item
+		} else {
+			subByID[item.ID] = item
+		}
+	}
+
+	bySub := make(map[uint64][]memberProductView)
 	for i := range products {
 		product := &products[i]
 		_, prices, stockControl := h.resolvePricing(product)
-		byGroup[product.UpstreamGroupID] = append(byGroup[product.UpstreamGroupID],
+		bySub[product.CategoryID] = append(bySub[product.CategoryID],
 			newMemberProductView(product, prices, stockControl))
 	}
 
-	views := make([]memberGroupView, 0, len(groups))
-	total := 0
-	for i := range groups {
-		group := &groups[i]
-		items := byGroup[group.UpstreamGroupID]
-		if len(items) == 0 {
+	// groups[]：子分类（只含已上架商品），按 (主分类 sort, 子分类 sort, id) 稳定排序。
+	type subEntry struct {
+		sub      *model.ProductCategory
+		main     *model.ProductCategory
+		products []memberProductView
+	}
+	entries := make([]subEntry, 0, len(subByID))
+	for id, items := range bySub {
+		sub := subByID[id]
+		if sub == nil || len(items) == 0 {
 			continue
 		}
+		main := mainByID[sub.ParentIDValue()]
+		entries = append(entries, subEntry{sub: sub, main: main, products: items})
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		left, right := entries[i], entries[j]
+		leftMain, rightMain := left.main, right.main
+		if (leftMain == nil) != (rightMain == nil) {
+			return leftMain != nil
+		}
+		if leftMain != nil && rightMain != nil && leftMain.Sort != rightMain.Sort {
+			return leftMain.Sort < rightMain.Sort
+		}
+		if left.sub.Sort != right.sub.Sort {
+			return left.sub.Sort < right.sub.Sort
+		}
+		return left.sub.ID < right.sub.ID
+	})
+
+	views := make([]memberGroupView, 0, len(entries))
+	total := 0
+	usedMain := make(map[uint64]bool)
+	for _, entry := range entries {
+		ref := memberCategoryRefView{}
+		if entry.main != nil {
+			ref = memberCategoryRefView{ID: entry.main.ID, Name: entry.main.Name}
+			usedMain[entry.main.ID] = true
+		}
 		views = append(views, memberGroupView{
-			ID:       group.ID,
-			Name:     group.Name,
-			Sort:     group.Sort,
-			Products: items,
+			ID:       entry.sub.ID,
+			Name:     entry.sub.Name,
+			Sort:     entry.sub.Sort,
+			Parent:   ref,
+			Products: entry.products,
 		})
-		total += len(items)
+		total += len(entry.products)
 	}
 
-	response.Success(c, memberProductListView{Groups: views, Total: total})
+	// categories[]：只含**有上架商品**的主分类，子分类同样只列有货的。
+	categoryViews := make([]memberCategoryView, 0, len(usedMain))
+	for i := range categories {
+		main := &categories[i]
+		if !main.IsMain() || !usedMain[main.ID] {
+			continue
+		}
+		subs := make([]memberSubcategoryView, 0)
+		for _, entry := range entries {
+			if entry.main == nil || entry.main.ID != main.ID {
+				continue
+			}
+			subs = append(subs, memberSubcategoryView{
+				ID:           entry.sub.ID,
+				Name:         entry.sub.Name,
+				Sort:         entry.sub.Sort,
+				ProductCount: len(entry.products),
+			})
+		}
+		categoryViews = append(categoryViews, memberCategoryView{
+			ID:            main.ID,
+			Name:          main.Name,
+			Sort:          main.Sort,
+			Subcategories: subs,
+		})
+	}
+
+	response.Success(c, memberProductListView{
+		Categories: categoryViews,
+		Groups:     views,
+		Total:      total,
+	})
 }
 
 // getMemberProduct 处理 GET /api/v1/products/:id：详情（配置项 + 六周期价格 + 库存/试用）。
@@ -423,13 +527,11 @@ func (h *productHandler) getMemberProduct(c *gin.Context) {
 		return
 	}
 
-	_, prices, stockControl := h.resolvePricing(product)
+	rule, prices, stockControl := h.resolvePricing(product)
 	cache := h.configCache(product)
 
-	groupRef := productGroupRefView{}
-	if group, err := h.store.ProductGroupByUpstreamID(ctx, product.UpstreamGroupID); err == nil {
-		groupRef = productGroupRefView{ID: group.ID, Name: group.Name}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	groupRef, err := h.categoryRef(ctx, product)
+	if err != nil {
 		failDB(c, h.logger, err)
 		return
 	}
@@ -438,10 +540,41 @@ func (h *productHandler) getMemberProduct(c *gin.Context) {
 		memberProductView: newMemberProductView(product, prices, stockControl),
 		Description:       product.Description,
 		Group:             groupRef,
-		ConfigGroups:      newConfigGroupViews(cache, false),
+		ConfigGroups:      newConfigGroupViews(cache, rule, false),
 		CustomFields:      newCustomFieldViews(cache),
 		UpdatedAt:         formatTime(product.UpdatedAt),
 	})
+}
+
+// categoryRef 组装商品所属分类引用（R7：子分类 + 所属主分类）。
+// 尚未归类（category_id=0）或分类行缺失时回退到上游组名，保证字段始终有值。
+func (h *productHandler) categoryRef(ctx context.Context, product *model.Product) (productGroupRefView, error) {
+	if product.CategoryID > 0 {
+		sub, err := h.store.ProductCategoryByID(ctx, product.CategoryID)
+		switch {
+		case err == nil:
+			ref := productGroupRefView{ID: sub.ID, Name: sub.Name}
+			if sub.ParentID != nil {
+				if main, err := h.store.ProductCategoryByID(ctx, *sub.ParentID); err == nil {
+					ref.Parent = memberCategoryRefView{ID: main.ID, Name: main.Name}
+				}
+			}
+			return ref, nil
+		case errors.Is(err, store.ErrNotFound):
+			// 分类行缺失（异常数据）：落到组名兜底。
+		default:
+			return productGroupRefView{}, err
+		}
+	}
+	group, err := h.store.ProductGroupByUpstreamID(ctx, product.UpstreamGroupID)
+	switch {
+	case err == nil:
+		return productGroupRefView{ID: group.ID, Name: group.Name}, nil
+	case errors.Is(err, store.ErrNotFound):
+		return productGroupRefView{ID: 0, Name: ""}, nil
+	default:
+		return productGroupRefView{}, err
+	}
 }
 
 // loadProduct 按路径参数加载商品（管理端，含下架商品），失败时已写出响应。
@@ -485,7 +618,7 @@ func (h *productHandler) adminProductDetail(c *gin.Context, product *model.Produ
 		adminProductView: newAdminProductView(product, group, rule, prices, cache.Product.StockControl),
 		Description:      product.Description,
 		DescriptionLines: descriptionLines(product.Description),
-		ConfigGroups:     newConfigGroupViews(cache, true),
+		ConfigGroups:     newConfigGroupViews(cache, rule, true),
 		CustomFields:     newCustomFieldViews(cache),
 		UpstreamPrices:   upstreamPrices,
 	}
@@ -568,5 +701,6 @@ func parseProductConfigCache(raw string) (productConfigCache, error) {
 	if err := json.Unmarshal([]byte(trimmed), &cache); err != nil {
 		return productConfigCache{}, fmt.Errorf("商品配置缓存解析失败: %w", err)
 	}
+	cache.RawJSON = trimmed
 	return cache, nil
 }

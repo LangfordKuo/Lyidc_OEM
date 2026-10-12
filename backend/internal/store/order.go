@@ -37,8 +37,10 @@ type OrderInput struct {
 	Amount         string
 	DiscountAmount string
 	FinalAmount    string
-	CouponID       *uint64
-	CouponCode     string
+	// PriceBreakdownJSON 是成交价差价明细快照（R7，契约 10.2.1）；空串落 NULL。
+	PriceBreakdownJSON string
+	CouponID           *uint64
+	CouponCode         string
 	// Type 是订单类型（阶段 5b）：空串按 new 处理；renew 单必须带 InstanceID。
 	Type string
 	// InstanceID 是续费单对应的实例（renew 单必填；new 单为 nil）。
@@ -90,23 +92,24 @@ func (s *Store) CreateOrder(ctx context.Context, in OrderInput) (*model.Order, e
 
 	now := time.Now().UTC()
 	order := model.Order{
-		TradeNo:        in.TradeNo,
-		MemberID:       in.MemberID,
-		ProductID:      in.ProductID,
-		ProductName:    in.ProductName,
-		Cycle:          in.Cycle,
-		Qty:            in.Qty,
-		ConfigJSON:     in.ConfigJSON,
-		Amount:         model.Money(in.Amount),
-		DiscountAmount: model.Money(in.DiscountAmount),
-		FinalAmount:    model.Money(in.FinalAmount),
-		CouponID:       in.CouponID,
-		CouponCode:     in.CouponCode,
-		Status:         model.OrderStatusPending,
-		Type:           orderType,
-		InstanceID:     in.InstanceID,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		TradeNo:            in.TradeNo,
+		MemberID:           in.MemberID,
+		ProductID:          in.ProductID,
+		ProductName:        in.ProductName,
+		Cycle:              in.Cycle,
+		Qty:                in.Qty,
+		ConfigJSON:         in.ConfigJSON,
+		Amount:             model.Money(in.Amount),
+		DiscountAmount:     model.Money(in.DiscountAmount),
+		FinalAmount:        model.Money(in.FinalAmount),
+		PriceBreakdownJSON: in.PriceBreakdownJSON,
+		CouponID:           in.CouponID,
+		CouponCode:         in.CouponCode,
+		Status:             model.OrderStatusPending,
+		Type:               orderType,
+		InstanceID:         in.InstanceID,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	if err := db.Create(&order).Error; err != nil {
 		return nil, mapDuplicateError(err)

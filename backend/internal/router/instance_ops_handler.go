@@ -288,7 +288,7 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 		return
 	}
 
-	_, _, prices, priceErr := productPrices(product)
+	rule, _, prices, priceErr := productPrices(product)
 	if priceErr != nil {
 		h.logger.Warn("商品定价数据异常，按不可售处理", "error", priceErr, "product_id", product.ID)
 		prices = nil
@@ -300,21 +300,49 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 		return
 	}
 
+	// R7：续费金额 = 基础价 + Σ 配置差价，配置取**实例开通时的配置快照**
+	// （原订单 config_json，契约 15.2）。快照缺失或已无对应配置项时，
+	// 缺失部分差价按 0 计并标注「无差价数据」，不阻断续费。
+	renewConfig := pricing.ConfigSelection{}
+	if instance.OrderID > 0 {
+		original, orderErr := h.store.OrderByID(ctx, instance.OrderID)
+		switch {
+		case orderErr == nil:
+			for key, value := range decodeOrderConfig(original.ConfigJSON, h.logger) {
+				renewConfig[key] = value
+			}
+		case errors.Is(orderErr, store.ErrNotFound):
+			h.logger.Warn("续费未找到原订单，配置差价按 0 计",
+				"instance_id", instance.ID, "order_id", instance.OrderID)
+		default:
+			failDB(c, h.logger, orderErr)
+			return
+		}
+	}
+	breakdown := pricing.ParseConfigPricings(product.ConfigJSON).Quote(rule, renewConfig, cycle, price)
+	amount := breakdown.Total
+	breakdownJSON, err := breakdown.Marshal()
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+
 	instanceID := instance.ID
 	order, err := createWithTradeNo(model.OrderTradeNoPrefix, func(tradeNo string) (*model.Order, error) {
 		return h.store.CreateOrder(ctx, store.OrderInput{
-			TradeNo:        tradeNo,
-			MemberID:       member.ID,
-			ProductID:      instance.ProductID,
-			ProductName:    instance.ProductName,
-			Cycle:          cycle,
-			Qty:            1,
-			ConfigJSON:     "{}",
-			Amount:         price,
-			DiscountAmount: pricing.FormatAmount(0),
-			FinalAmount:    price,
-			Type:           model.OrderTypeRenew,
-			InstanceID:     &instanceID,
+			TradeNo:            tradeNo,
+			MemberID:           member.ID,
+			ProductID:          instance.ProductID,
+			ProductName:        instance.ProductName,
+			Cycle:              cycle,
+			Qty:                1,
+			ConfigJSON:         "{}",
+			Amount:             amount,
+			DiscountAmount:     pricing.FormatAmount(0),
+			FinalAmount:        amount,
+			PriceBreakdownJSON: breakdownJSON,
+			Type:               model.OrderTypeRenew,
+			InstanceID:         &instanceID,
 		})
 	})
 	if err != nil {
@@ -323,7 +351,7 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 	}
 
 	h.logger.Info("续费订单已创建", "order_id", order.ID, "trade_no", order.TradeNo,
-		"member_id", member.ID, "instance_id", instance.ID, "cycle", cycle, "amount", price)
+		"member_id", member.ID, "instance_id", instance.ID, "cycle", cycle, "amount", amount)
 	response.Success(c, newOrderView(order, h.logger))
 }
 

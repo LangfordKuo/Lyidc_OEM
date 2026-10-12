@@ -155,6 +155,7 @@ func New(opts Options) *gin.Engine {
 		upstream: upstreamProvider,
 		logger:   opts.Logger,
 	}
+	categories := &categoryHandler{store: st, logger: opts.Logger}
 	coupons := &couponHandler{store: st, logger: opts.Logger}
 	orders := &orderHandler{store: st, payments: payments, deliveries: deliveries, logger: opts.Logger}
 	finance := &financeHandler{store: st, payments: payments, logger: opts.Logger}
@@ -338,6 +339,11 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/product-groups", products.listProductGroups)
 			adminGroup.PUT("/product-groups/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProductGroup)
+
+			// 商品两级分类（R7）：分类树三角色只读；改名 / 子分类改挂主分类仅 admin。
+			adminGroup.GET("/categories", categories.listCategories)
+			adminGroup.PUT("/categories/:id",
+				requireAdminRole(model.RoleAdmin), categories.updateCategory)
 
 			// 优惠码（阶段 3b）：查看类所有角色可调用；创建/修改要求 admin 或 finance。
 			// 不提供 DELETE——停用即 status=off（契约写明）。

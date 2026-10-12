@@ -31,6 +31,9 @@ export default function Products() {
 
   const groupParam = searchParams.get('group')
   const activeGroupId = groupParam && /^\d+$/.test(groupParam) ? Number(groupParam) : null
+  // R7 两级分类：?cat= 主分类，?group= 子分类（子分类沿用既有 group 参数，便于兼容旧链接）。
+  const catParam = searchParams.get('cat')
+  const activeCategoryId = catParam && /^\d+$/.test(catParam) ? Number(catParam) : null
   const queryParam = searchParams.get('q') ?? ''
   const pageParam = searchParams.get('page')
   const requestedPage = pageParam && /^\d+$/.test(pageParam) ? Number(pageParam) : 1
@@ -38,6 +41,18 @@ export default function Products() {
   const [keyword, setKeyword] = useState(queryParam)
 
   const groups = useMemo(() => data?.groups ?? [], [data])
+  const categories = useMemo(() => data?.categories ?? [], [data])
+
+  // 当前生效的主分类：优先用选中的子分类反推，保证「点了子分类」时主分类高亮一致。
+  const effectiveCategoryId = useMemo(() => {
+    if (activeCategoryId !== null) {
+      return activeCategoryId
+    }
+    if (activeGroupId !== null) {
+      return groups.find((group) => group.id === activeGroupId)?.parent.id ?? null
+    }
+    return null
+  }, [activeCategoryId, activeGroupId, groups])
 
   const flatProducts = useMemo(
     () =>
@@ -53,24 +68,40 @@ export default function Products() {
       if (activeGroupId !== null && item.groupId !== activeGroupId) {
         return false
       }
+      if (activeGroupId === null && effectiveCategoryId !== null) {
+        const group = groups.find((entry) => entry.id === item.groupId)
+        if (!group || group.parent.id !== effectiveCategoryId) {
+          return false
+        }
+      }
       if (q && !item.product.name.toLowerCase().includes(q)) {
         return false
       }
       return true
     })
-  }, [flatProducts, activeGroupId, queryParam])
+  }, [flatProducts, activeGroupId, effectiveCategoryId, groups, queryParam])
 
   const lastPage = totalPages(filtered.length, PRODUCT_PAGE_SIZE)
   const page = Math.min(Math.max(1, requestedPage), lastPage)
   const paged = filtered.slice((page - 1) * PRODUCT_PAGE_SIZE, page * PRODUCT_PAGE_SIZE)
 
-  const updateParams = (next: { group?: number | null; q?: string; page?: number }) => {
+  const updateParams = (next: {
+    group?: number | null
+    cat?: number | null
+    q?: string
+    page?: number
+  }) => {
     const params = new URLSearchParams()
     const group = next.group === undefined ? activeGroupId : next.group
+    const cat =
+      next.cat !== undefined ? next.cat : next.group !== undefined ? null : effectiveCategoryId
     const q = next.q === undefined ? queryParam : next.q
     const nextPage = next.page ?? 1
     if (group !== null && group !== undefined) {
       params.set('group', String(group))
+    }
+    if (cat !== null && cat !== undefined) {
+      params.set('cat', String(cat))
     }
     if (q.trim()) {
       params.set('q', q.trim())
@@ -135,26 +166,67 @@ export default function Products() {
               ) : null}
             </form>
 
-            {groups.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+            {categories.length > 0 ? (
+              <div className="flex flex-wrap gap-2" data-testid="category-filter">
                 <Button
                   size="sm"
-                  variant={activeGroupId === null ? 'default' : 'outline'}
-                  onClick={() => updateParams({ group: null, page: 1 })}
+                  variant={effectiveCategoryId === null ? 'default' : 'outline'}
+                  onClick={() => updateParams({ cat: null, group: null, page: 1 })}
                 >
-                  全部分组
+                  全部分类
                 </Button>
-                {groups.map((group) => (
+                {categories.map((category) => (
                   <Button
-                    key={group.id}
+                    key={category.id}
                     size="sm"
-                    variant={activeGroupId === group.id ? 'default' : 'outline'}
-                    onClick={() => updateParams({ group: group.id, page: 1 })}
+                    variant={effectiveCategoryId === category.id ? 'default' : 'outline'}
+                    onClick={() => updateParams({ cat: category.id, group: null, page: 1 })}
                   >
-                    {group.name}
-                    <span className="ml-1 text-xs opacity-70">{group.products.length}</span>
+                    {category.name}
+                    <span className="ml-1 text-xs opacity-70">
+                      {category.subcategories.reduce((sum, sub) => sum + sub.product_count, 0)}
+                    </span>
                   </Button>
                 ))}
+              </div>
+            ) : null}
+
+            {/* 二级：选中主分类后展示其子分类；子分类为空时给空态提示。 */}
+            {effectiveCategoryId !== null ? (
+              <div className="mt-2" data-testid="subcategory-filter">
+                {(() => {
+                  const current = categories.find((item) => item.id === effectiveCategoryId)
+                  const subs = current?.subcategories ?? []
+                  if (subs.length === 0) {
+                    return (
+                      <p className="text-sm text-muted-foreground">
+                        「{current?.name ?? ''}」下暂无子分类。
+                      </p>
+                    )
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant={activeGroupId === null ? 'default' : 'outline'}
+                        onClick={() => updateParams({ group: null, page: 1 })}
+                      >
+                        全部
+                      </Button>
+                      {subs.map((sub) => (
+                        <Button
+                          key={sub.id}
+                          size="sm"
+                          variant={activeGroupId === sub.id ? 'default' : 'outline'}
+                          onClick={() => updateParams({ group: sub.id, page: 1 })}
+                        >
+                          {sub.name}
+                          <span className="ml-1 text-xs opacity-70">{sub.product_count}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             ) : null}
           </div>

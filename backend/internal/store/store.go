@@ -34,6 +34,8 @@ var (
 	// ErrStateConflict 表示记录当前状态不允许该操作（如取消已支付订单）；
 	// 调用方应回读记录状态给出具体提示。
 	ErrStateConflict = errors.New("记录状态不允许该操作")
+	// ErrNoFieldsToUpdate 表示更新请求里没有任何可写字段（调用方一般已前置校验为 40001）。
+	ErrNoFieldsToUpdate = errors.New("没有提供任何可更新字段")
 )
 
 // mysqlDuplicateEntry 是 MySQL 唯一键冲突错误码。
