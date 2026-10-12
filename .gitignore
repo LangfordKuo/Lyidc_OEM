@@ -58,3 +58,7 @@ scratch/
 # ---- Python（自检脚本的字节码缓存）----
 __pycache__/
 *.pyc
+
+# AOCI agent host integration (machine-bound; do not commit)
+.mcp.json
+.mcp.json.backup.*
