@@ -17,8 +17,9 @@ import {
   seedAdminToken,
 } from '@/test/harness'
 
-// 管理后台「分类」页：两级树渲染、改名、改排序、子分类改挂主分类，
-// 以及角色矩阵（finance / support 只读：写入口禁用 + 原因文案 + 不发无权限请求）。
+// 「商品与分类」页的**分类页签**（原「分类」页，R9-B 并入）：两级树渲染、改名、改排序、
+// 子分类改挂主分类，以及角色矩阵（finance / support 只读：写入口禁用 + 原因文案 + 不发无权限请求）。
+// 入口 URL 为 /admin/products?tab=categories（旧地址 /admin/categories 的重定向见 AdminProducts.test.tsx）。
 
 /** 可变分类树：PUT 之后就地改写，再由 GET 回读，用于断言「刷新后的展示」。 */
 function seedCategoryTree(): AdminCategory[] {
@@ -97,19 +98,19 @@ function mockCategories(role: AdminRole = 'admin') {
   return { fetchMock, tree }
 }
 
-async function renderCategories(role: AdminRole = 'admin') {
+async function renderCategoriesTab(role: AdminRole = 'admin') {
   const mocks = mockCategories(role)
   seedAdminToken()
   seedAdminProfile({ role, username: role })
-  renderApp(['/admin/categories'])
-  await screen.findByRole('heading', { name: '分类' })
+  renderApp(['/admin/products?tab=categories'])
+  await screen.findByRole('heading', { name: '商品与分类' })
   await screen.findByText('香港二区')
   return mocks
 }
 
-describe('管理后台 · 分类管理', () => {
+describe('管理后台 · 商品与分类 · 分类页签', () => {
   it('分类树渲染两级结构、排序与商品计数', async () => {
-    await renderCategories()
+    await renderCategoriesTab()
 
     // 主分类：名称 + 排序 + 子分类数
     expect(screen.getByText('香港')).toBeInTheDocument()
@@ -125,7 +126,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('改名：提交 name 字段并按刷新后的分类树展示', async () => {
-    const { fetchMock } = await renderCategories()
+    const { fetchMock } = await renderCategoriesTab()
     const user = userEvent.setup()
 
     // 第一个「编辑」是主分类「香港」
@@ -148,7 +149,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('改排序：提交 sort 字段并刷新展示', async () => {
-    const { fetchMock } = await renderCategories()
+    const { fetchMock } = await renderCategoriesTab()
     const user = userEvent.setup()
 
     // 第二个「编辑」是子分类「香港二区」
@@ -169,7 +170,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('子分类改挂主分类：提交 parent_id 并把子分类挪到目标主分类下', async () => {
-    const { fetchMock } = await renderCategories()
+    const { fetchMock } = await renderCategoriesTab()
     const user = userEvent.setup()
 
     await user.click(screen.getAllByRole('button', { name: '编辑' })[1])
@@ -194,7 +195,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('无变化时不发请求；名称为空给出校验错误', async () => {
-    const { fetchMock } = await renderCategories()
+    const { fetchMock } = await renderCategoriesTab()
     const user = userEvent.setup()
 
     await user.click(screen.getAllByRole('button', { name: '编辑' })[0])
@@ -217,7 +218,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('finance 只读：编辑按钮禁用 + 原因文案，且不发写请求', async () => {
-    const { fetchMock } = await renderCategories('finance')
+    const { fetchMock } = await renderCategoriesTab('finance')
 
     expect(screen.getByText(/当前角色（财务）为只读视角/)).toBeInTheDocument()
     const editButtons = screen.getAllByRole('button', { name: '编辑' })
@@ -232,7 +233,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('support 只读：编辑按钮禁用且不发写请求', async () => {
-    const { fetchMock } = await renderCategories('support')
+    const { fetchMock } = await renderCategoriesTab('support')
 
     const editButtons = screen.getAllByRole('button', { name: '编辑' })
     for (const button of editButtons) {
@@ -244,7 +245,7 @@ describe('管理后台 · 分类管理', () => {
   })
 
   it('admin 可写：编辑按钮可用', async () => {
-    await renderCategories('admin')
+    await renderCategoriesTab('admin')
 
     const editButtons = screen.getAllByRole('button', { name: '编辑' })
     for (const button of editButtons) {

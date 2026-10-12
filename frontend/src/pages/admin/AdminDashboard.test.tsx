@@ -140,7 +140,8 @@ describe('管理后台 · 仪表盘', () => {
     const sidebar = within(screen.getByRole('navigation', { name: '管理后台导航' }))
     expect(sidebar.queryByRole('link', { name: '工单' })).not.toBeInTheDocument()
     expect(sidebar.queryByRole('link', { name: '设置' })).not.toBeInTheDocument()
-    expect(sidebar.getByRole('link', { name: '商品' })).toBeInTheDocument()
+    expect(sidebar.getByRole('link', { name: '商品与分类' })).toBeInTheDocument()
+    expect(sidebar.queryByRole('link', { name: '分类' })).not.toBeInTheDocument()
   })
 
   it('客服角色：含工单入口但不含设置入口', async () => {

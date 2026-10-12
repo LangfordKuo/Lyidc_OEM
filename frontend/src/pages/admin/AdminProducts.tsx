@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { AlertCircleIcon, CheckCircle2Icon, LoaderCircleIcon } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { listAdminCategories } from '@/api/adminCategories'
@@ -13,6 +14,7 @@ import { errorMessage } from '@/api/client'
 import type { AdminProduct, ProductImportResult } from '@/api/types'
 import { useAdminAuth } from '@/auth/adminAuthContext'
 import AdminTable, { type AdminColumn } from '@/components/admin/AdminTable'
+import CategoriesPanel from '@/components/admin/CategoriesPanel'
 import FilterSelect, { AdminFilterBar } from '@/components/admin/FilterSelect'
 import ProductCategoryDialog from '@/components/admin/ProductCategoryDialog'
 import ProductGroupsPanel from '@/components/admin/ProductGroupsPanel'
@@ -26,6 +28,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAsync } from '@/hooks/useAsync'
 import { ADMIN_ROLE_LABELS, hasPermission, permissionHint } from '@/lib/adminRoles'
 import { availableCycles, CYCLE_LABELS, type BillingCycle, type CyclePrices } from '@/lib/cycles'
@@ -33,6 +36,9 @@ import { formatMoney } from '@/lib/format'
 import { ADMIN_PAGE_SIZE } from '@/lib/pagination'
 
 type StatusFilterValue = '' | 'on' | 'off'
+
+/** 页签：商品列表 / 分类树。分类页签由查询参数 `?tab=categories` 表示，便于分享与刷新保持。 */
+type ProductsTab = 'products' | 'categories'
 
 const STATUS_OPTIONS: { value: 'on' | 'off'; label: string }[] = [
   { value: 'on', label: '已上架' },
@@ -60,15 +66,25 @@ function primaryPrice(prices: CyclePrices): { cycle: BillingCycle; amount: strin
 }
 
 /**
- * AdminProducts 是管理后台「商品」页（契约 10.4 / 10.5）：
- * 列表（关键词 / 分组 / 分类 / 状态筛选 + 分页）+ 上游导入 + 定价设置 + 改分类 + 上下架 + 分组管理。
- * 角色矩阵：admin / finance 全部可用；support 只读（列表与分组可看，写操作按钮禁用并给出原因）。
+ * AdminProducts 是管理后台「商品与分类」页（契约 10.4 / 10.5，R9-B 合并原「分类」页）：
+ * 页内两个页签——「商品」= 列表（关键词 / 分组 / 分类 / 状态筛选 + 分页）+ 上游导入
+ * + 定价设置 + 改分类 + 上下架 + 分组管理；「分类」= 两级分类树 + 商品计数
+ * + 改名 / 改排序 / 子分类改挂主分类。
+ * 页签由查询参数驱动（默认商品，`?tab=categories` 打开分类）；旧地址 `/admin/categories`
+ * 在路由层重定向到分类页签。
+ * 角色矩阵：商品写 = admin / finance（products.write / products.import / groups.write）；
+ * 分类写**仅 admin**（categories.write）；support 全程只读，写入口禁用并给出原因。
  */
 export default function AdminProducts() {
   const { role } = useAdminAuth()
   const canWrite = hasPermission(role, 'products.write')
   const canImport = hasPermission(role, 'products.import')
   const canEditGroups = hasPermission(role, 'groups.write')
+  const canWriteCategories = hasPermission(role, 'categories.write')
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab: ProductsTab =
+    searchParams.get('tab') === 'categories' ? 'categories' : 'products'
 
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -89,6 +105,7 @@ export default function AdminProducts() {
   const [statusError, setStatusError] = useState('')
   const [categoryTarget, setCategoryTarget] = useState<AdminProduct | null>(null)
 
+  // 商品列表与分组只在「商品」页签拉取；分类树两个页签共用（筛选项、改分类弹窗与分类页签）。
   const productsState = useAsync(
     () =>
       listAdminProducts({
@@ -100,8 +117,13 @@ export default function AdminProducts() {
         ...(keyword ? { keyword } : {}),
       }),
     [page, groupId, categoryId, status, keyword, refreshKey],
+    activeTab === 'products',
   )
-  const groupsState = useAsync(() => listAdminProductGroups(), [refreshKey])
+  const groupsState = useAsync(
+    () => listAdminProductGroups(),
+    [refreshKey],
+    activeTab === 'products',
+  )
   // 改分类弹窗的选项来源（契约 10.4）：两级分类树，商品只挂子分类。
   const categoriesState = useAsync(() => listAdminCategories(), [refreshKey])
 
@@ -111,6 +133,17 @@ export default function AdminProducts() {
 
   /** 刷新列表 / 分组 / 分类（写操作成功后调用，保证各处数据一致）。 */
   const refresh = () => setRefreshKey((value) => value + 1)
+
+  /** 页签切换：分类页签写入 `?tab=categories`，商品页签恢复干净 URL（其余查询参数保留）。 */
+  const changeTab = (value: string) => {
+    const params = new URLSearchParams(searchParams)
+    if (value === 'categories') {
+      params.set('tab', 'categories')
+    } else {
+      params.delete('tab')
+    }
+    setSearchParams(params, { replace: true })
+  }
 
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -288,16 +321,10 @@ export default function AdminProducts() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">商品</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">商品与分类</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            管理本地商品目录：从上游导入、配置定价规则、上架或下架商品。
+            商品目录：从上游导入、配置定价、上架或下架、改挂分类；分类树：改名、改排序与子分类改挂。
           </p>
-          {!canWrite ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              当前角色（{role ? ADMIN_ROLE_LABELS[role] : '未登录'}）为只读视角：导入、定价设置、
-              改分类、上下架与分组保存均已禁用（{permissionHint('products.write')}）。
-            </p>
-          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={refresh}>
@@ -369,122 +396,155 @@ export default function AdminProducts() {
         </Alert>
       ) : null}
 
-      <form onSubmit={handleSearch}>
-        <AdminFilterBar
-          actions={
-            <span className="text-xs text-muted-foreground">
-              共 {productsState.data?.total ?? 0} 个商品
-              {groupId ? '（已按分组筛选）' : ''}
-              {categoryId ? '（已按分类筛选）' : ''}
-            </span>
-          }
-        >
-          <div className="space-y-1">
-            <Label htmlFor="product_keyword" className="text-xs text-muted-foreground">
-              关键词
-            </Label>
-            <Input
-              id="product_keyword"
-              name="product_keyword"
-              className="w-52"
-              placeholder="搜索商品名称"
-              value={keywordInput}
-              onChange={(event) => setKeywordInput(event.target.value)}
-            />
-          </div>
-          <Button type="submit" size="sm" variant="outline">
-            搜索
-          </Button>
-          {keyword ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              type="button"
-              onClick={() => {
-                setKeywordInput('')
-                setKeyword('')
-                setPage(1)
-              }}
-            >
-              清除
-            </Button>
+      <Tabs value={activeTab} onValueChange={changeTab}>
+        <TabsList aria-label="商品与分类页签">
+          <TabsTrigger value="products">商品</TabsTrigger>
+          <TabsTrigger value="categories">分类</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="products" className="space-y-5 pt-2">
+          {!canWrite ? (
+            <p className="text-xs text-muted-foreground">
+              当前角色（{role ? ADMIN_ROLE_LABELS[role] : '未登录'}）为只读视角：导入、定价设置、
+              改分类、上下架与分组保存均已禁用（{permissionHint('products.write')}）。
+            </p>
           ) : null}
-          <FilterSelect
-            label="分组"
-            value={groupId}
-            onChange={changeGroup}
-            options={[
-              { value: '', label: '全部分组' },
-              ...groups.map((group) => ({ value: String(group.id), label: group.name })),
-            ]}
+
+          <form onSubmit={handleSearch}>
+            <AdminFilterBar
+              actions={
+                <span className="text-xs text-muted-foreground">
+                  共 {productsState.data?.total ?? 0} 个商品
+                  {groupId ? '（已按分组筛选）' : ''}
+                  {categoryId ? '（已按分类筛选）' : ''}
+                </span>
+              }
+            >
+              <div className="space-y-1">
+                <Label htmlFor="product_keyword" className="text-xs text-muted-foreground">
+                  关键词
+                </Label>
+                <Input
+                  id="product_keyword"
+                  name="product_keyword"
+                  className="w-52"
+                  placeholder="搜索商品名称"
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                />
+              </div>
+              <Button type="submit" size="sm" variant="outline">
+                搜索
+              </Button>
+              {keyword ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => {
+                    setKeywordInput('')
+                    setKeyword('')
+                    setPage(1)
+                  }}
+                >
+                  清除
+                </Button>
+              ) : null}
+              <FilterSelect
+                label="分组"
+                value={groupId}
+                onChange={changeGroup}
+                options={[
+                  { value: '', label: '全部分组' },
+                  ...groups.map((group) => ({ value: String(group.id), label: group.name })),
+                ]}
+              />
+              <FilterSelect
+                label="分类"
+                value={categoryId}
+                onChange={changeCategory}
+                options={[
+                  { value: '', label: '全部分类' },
+                  { value: '0', label: '未归类' },
+                  ...categories.flatMap((main) =>
+                    main.subcategories.map((sub) => ({
+                      value: String(sub.id),
+                      label: `${main.name} / ${sub.name}`,
+                    })),
+                  ),
+                ]}
+              />
+            </AdminFilterBar>
+          </form>
+
+          <StatusFilter
+            label="按状态筛选"
+            options={STATUS_OPTIONS}
+            value={status}
+            onChange={changeStatus}
           />
-          <FilterSelect
-            label="分类"
-            value={categoryId}
-            onChange={changeCategory}
-            options={[
-              { value: '', label: '全部分类' },
-              { value: '0', label: '未归类' },
-              ...categories.flatMap((main) =>
-                main.subcategories.map((sub) => ({
-                  value: String(sub.id),
-                  label: `${main.name} / ${sub.name}`,
-                })),
-              ),
-            ]}
-          />
-        </AdminFilterBar>
-      </form>
 
-      <StatusFilter
-        label="按状态筛选"
-        options={STATUS_OPTIONS}
-        value={status}
-        onChange={changeStatus}
-      />
+          {productsState.loading ? <LoadingBlock label="正在读取商品列表…" /> : null}
+          {productsState.error ? (
+            <ErrorState message={productsState.error} onRetry={productsState.reload} />
+          ) : null}
 
-      {productsState.loading ? <LoadingBlock label="正在读取商品列表…" /> : null}
-      {productsState.error ? (
-        <ErrorState message={productsState.error} onRetry={productsState.reload} />
-      ) : null}
-
-      {!productsState.loading && !productsState.error ? (
-        <AdminTable
-          ariaLabel="商品列表"
-          columns={columns}
-          rows={products}
-          rowKey={(product) => product.id}
-          empty={
-            <EmptyBlock
-              title="没有符合条件的商品"
-              description={
-                keyword || groupId || categoryId || status
-                  ? '换个关键词或筛选条件看看。'
-                  : '可以从上游导入商品目录，导入后需先配置定价再上架。'
+          {!productsState.loading && !productsState.error ? (
+            <AdminTable
+              ariaLabel="商品列表"
+              columns={columns}
+              rows={products}
+              rowKey={(product) => product.id}
+              empty={
+                <EmptyBlock
+                  title="没有符合条件的商品"
+                  description={
+                    keyword || groupId || categoryId || status
+                      ? '换个关键词或筛选条件看看。'
+                      : '可以从上游导入商品目录，导入后需先配置定价再上架。'
+                  }
+                />
               }
             />
-          }
-        />
-      ) : null}
+          ) : null}
 
-      {productsState.data && productsState.data.total > 0 ? (
-        <Pager
-          page={page}
-          total={productsState.data.total}
-          pageSize={productsState.data.page_size || ADMIN_PAGE_SIZE}
-          onChange={setPage}
-        />
-      ) : null}
+          {productsState.data && productsState.data.total > 0 ? (
+            <Pager
+              page={page}
+              total={productsState.data.total}
+              pageSize={productsState.data.page_size || ADMIN_PAGE_SIZE}
+              onChange={setPage}
+            />
+          ) : null}
 
-      <ProductGroupsPanel
-        groups={groups}
-        loading={groupsState.loading}
-        error={groupsState.error}
-        onReload={groupsState.reload}
-        canWrite={canEditGroups}
-        selectedGroupId={groupId}
-        onSelectGroup={changeGroup}
-      />
+          <ProductGroupsPanel
+            groups={groups}
+            loading={groupsState.loading}
+            error={groupsState.error}
+            onReload={groupsState.reload}
+            canWrite={canEditGroups}
+            selectedGroupId={groupId}
+            onSelectGroup={changeGroup}
+          />
+        </TabsContent>
+
+        <TabsContent value="categories" className="space-y-5 pt-2">
+          {!canWriteCategories ? (
+            <p className="text-xs text-muted-foreground">
+              当前角色（{role ? ADMIN_ROLE_LABELS[role] : '未登录'}）为只读视角：改名、改排序与改挂均已禁用（
+              {permissionHint('categories.write')}）。
+            </p>
+          ) : null}
+          <CategoriesPanel
+            categories={categories}
+            loading={categoriesState.loading}
+            error={categoriesState.error}
+            onReload={categoriesState.reload}
+            canWrite={canWriteCategories}
+            onChanged={refresh}
+          />
+        </TabsContent>
+      </Tabs>
 
       {pricingTarget ? (
         <ProductPricingDialog

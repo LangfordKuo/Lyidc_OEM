@@ -55,14 +55,13 @@ function sidebarLabels(): string[] {
 }
 
 describe('管理后台 · 角色权限矩阵', () => {
-  it('admin 侧栏含全部 9 个入口', async () => {
+  it('admin 侧栏含全部 8 个入口（商品与分类合并为一项，R9-B）', async () => {
     await renderAs('admin', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
     expect(sidebarLabels().map((label) => label.trim())).toEqual([
       '仪表盘',
-      '商品',
-      '分类',
+      '商品与分类',
       '订单',
       '会员',
       '实例',
@@ -79,7 +78,7 @@ describe('管理后台 · 角色权限矩阵', () => {
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).not.toContain('工单')
     expect(labels).not.toContain('设置')
-    expect(labels).toEqual(['仪表盘', '商品', '分类', '订单', '会员', '实例', '通知'])
+    expect(labels).toEqual(['仪表盘', '商品与分类', '订单', '会员', '实例', '通知'])
   })
 
   it('support 侧栏无设置入口、保留工单入口', async () => {
@@ -89,7 +88,7 @@ describe('管理后台 · 角色权限矩阵', () => {
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).toContain('工单')
     expect(labels).not.toContain('设置')
-    expect(labels).toEqual(['仪表盘', '商品', '分类', '订单', '会员', '实例', '工单', '通知'])
+    expect(labels).toEqual(['仪表盘', '商品与分类', '订单', '会员', '实例', '工单', '通知'])
   })
 
   it('finance 直接访问工单页：无权占位且不请求工单接口', async () => {
@@ -139,9 +138,9 @@ describe('管理后台 · 角色权限矩阵', () => {
     }
   })
 
-  it('分类页为查看类：三个角色都可读并请求分类树（写操作另按 categories.write）', async () => {
+  it('商品与分类页为查看类：三个角色都可读并请求分类树（写操作另按 categories.write）', async () => {
     for (const role of ['admin', 'finance', 'support'] as const) {
-      const fetchMock = await renderAs(role, '/admin/categories')
+      const fetchMock = await renderAs(role, '/admin/products?tab=categories')
       await waitFor(() => {
         expect(
           fetchMock.mock.calls.some(([input]) =>
@@ -150,7 +149,7 @@ describe('管理后台 · 角色权限矩阵', () => {
         ).toBe(true)
       })
       expect(screen.queryByText('无权访问该页面')).not.toBeInTheDocument()
-      expect(screen.getAllByRole('heading', { name: '分类' }).length).toBeGreaterThan(0)
+      expect(screen.getAllByRole('heading', { name: '商品与分类' }).length).toBeGreaterThan(0)
       cleanupRender()
     }
   })

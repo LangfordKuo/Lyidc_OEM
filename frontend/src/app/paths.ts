@@ -22,7 +22,10 @@ export const paths = {
   // 管理后台（第三期）
   adminLogin: '/admin/login',
   admin: '/admin',
+  // 商品与分类合并页（R9-B）：分类能力作为页内页签，查询参数便于分享与刷新保持。
   adminProducts: '/admin/products',
+  adminProductsCategories: '/admin/products?tab=categories',
+  // 旧地址仅作重定向目标（routes.tsx → adminProductsCategories），不再有独立分类页。
   adminCategories: '/admin/categories',
   adminOrders: '/admin/orders',
   adminOrderDetail: (id: number | string) => `/admin/orders/${id}`,
@@ -53,10 +56,16 @@ export const consoleNavItems = [
 
 // 管理后台侧栏导航项：page 字段与 src/lib/adminRoles.ts 的角色矩阵对应，
 // 无权限的整页（工单仅 admin/support、设置仅 admin）直接不渲染入口。
+// 商品与分类合并为一项（R9-B）：分类在商品页的页签里，不再有独立导航入口。
 export const adminNavItems = [
   { to: paths.admin, label: '仪表盘', end: true, page: 'dashboard', description: '全站关键指标' },
-  { to: paths.adminProducts, label: '商品', end: false, page: 'products', description: '定价、上下架与导入' },
-  { to: paths.adminCategories, label: '分类', end: false, page: 'categories', description: '两级分类改名与改挂' },
+  {
+    to: paths.adminProducts,
+    label: '商品与分类',
+    end: false,
+    page: 'products',
+    description: '分类树、定价、上下架与导入',
+  },
   { to: paths.adminOrders, label: '订单', end: false, page: 'orders', description: '订单查询与交付处置' },
   { to: paths.adminMembers, label: '会员', end: false, page: 'members', description: '会员资料与余额流水' },
   { to: paths.adminInstances, label: '实例', end: false, page: 'instances', description: '实例状态与操作' },

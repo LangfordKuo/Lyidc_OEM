@@ -140,7 +140,6 @@ export function permissionHint(permission: AdminPermission): string {
 export type AdminPage =
   | 'dashboard'
   | 'products'
-  | 'categories'
   | 'orders'
   | 'members'
   | 'instances'
@@ -151,8 +150,8 @@ export type AdminPage =
 /**
  * canAccessAdminPage 判断角色能否进入某个后台页面（整页 403 的域）：
  * 工单页仅 admin/support、设置页仅 admin，其余页面三类角色均可。
- * 分类页（categories）三类角色都可进——写操作另按 categories.write（仅 admin）闸门，
- * finance / support 进来是只读视图。
+ * 商品与分类合并页（products）三类角色都可进——分类写操作另按 categories.write（仅 admin）
+ * 闸门，finance / support 的分类页签是只读视图。
  */
 export function canAccessAdminPage(role: AdminRole | null | undefined, page: AdminPage): boolean {
   switch (page) {

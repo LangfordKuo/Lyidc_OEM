@@ -19,7 +19,9 @@ import {
   type FetchHandler,
 } from '@/test/harness'
 
-// 管理后台「商品」页：定价弹窗（三模式参数）、上下架二次确认、分类列与改分类、角色矩阵（support 只读）。
+// 管理后台「商品与分类」页的**商品页签**：定价弹窗（三模式参数）、上下架二次确认、分类列与改分类、
+// 角色矩阵（support 只读）；另有页签 URL 与旧地址 /admin/categories 重定向。
+// 分类页签自身的用例见 AdminProductsCategories.test.tsx。
 
 function mockProducts(
   handler?: FetchHandler,
@@ -51,7 +53,7 @@ async function renderProducts() {
   seedAdminToken()
   seedAdminProfile()
   renderApp(['/admin/products'])
-  await screen.findByRole('heading', { name: '商品' })
+  await screen.findByRole('heading', { name: '商品与分类' })
   await screen.findByText('香港二区 CN2 A型')
 }
 
@@ -248,5 +250,41 @@ describe('管理后台 · 商品管理', () => {
         ([, init]) => init?.method === 'PUT' || init?.method === 'POST',
       ),
     ).toBe(false)
+  })
+
+  it('页签切换：分类页签写入 ?tab=categories，切回商品恢复干净 URL', async () => {
+    mockProducts()
+    seedAdminToken()
+    seedAdminProfile()
+    const { router } = renderApp(['/admin/products'])
+    await screen.findByRole('heading', { name: '商品与分类' })
+    await screen.findByText('香港二区 CN2 A型')
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('tab', { name: '分类' }))
+    expect(router.state.location.pathname).toBe('/admin/products')
+    expect(router.state.location.search).toBe('?tab=categories')
+    // 分类分区内容挂载，商品表格卸载
+    expect(await screen.findByText('排序 0 · 子分类 1 个')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: '商品列表' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: '商品' }))
+    expect(router.state.location.search).toBe('')
+    expect(await screen.findByText('香港二区 CN2 A型')).toBeInTheDocument()
+    expect(screen.queryByText('排序 0 · 子分类 1 个')).not.toBeInTheDocument()
+  })
+
+  it('旧地址 /admin/categories 重定向到商品页的分类分区', async () => {
+    mockProducts()
+    seedAdminToken()
+    seedAdminProfile()
+    const { router } = renderApp(['/admin/categories'])
+    await screen.findByRole('heading', { name: '商品与分类' })
+
+    expect(router.state.location.pathname).toBe('/admin/products')
+    expect(router.state.location.search).toBe('?tab=categories')
+    // 落在分类分区：分类树在、商品表格不在
+    expect(await screen.findByText('排序 0 · 子分类 1 个')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: '商品列表' })).not.toBeInTheDocument()
   })
 })

@@ -2,14 +2,11 @@ import { useState } from 'react'
 import { AlertCircleIcon, LoaderCircleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { listAdminCategories, updateAdminCategory } from '@/api/adminCategories'
+import { updateAdminCategory } from '@/api/adminCategories'
 import { errorMessage } from '@/api/client'
 import type { AdminCategory, AdminSubcategory, UpdateCategoryInput } from '@/api/types'
-import { useAdminAuth } from '@/auth/adminAuthContext'
-import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageState'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -27,170 +24,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useAsync } from '@/hooks/useAsync'
-import { ADMIN_ROLE_LABELS, hasPermission, permissionHint } from '@/lib/adminRoles'
 import { validateCatalogName, validateCatalogSort } from '@/lib/validate'
 
-// 管理后台「分类」页（契约 10.4）：两级分类树（主分类 → 子分类）+ 商品计数，
-// 支持改名 / 改排序 / 子分类改挂主分类。
-// 角色矩阵（契约 10.5 / 12.7）：三类角色都能进（GET /admin/categories 只读）；
-// 写操作**仅 admin**（categories.write），其余角色进来是只读视图，写入口禁用且不发无权限请求。
+// 分类编辑弹窗（原「分类」页的编辑能力，R9-B 并入商品与分类页的分类页签）：
+// 改名（1-128 字符）与改排序（-999999 ~ 999999）；
+// 子分类额外提供「所属主分类」下拉（不能选自身——自身是子分类，目标只列主分类）。
+// 只提交有变化的字段（契约 10.4：至少提供一个）。写操作仅 admin，由页面控制挂载。
 
 /** 编辑目标：主分类（无改挂项）或子分类（带当前所属主分类）。 */
-type EditTarget =
+export type CategoryEditTarget =
   | { kind: 'main'; item: AdminCategory }
   | { kind: 'sub'; item: AdminSubcategory; parentId: number }
 
 /** 目标主分类下拉的哨兵值（Radix Select 不接受空串 value）。 */
 const PARENT_REQUIRED = '__parent_required__'
 
-export default function AdminCategories() {
-  const { role } = useAdminAuth()
-  const canWrite = hasPermission(role, 'categories.write')
-
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
-
-  const state = useAsync(() => listAdminCategories(), [refreshKey])
-  const categories = state.data?.items ?? []
-
-  const refresh = () => setRefreshKey((value) => value + 1)
-
-  return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">分类</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            商品两级分类（主分类 → 子分类）：改名、改排序、把子分类改挂到别的主分类。
-          </p>
-          {!canWrite ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              当前角色（{role ? ADMIN_ROLE_LABELS[role] : '未登录'}）为只读视角：改名、改排序与改挂均已禁用（
-              {permissionHint('categories.write')}）。
-            </p>
-          ) : null}
-        </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          刷新
-        </Button>
-      </header>
-
-      {state.loading ? <LoadingBlock label="正在读取分类…" /> : null}
-      {state.error ? <ErrorState message={state.error} onRetry={state.reload} /> : null}
-
-      {!state.loading && !state.error ? (
-        categories.length === 0 ? (
-          <EmptyBlock
-            title="还没有分类"
-            description="从上游导入商品时会按商品名与上游组名自动派生两级分类，导入后可在这里改名与改挂。"
-          />
-        ) : (
-          <div className="space-y-3">
-            {categories.map((category) => (
-              <Card key={category.id} data-testid={`category-${category.id}`}>
-                <CardContent className="space-y-2 px-4 py-3">
-                  <CategoryRow
-                    title={category.name}
-                    meta={`排序 ${category.sort} · 子分类 ${category.subcategories.length} 个`}
-                    badge="主分类"
-                    canWrite={canWrite}
-                    onEdit={() => setEditTarget({ kind: 'main', item: category })}
-                  />
-                  {category.subcategories.length === 0 ? (
-                    <p className="pl-4 text-xs text-muted-foreground">
-                      该主分类下还没有子分类（商品都挂在子分类上）。
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5 border-l border-border pl-4">
-                      {category.subcategories.map((sub) => (
-                        <CategoryRow
-                          key={sub.id}
-                          title={sub.name}
-                          meta={`排序 ${sub.sort} · 商品 ${sub.products.total} 个（已上架 ${sub.products.on} / 已下架 ${sub.products.off}）`}
-                          canWrite={canWrite}
-                          onEdit={() =>
-                            setEditTarget({ kind: 'sub', item: sub, parentId: category.id })
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )
-      ) : null}
-
-      {editTarget ? (
-        <CategoryEditDialog
-          target={editTarget}
-          mainCategories={categories}
-          onClose={() => setEditTarget(null)}
-          onSaved={() => {
-            setEditTarget(null)
-            refresh()
-          }}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-/** 分类行：名称 + 计数摘要 + 编辑入口（无权限时禁用并给出原因）。 */
-function CategoryRow({
-  title,
-  meta,
-  badge,
-  canWrite,
-  onEdit,
-}: {
-  title: string
-  meta: string
-  badge?: string
-  canWrite: boolean
-  onEdit: () => void
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-      <div className="min-w-0">
-        {/* 名称与徽标分成两个元素：名称独立成节点，便于按文本精确定位。 */}
-        <p className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-foreground">{title}</span>
-          {badge ? (
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-4 text-muted-foreground">
-              {badge}
-            </span>
-          ) : null}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{meta}</p>
-      </div>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={!canWrite}
-        title={canWrite ? undefined : permissionHint('categories.write')}
-        onClick={onEdit}
-      >
-        编辑
-      </Button>
-    </div>
-  )
-}
-
-/**
- * 分类编辑弹窗：改名（1-128 字符）与改排序（-999999 ~ 999999）；
- * 子分类额外提供「所属主分类」下拉（不能选自身——自身是子分类，目标只列主分类）。
- * 只提交有变化的字段（契约 10.4：至少提供一个）。
- */
-function CategoryEditDialog({
+export default function CategoryEditDialog({
   target,
   mainCategories,
   onClose,
   onSaved,
 }: {
-  target: EditTarget
+  target: CategoryEditTarget
   mainCategories: AdminCategory[]
   onClose: () => void
   onSaved: () => void

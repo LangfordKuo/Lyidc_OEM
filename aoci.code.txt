@@ -209,7 +209,7 @@ nginx-default.conf.template[OV7T]: F:前端 nginx 站点配置模板（envsubst 
 
 ===D:/Project/Lyidc_OEM/docs/===
 RELEASE.md[SO6S]: F:发版流程、tag 命名规则与发布后核对清单 | R:code:.github/workflows/release.yml | A:- | S:tag 必须 v 前缀才会触发流水线；latest 镜像 tag 仅在 v* tag 上更新，分支构建不会覆盖
-api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码，评审以本文档为准；当前版本 v17
+api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码，评审以本文档为准；界面页签/路由合并属页面结构、接口不变时不升版只补变更记录（当前最新 v18）
 deploy.md[SO7S]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种方式收尾都走同一个浏览器安装向导；compose 向导第 2 步数据库主机必须填 mysql 而不是 127.0.0.1
 
 ===D:/Project/Lyidc_OEM/docs/references/upstream/===
@@ -269,10 +269,10 @@ tokens.ts[CS8T]: F:会员/管理端 token 与资料缓存的本地存取 | R:cod
 types.ts[CG8L]: F:前后端契约响应类型的前端映射 | R:code:docs/api-contract.md,code:backend/internal/response/response.go | A:Paged,Member,ProductSummary,Order | S:类型与契约响应包 examples 一一对应，改契约须同步本文件
 
 ===D:/Project/Lyidc_OEM/frontend/src/app/===
-paths.ts[AU6S]: F:全站路由路径常量与导航配置 | R:code:frontend/src/app/routes.tsx | A:paths,siteNavItems,consoleNavItems,adminNavItems | S:-
+paths.ts[AU6T]: F:全站路由路径常量与导航配置 | R:code:frontend/src/app/routes.tsx | A:paths,siteNavItems,consoleNavItems,adminNavItems | S:管理端商品与分类合并为单一入口，分类用 ?tab=categories 页签表示；adminCategories 常量只是旧地址重定向源，不得再加回独立「分类」导航项
 providers.tsx[EA6T]: F:应用级 Provider 装配：双认证上下文与全局 toast | R:code:frontend/src/auth/AuthProvider.tsx,code:frontend/src/auth/AdminAuthProvider.tsx | A:AppProviders | S:会员与管理端登录态完全隔离，测试 harness 复用同一份 Provider
 router.tsx[EA5T]: F:浏览器路由实例 | R:code:frontend/src/app/routes.tsx | A:router | S:测试用 createMemoryRouter(routes) 复用同一套路由定义
-routes.tsx[EA7L]: F:全站路由表：官网、会员区与管理后台 | R:code:frontend/src/app/paths.ts,code:frontend/src/auth/RequireAuth.tsx,code:frontend/src/auth/RequireAdmin.tsx | A:routes | S:会员区经 RequireAuth、管理后台经 RequireAdmin 守卫；改路由须同步 paths.ts
+routes.tsx[EG7S]: F:全站路由表：官网、会员区与管理后台 | R:code:frontend/src/app/paths.ts,code:frontend/src/auth/RequireAuth.tsx,code:frontend/src/auth/RequireAdmin.tsx | A:routes | S:会员区经 RequireAuth、管理后台经 RequireAdmin 守卫；旧地址 /admin/categories 重定向到 /admin/products?tab=categories 不得 404；改路由须同步 paths.ts
 
 ===D:/Project/Lyidc_OEM/frontend/src/auth/===
 AdminAuthProvider.tsx[IS7S]: F:管理端登录态 Provider：资料拉取、登录与 401 清理 | R:code:frontend/src/api/adminAuth.ts,code:frontend/src/api/tokens.ts,code:frontend/src/auth/adminAuthContext.ts | A:AdminAuthProvider | S:与会员侧完全隔离互不影响；管理端 401 只清 admin token 并通知守卫跳后台登录页
@@ -292,6 +292,9 @@ ProductGroupsPanel.tsx[EB6M]: F:商品分组管理面板：重命名与排序 | 
 ProductPricingDialog.tsx[KB7M]: F:商品定价规则编辑对话框 | R:code:frontend/src/api/adminProducts.ts,code:frontend/src/api/types.ts | A:ProductPricingDialog | S:三种模式（upstream/markup/fixed）可组合；保存走 Normalize 校验，非法规则被后端拒绝
 SecretInput.tsx[MS8T]: F:密钥/口令三态输入控件 | R:code:frontend/src/lib/secret.ts | A:SecretInput | S:keep 留空省略字段、replace 发新值、clear 发空串；页面任何地方不保存明文
 StatCard.tsx[AU4T]: F:后台仪表盘指标卡 | R:- | A:StatCard | S:数值缺失时展示占位，绝不编造数字
+CategoriesPanel.tsx[EB6T]: F:分类管理面板：两级分类树与商品计数展示，挂改名/改排序/改挂编辑入口 | R:code:frontend/src/components/admin/CategoryEditDialog.tsx,code:frontend/src/components/admin/CategoryRow.tsx,code:frontend/src/pages/admin/AdminProducts.tsx | A:CategoriesPanel | S:分类树不在本组件内自行请求，与商品筛选/改分类弹窗共用父页同一份数据；写成功只回调 onChanged 由父级统一刷新
+CategoryEditDialog.tsx[EB6M]: F:分类编辑对话框：改名、改排序与子分类改挂主分类 | R:code:frontend/src/api/adminCategories.ts,code:frontend/src/api/types.ts | A:CategoryEditDialog | S:只提交有变化的字段（至少一个，全空提交会被 40001）；主分类不能改挂；改名后 key 不变，导入不重建也不覆盖
+CategoryRow.tsx[AU5T]: F:分类行：名称、计数摘要与按权限禁用的编辑入口 | R:code:frontend/src/lib/adminRoles.ts | A:CategoryRow | S:名称必须独立成节点（不与徽标合并）供测试按文本定位；编辑禁用时必须带 categories.write 原因文案
 
 ===D:/Project/Lyidc_OEM/frontend/src/components/checkout/===
 PayDialog.tsx[EB8M]: F:结算支付弹窗：余额与易支付下单跳转 | R:code:frontend/src/api/orders.ts,code:frontend/src/api/types.ts | A:PayDialog | S:余额支付与渠道支付互斥选择；渠道支付返回 payurl 需外跳，二维码/链接由 Extra 字段决定
@@ -366,7 +369,7 @@ useAsync.ts[CS6S]: F:轻量数据加载 hook：加载/错误/竞态取消 | R:co
 useUnreadCount.ts[EM5S]: F:会员未读通知计数的模块级 store | R:code:frontend/src/api/notifications.ts | A:useUnreadCount,refreshUnreadCount,setUnreadCount | S:用 useSyncExternalStore 承载跨页共享状态，避免引入 Context
 
 ===D:/Project/Lyidc_OEM/frontend/src/lib/===
-adminRoles.ts[MS8M]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,allowedRoles,permissionLabel | S:无权限入口隐藏或禁用且不发无权限请求；服务端仍独立 403，本文件只描述谁能做什么
+adminRoles.ts[MS8S]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,permissionHint,canAccessAdminPage,AdminPermission,AdminPage | S:无权限入口隐藏或禁用且不发无权限请求，服务端仍独立 403，本文件只描述谁能做什么；商品与分类合并页只有一个页面键 products，分类写仍走 categories.write（仅 admin）
 checkout.ts[KB6S]: F:下单草稿与最近订单的会话存储 | R:code:frontend/src/lib/storage.ts | A:saveCheckoutDraft,readCheckoutDraft,rememberOrder | S:存 sessionStorage 关标签页即失效；草稿键带 product_id 防互相覆盖
 clipboard.ts[CS4T]: F:剪贴板复制兜底封装 | R:- | A:copyText | S:navigator.clipboard 在非安全上下文缺失，失败返回 false 不抛错
 configControl.ts[KB8L]: F:配置项控件形态判定与数量取值规则 | R:code:frontend/src/api/types.ts | A:configControl,isQuantityOption,quantityRange,defaultConfigValue | S:option_type 到控件的映射来自上游 159 个商品实测；数量型传数量而非子项 id，与后端口径一致
@@ -411,7 +414,6 @@ Products.tsx[EB6M]: F:商品目录页：分类浏览与搜索 | R:code:frontend/
 Register.tsx[IS6S]: F:会员注册页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts | A:Register | S:密码校验按 8-72 字节口径与后端一致，中文密码按字节计
 
 ===D:/Project/Lyidc_OEM/frontend/src/pages/admin/===
-AdminCategories.tsx[EB7M]: F:管理端商品分类管理页 | R:code:frontend/src/api/adminCategories.ts,code:frontend/src/lib/adminRoles.ts | A:AdminCategories | S:改名/排序/子分类改挂仅 admin；改挂后 category_source 转 manual 导入不覆盖
 AdminDashboard.tsx[EB6M]: F:管理后台仪表盘：指标卡与快捷入口 | R:code:frontend/src/lib/adminRoles.ts,code:frontend/src/app/paths.ts | A:AdminDashboard | S:无权限指标不发起请求，卡片显示占位而非编造数字
 AdminInstanceDetail.tsx[DU8L]: F:管理端实例详情：同步、暂停恢复与终止收敛 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/lib/adminRoles.ts | A:AdminInstanceDetail | S:同步发现上游已删除会走终止收敛；暂停必须填原因，恢复仅 suspended 可用
 AdminInstances.tsx[DU6M]: F:管理端实例列表页 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminInstances | S:-
@@ -420,7 +422,7 @@ AdminMembers.tsx[EI7L]: F:管理端会员管理：列表、状态与财务查询
 AdminNotifications.tsx[EM6S]: F:管理端站内通知页 | R:code:frontend/src/api/adminNotifications.ts,code:frontend/src/hooks/useAdminUnreadCount.ts | A:AdminNotifications | S:-
 AdminOrderDetail.tsx[EB7M]: F:管理端订单详情：交付重试与明细 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/lib/adminRoles.ts | A:AdminOrderDetail | S:重试交付仅限 failed 订单，认领失败说明已在交付中或已完成
 AdminOrders.tsx[EB6M]: F:管理端订单列表页 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminOrders | S:三角色均可读列表与详情，便于客服协助查询
-AdminProducts.tsx[EB8L]: F:管理端商品管理：导入、定价与上下架 | R:code:frontend/src/api/adminProducts.ts,code:frontend/src/lib/adminRoles.ts | A:AdminProducts | S:导入覆盖上游字段不覆盖本地定价；无任何可售价的商品拒绝上架
+AdminProducts.tsx[EB8L]: F:管理端商品与分类页：商品导入/定价/上下架/改分类与分类树维护（页内两页签） | R:code:frontend/src/api/adminProducts.ts,code:frontend/src/api/adminCategories.ts,code:frontend/src/components/admin/CategoriesPanel.tsx,code:frontend/src/lib/adminRoles.ts | A:AdminProducts | S:导入覆盖上游字段不覆盖本地定价，无任何可售价的商品拒绝上架；商品写 products.write 与分类写 categories.write 是两个权限点各自闸门不发越权请求；分类页签由 ?tab=categories 表示，旧地址由路由层重定向
 AdminSettings.tsx[EC9L]: F:后台设置页：易支付/上游/SMTP/通知开关 | R:code:frontend/src/api/adminSettings.ts,code:frontend/src/components/admin/SecretInput.tsx | A:AdminSettings | S:密钥只回掩码永不回显明文，更新走三态语义；仅 admin 可进本页，其余角色整页 NoPermission
 AdminTicketDetail.tsx[EB7M]: F:管理端工单详情：公开回复、内部备注与关闭 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/lib/adminRoles.ts | A:AdminTicketDetail | S:内部备注不改变工单状态且会员不可见；公开回复后状态转 replied
 AdminTickets.tsx[EB6M]: F:管理端工单列表页 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminTickets | S:-

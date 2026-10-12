@@ -1472,22 +1472,27 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 非法/不存在的子分类 id → `40002`；传主分类 id（`parent_id` 为空的行）→ `40002`（必须挂到子分类）。
 成功响应即更新后的商品详情，`category_id` / `category_name` / `category_parent` 三个字段同步反映新归属。
 
-#### 管理端页面（R9：分类管理页 + 商品改挂分类）
+#### 管理端页面（R9：分类管理 + 商品改挂分类；R9-B 并为一页）
 
-两处界面只消费上面已有的端点，**不新增接口**：
+界面只消费上面已有的端点，**不新增接口**：
 
-1. **`/admin/categories` 分类管理页**（侧栏「分类」，位于「商品」之后）
-   - 数据来源 `GET /admin/categories`：主分类 → 子分类两级树，展示 `name` / `sort` 与子分类的
-     `products{total,on,off}` 商品计数；
-   - 改名（主/子通用）→ `PUT /admin/categories/:id` 的 `name`；改排序 → `sort`；
-   - 子分类改挂主分类 → `parent_id`（下拉目标为主分类，不能选自身；主分类不提供此项）；
-   - 写操作**仅 `admin`**（`finance` / `support` 进来是只读视图：写入口禁用并给出原因，且不发无权限请求）。
-2. **`/admin/products` 商品列表的「分类」列与「改分类」操作**
-   - 列展示 `category_name`（未归类显示占位，依据 `category_id == 0`）；
-   - 弹窗选目标**子分类**（数据同 `GET /admin/categories`，含「未归类」= `0`），
-     提交 `PUT /admin/products/:id` 的 `category_id`；成功后提示「已改挂，后续导入不再覆盖该商品分类」；
-   - 写权限沿用商品写（`admin` / `finance`），与分类管理页的 `categories.write`（仅 `admin`）**不是同一个权限点**；
-   - 列表另支持按分类筛选（`GET /admin/products` 的 `category_id` 查询参数，`0` = 只看未归类）。
+1. **`/admin/products` 商品与分类页**（侧栏唯一入口「商品与分类」；R9-B 把原「分类」页并入）
+   页内两个页签，由查询参数驱动：默认「商品」，`?tab=categories` 打开「分类」（分享 / 刷新保持在同一页签）。
+
+   - **商品页签** = 商品列表 + 上游导入 + 分组面板 + 「分类」列与「改分类」操作：
+     - 列展示 `category_name`（未归类显示占位，依据 `category_id == 0`）；
+     - 弹窗选目标**子分类**（数据同 `GET /admin/categories`，含「未归类」= `0`），
+       提交 `PUT /admin/products/:id` 的 `category_id`；成功后提示「已改挂，后续导入不再覆盖该商品分类」；
+     - 写权限沿用商品写（`admin` / `finance`），与分类页签的 `categories.write`（仅 `admin`）**不是同一个权限点**；
+     - 列表另支持按分类筛选（`GET /admin/products` 的 `category_id` 查询参数，`0` = 只看未归类）。
+   - **分类页签**（原 `/admin/categories` 分类管理页）：
+     - 数据来源 `GET /admin/categories`：主分类 → 子分类两级树，展示 `name` / `sort` 与子分类的
+       `products{total,on,off}` 商品计数；
+     - 改名（主/子通用）→ `PUT /admin/categories/:id` 的 `name`；改排序 → `sort`；
+     - 子分类改挂主分类 → `parent_id`（下拉目标为主分类，不能选自身；主分类不提供此项）；
+     - 写操作**仅 `admin`**（`finance` / `support` 进来是只读视图：写入口禁用并给出原因，且不发无权限请求）。
+2. **旧地址 `/admin/categories`**：重定向到 `/admin/products?tab=categories`（收藏 / 外链 / 文档里的旧地址不断，
+   不再有独立分类页）。
 
 ### 10.5 角色权限矩阵（商品部分）
 
@@ -3932,6 +3937,7 @@ status = active
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
 | 2026-10-13 | v18 | R9-A 管理端分类界面：**① 商品视图补分类字段（10.4，本批唯一后端读路径改动）**——`GET /admin/products` 与 `GET /admin/products/:id` 的列表项新增 `category_id`（所属**子分类** ID，`0`=未归类）/ `category_name` / `category_parent`（所属主分类 `{id,name}`，形状对齐会员端 `group.parent`）；三键**始终存在**（未归类输出 `0` / `""` / `{id:0,name:""}`，不省略键），与 `group_id`/`group_name` 并列下发、互不替代，未归类**不回退**组名（会员端 `group` 的组名兜底不适用于管理端）；**② 管理端页面（10.4 新增小节）**——`/admin/categories` 分类管理页（两级树 + 商品计数；改名 / 改排序 / 子分类改挂主分类，写操作**仅 admin**，`finance`/`support` 只读视图）与 `/admin/products` 的「分类」列 + 「改分类」弹窗（目标为**子分类**或「未归类」`0`，提交 `category_id`，成功提示「已改挂，后续导入不再覆盖该商品分类」，即 `category_source=manual` 语义）+ 按分类筛选（`GET /admin/products` 新增查询参数 `category_id`，`0` = 只看未归类，非 0 必须是存在的子分类，否则 `404 分类不存在`）；除该过滤参数外**不新增端点**，界面只消费 10.4 既有接口；**③ 权限点定稿**——分类管理页写操作走新权限点 `categories.write`（**仅 admin**，与商品写 `products.write`（admin/finance）不是同一个权限点），商品改挂分类沿用 `products.write`；10.5 / 12.7 矩阵已含 `GET /admin/categories`（三角色只读）与 `PUT /admin/categories/:id`（仅 admin），本批核对一致、无改动；**④ 前端**：新增 `AdminCategories` 页（沿用 `ProductGroupsPanel` 的改名/改排序弹窗范式与校验口径：名称去首尾空格 1-128 字、sort `-999999`~`999999`）、侧栏「分类」入口（「商品」之后）、`adminRoles.ts` 增补 `AdminPage` 键 `categories` 与权限点 `categories.write`；`UpdateProductInput` 扩 `category_id`；**测试**：后端商品视图分类字段 + 按分类过滤（含 `0` 未归类、`40001`/`404` 负例）用例，前端分类管理页（树渲染/改名/改排序/改挂/无变化不发请求）与权限（`finance`/`support` 只读、禁用 + 原因文案、不发无权限请求）、商品分类列 / 改挂请求体 / 分类筛选请求参数用例 |
+| 2026-10-13 | v18 | R9-B 管理端「商品」与「分类」合并为一页（**页面结构合并，接口无变化、契约版本不变**）：侧栏「商品」「分类」两项合并为唯一入口「商品与分类」（`/admin/products`，page 键沿用 `products`），原 `/admin/categories` 分类管理页并入该页的「分类」页签（查询参数 `?tab=categories`，默认打开「商品」页签；**旧地址 `/admin/categories` 重定向**到 `/admin/products?tab=categories`，收藏 / 外链 / 文档不断链）；两个分区的写权限闸门各自保持——商品写 `products.write` / `products.import` / `groups.write`（admin/finance）与分类写 `categories.write`（**仅 admin**）按分区隐藏/禁用并给出 `permissionHint` 原因，不发越权请求；10.4「管理端页面」小节按新结构改写，**全部接口定义、10.5 / 12.7 矩阵与错误码无任何改动** |
 | 2026-10-13 | v17 | R7 配置价格联动 + 商品两级分类：**① 配置差价联动计价（新增 10.2.1）**——成交价 = **基础价 + Σ 配置差价**，差价数据取上游 `config_groups[].options[].sub[].pricings[]`（`type:"configoptions"`，已随 `config_json` 落库，**无需新增列**）；差价跟随定价模式（`upstream` 原样 / `markup` 同率加价 / `fixed` 原样叠加在固定价之上），全链路整数分；**数量型差价 = 档位单位差价 × 可计费数量**，可计费数量 = 数量 − 低一档 `qty_maximum`（无低一档为 0）——实测 286 个数量型里 153 单档位 / 133 多档位且多档位 100% 上下衔接（典型如商品 74 `ip_num` `[1-1 @0.00][2-10 @38.00]`：首个 IP 免费、第 2 个起每个 38.00），单档位时退化为「单位差价 × 数量」；无 pricings / 该周期缺失 / 负值（上游 `-1.00` 哨兵）→ 差价 `0.00` + 明细标注「无差价数据」，不阻断下单；优惠码继续对**总额**抵扣；**② 差价明细快照（迁移 0013）**——`orders.price_breakdown_json` 落库（base / deltas[] / total）并随订单对象下发 `price_breakdown`，续费单同口径（按实例开通时配置快照重算）；**③ 数量型取值范围修正**——由「首个值的 qty 区间」改为**全部档位并集**（此前多档位会被锁死，如商品 2 数据盘 `[30-30]`/`[31-256]` 无法加盘），契约 10.3 第 6 条与下单校验同步；**④ 商品两级分类（10.1 新增，迁移 0014）**——新表 `product_categories`（`parent_id` 两级）+ `products.category_id`/`category_source`（**不**给 `product_groups` 加父级：子分类「香港二区」来自商品名、「美国一区」横跨 3 个上游组，与上游组多对多）；导入按地域关键词派生主分类（含西安/襄阳/内蒙/绍兴/十堰 → `国内` 的实测别名）、按「地域+区」形态或组名派生子分类，`key` 稳定键保证改名不漂移、重复导入收敛（R7 首次导入计一次 `updated`，再导入必回 `unchanged`）；会员端 `GET /products` 新增 `categories[]` 树、`groups[]` 语义演进为**子分类**并新增 `parent`（骨架 `id`/`name`/`sort`/`products` 不变，向后兼容）；管理端新增 `GET /admin/categories`、`PUT /admin/categories/:id`（改名 / 子分类改挂主分类，**仅 admin**，10.5 与 12.7 矩阵同步）、`PUT /admin/products/:id` 扩 `category_id`（改挂后 `category_source=manual`，导入不再覆盖）；**⑤ 前端**：配置变化实时重算金额 + 可展开差价明细（商品详情 / 下单页 / 结算页）、两级分类筛选、配置控件文字前 23px 幽灵空隙修复（Tailwind v4 下 `.relative` 生成顺序晚于 `.sr-only`，shadcn `RadioGroupItem` 的 `relative`+`size-4` 把「隐藏」单选撑成 16px flex 项 + `gap-2` = 23px；改为 `absolute sr-only` 由 cn 合并掉 `relative`） |
 | 2026-10-09 | v16 | R6 产品配置交互优化：**① 配置选择控件矩阵**（10.3 新增第 5/6/7 条）——按上游 `option_type` 渲染与上游前台一致的控件（**实测**：2026-10-09 全量拉取上游 159 个商品 + 前台配置页 `/cart?action=configureproduct&pid=N` 渲染对照；映射表入 10.3：1=下拉 / 5=两级系统选择 / 6·8·10·12·13=单选横条 / 4·11·14·15·19=数量；未收录编码按值形态兜底，实测无多选型样本）；**② 数量型（拉条型）取值口径落地**——提交数量而非值 id（8.3 既有口径「数量型传 qty」，此前前端按值 id 提交、上游会把值 id 当数量解释）；`values[]` 视图新增 `qty_minimum` / `qty_maximum` 透传（选项型恒 0），下单校验按范围前置拦截（12.4 请求说明与快照口径、12.8 错误码表第 4 条同步）；**③ 系统选择二级菜单**——下单/结算页与重装弹窗的 `os` 配置（值 `^` 前为系统大类）改为两级（大类 → 版本），重装分组取上游 `/host/cloudos` 的 `group` 字段（无分组信息时退化单级）；**④ 前端**：`ConfigSelector` 重写（四种控件 + 二级系统 + 数量步进）、`ReinstallDialog` 两级改造、订单配置快照的数量型展示（`数据盘 100GB`）；**测试**：前端 33 文件 200 用例全绿（新增 `configControl` 27 + `ConfigSelector` 11 + `ReinstallDialog` 5 + 结算页数量型提交 1），后端 `go test ./...` 全绿（新增数量型下单 1 正例 4 负例 + 混用用例、视图 qty 范围透传断言） |
 | 2026-10-09 | v15 | R5 商品简介（上游 `description` 拉取 + 商品卡配置列表）——**迁移 0012**：`products.description` 列**自 0004 建立时即存在**，本迁移不重复加列、只把 R5 口径固化进列注释（存「上游原文经一次 HTML 实体反转义后的原始 HTML」；`MODIFY COLUMN` 只改注释，幂等，回滚只还原注释不删列）；**导入链路**：落库前对上游 `description` 做一次 `html.UnescapeString`（确定性转换，转义存量首次导入计一次 `updated`、其后幂等不变）；**解析工具** `descriptionLines`（router 包，纯正则 + strings，无新依赖）：兼容转义/未转义输入 → 提取 `<li>` 行（li 内嵌 `<br>` 再拆）→ 无 `<li>` 时按 `<br>`/块级标签/换行切 → 去标签、折叠空白、去空行、超长不截断，空简介恒为 `[]`；**接口**：会员端 `GET /products`（列表）与 `GET /products/:id`（详情）新增 `description_lines`（列表不下发原文；详情保留解码后 `description` 原文），管理端 `GET /admin/products/:id` 同步带出；**10.1 字段表与写入边界 / 10.3 列表与详情示例+约定 / 10.4 管理端详情 / 10.6 实测第 6 条**同步改写；同步更新安装集成测试的迁移数量断言（11→12）；**测试**：解析工具 13 用例（含双重转义只解码一次、超长不截断）+ 集成用例（落库解码、幂等、列表/详情/管理端 `description_lines`、空简介 `[]`） |
