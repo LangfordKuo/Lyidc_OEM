@@ -5,13 +5,9 @@ import { MenuIcon, ServerIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { paths } from '@/app/paths'
 import { useAuth } from '@/auth/authContext'
-import { buildLoginUrl } from '@/lib/redirect'
 import { SITE_NAME } from '@/lib/site'
 import { cn } from '@/lib/utils'
 import UserMenu from './UserMenu'
-
-// 「会员区」属后续期页面：未登录先走登录（带 redirect），已登录则由 404 页承接。
-const CONSOLE_PATH = '/console'
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
   return cn(
@@ -26,10 +22,10 @@ export default function SiteHeader() {
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  // 主导航仅公开项；「控制台」是登录后入口，放右侧操作区（移动端走下拉面板）。
   const navItems = [
     { to: paths.home, label: '首页', end: true },
     { to: paths.products, label: '商品', end: false },
-    { to: isAuthenticated ? CONSOLE_PATH : buildLoginUrl(CONSOLE_PATH), label: '会员区', end: false },
   ]
 
   return (
@@ -50,9 +46,18 @@ export default function SiteHeader() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2" data-testid="header-actions">
           {isAuthenticated ? (
-            <UserMenu />
+            <>
+              {/* 「控制台」登录后才显示：桌面端在此（移动端入口在下拉面板，避免重复）。 */}
+              <NavLink
+                to={paths.console}
+                className={(state) => cn(navLinkClass(state), 'hidden md:inline-flex')}
+              >
+                控制台
+              </NavLink>
+              <UserMenu />
+            </>
           ) : (
             <div className="hidden items-center gap-2 md:flex">
               <Button variant="ghost" size="sm" onClick={() => navigate(paths.login)}>
@@ -91,6 +96,11 @@ export default function SiteHeader() {
                 {item.label}
               </NavLink>
             ))}
+            {isAuthenticated ? (
+              <NavLink to={paths.console} className={navLinkClass} onClick={() => setMobileOpen(false)}>
+                控制台
+              </NavLink>
+            ) : null}
           </nav>
           {isAuthenticated ? null : (
             <div className="mt-3 flex gap-2">

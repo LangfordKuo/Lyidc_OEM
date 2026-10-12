@@ -71,7 +71,7 @@ export default function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => navigate('/console')}>
           <LayoutDashboardIcon aria-hidden />
-          会员区
+          控制台
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate('/console')}>
           <WalletIcon aria-hidden />
