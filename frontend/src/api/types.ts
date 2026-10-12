@@ -601,6 +601,12 @@ export interface AdminProduct {
   pricing: PricingRule
   /** 六周期本地售价；null 表示该周期不可售 */
   prices: CyclePrices
+  /** R9：所属**子分类** ID；0 = 未归类（契约 10.4） */
+  category_id: number
+  /** R9：所属子分类名；未归类为空串 */
+  category_name: string
+  /** R9：所属主分类引用（形状同会员端 group.parent）；未归类为 {id:0,name:''} */
+  category_parent: CategoryRef
   created_at: string
   updated_at: string
 }
@@ -644,6 +650,41 @@ export interface ProductImportResult {
 export interface UpdateProductInput {
   pricing_json?: PricingRule | string | null
   status?: 'on' | 'off'
+  sort?: number
+  /** R9：改挂到**子分类**；0 = 取消归类（契约 10.4）。设置后 category_source=manual，导入不再覆盖。 */
+  category_id?: number
+}
+
+// —— 分类管理（管理端，契约 10.4 的 GET/PUT /admin/categories） ——
+
+/** 管理端子分类（含商品计数）。 */
+export interface AdminSubcategory {
+  id: number
+  /** 派生稳定键，仅供排查与导入对照，不可修改 */
+  key: string
+  name: string
+  sort: number
+  products: { total: number; on: number; off: number }
+  created_at: string
+  updated_at: string
+}
+
+/** 管理端主分类（带子分类列表）。 */
+export interface AdminCategory {
+  id: number
+  key: string
+  name: string
+  sort: number
+  created_at: string
+  updated_at: string
+  subcategories: AdminSubcategory[]
+}
+
+/** PUT /admin/categories/:id 请求体：字段均可选但至少提供一个（契约 10.4）。 */
+export interface UpdateCategoryInput {
+  name?: string
+  /** 仅子分类可传：改挂到另一个主分类 */
+  parent_id?: number
   sort?: number
 }
 

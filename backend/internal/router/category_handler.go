@@ -36,14 +36,17 @@ type updateCategoryRequest struct {
 }
 
 // adminSubcategoryView 是管理端子分类（含商品计数）。
+//
+// Products 复用 adminGroupCountsView（分组列表同款），保证 products 计数的 JSON 键
+// 是小写 total/on/off（契约 10.4）；store.GroupCounts 不带 json tag，不能直接下发。
 type adminSubcategoryView struct {
-	ID        uint64            `json:"id"`
-	Key       string            `json:"key"`
-	Name      string            `json:"name"`
-	Sort      int               `json:"sort"`
-	Products  store.GroupCounts `json:"products"`
-	CreatedAt string            `json:"created_at"`
-	UpdatedAt string            `json:"updated_at"`
+	ID        uint64               `json:"id"`
+	Key       string               `json:"key"`
+	Name      string               `json:"name"`
+	Sort      int                  `json:"sort"`
+	Products  adminGroupCountsView `json:"products"`
+	CreatedAt string               `json:"created_at"`
+	UpdatedAt string               `json:"updated_at"`
 }
 
 // adminCategoryView 是管理端主分类。
@@ -89,12 +92,17 @@ func (h *categoryHandler) listCategories(c *gin.Context) {
 			if sub.IsMain() || sub.ParentIDValue() != main.ID {
 				continue
 			}
+			count := counts[sub.ID]
 			subs = append(subs, adminSubcategoryView{
-				ID:        sub.ID,
-				Key:       sub.Key,
-				Name:      sub.Name,
-				Sort:      sub.Sort,
-				Products:  counts[sub.ID],
+				ID:   sub.ID,
+				Key:  sub.Key,
+				Name: sub.Name,
+				Sort: sub.Sort,
+				Products: adminGroupCountsView{
+					Total: count.Total,
+					On:    count.On,
+					Off:   count.Off,
+				},
 				CreatedAt: formatTime(sub.CreatedAt),
 				UpdatedAt: formatTime(sub.UpdatedAt),
 			})
@@ -209,9 +217,10 @@ func (h *categoryHandler) categoryView(c *gin.Context, item *model.ProductCatego
 	if err != nil {
 		h.logger.Warn("读取分类商品计数失败", "error", err)
 	}
+	count := counts[item.ID]
 	return adminSubcategoryView{
 		ID: item.ID, Key: item.Key, Name: item.Name, Sort: item.Sort,
-		Products:  counts[item.ID],
+		Products:  adminGroupCountsView{Total: count.Total, On: count.On, Off: count.Off},
 		CreatedAt: formatTime(item.CreatedAt), UpdatedAt: formatTime(item.UpdatedAt),
 	}
 }

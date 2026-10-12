@@ -30,6 +30,8 @@ export type AdminPermission =
   | 'products.write'
   | 'products.import'
   | 'groups.write'
+  // 分类（契约 10.5 / 12.7）：树三角色可读，写操作仅 admin
+  | 'categories.write'
   // 订单（契约 12.6 查看类 / 14.4 重试交付）
   | 'orders.read'
   | 'orders.retry'
@@ -57,6 +59,7 @@ const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
   'products.write': ['admin', 'finance'],
   'products.import': ['admin', 'finance'],
   'groups.write': ['admin', 'finance'],
+  'categories.write': ['admin'],
 
   'orders.read': ['admin', 'finance', 'support'],
   'orders.retry': ['admin'],
@@ -85,6 +88,7 @@ const PERMISSION_LABELS: Record<AdminPermission, string> = {
   'products.write': '修改定价或上下架',
   'products.import': '上游导入商品',
   'groups.write': '修改商品分组',
+  'categories.write': '修改分类（改名 / 排序 / 改挂）',
   'orders.read': '查看订单',
   'orders.retry': '重试订单交付',
   'instances.read': '查看实例',
@@ -136,6 +140,7 @@ export function permissionHint(permission: AdminPermission): string {
 export type AdminPage =
   | 'dashboard'
   | 'products'
+  | 'categories'
   | 'orders'
   | 'members'
   | 'instances'
@@ -146,6 +151,8 @@ export type AdminPage =
 /**
  * canAccessAdminPage 判断角色能否进入某个后台页面（整页 403 的域）：
  * 工单页仅 admin/support、设置页仅 admin，其余页面三类角色均可。
+ * 分类页（categories）三类角色都可进——写操作另按 categories.write（仅 admin）闸门，
+ * finance / support 进来是只读视图。
  */
 export function canAccessAdminPage(role: AdminRole | null | undefined, page: AdminPage): boolean {
   switch (page) {

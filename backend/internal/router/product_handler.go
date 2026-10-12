@@ -123,6 +123,25 @@ func (h *productHandler) listProducts(c *gin.Context) {
 		}
 		filter.UpstreamGroupID = &group.UpstreamGroupID
 	}
+	// R9：按子分类过滤（0 = 只看未归类），非 0 必须是存在的**子分类**（与改挂同一口径）。
+	if rawCategoryID := strings.TrimSpace(c.Query("category_id")); rawCategoryID != "" {
+		categoryID, err := strconv.ParseUint(rawCategoryID, 10, 64)
+		if err != nil {
+			response.Fail(c, response.CodeInvalidParam, "category_id 必须为非负整数（本地子分类 ID）")
+			return
+		}
+		if categoryID > 0 {
+			if _, err := h.store.SubCategoryByID(c.Request.Context(), categoryID); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					response.Fail(c, response.CodeNotFound, "分类不存在")
+					return
+				}
+				failDB(c, h.logger, err)
+				return
+			}
+		}
+		filter.CategoryID = &categoryID
+	}
 
 	items, total, err := h.store.ListProducts(c.Request.Context(), filter)
 	if err != nil {
@@ -138,12 +157,19 @@ func (h *productHandler) listProducts(c *gin.Context) {
 	for i := range groups {
 		groupByUpstreamID[groups[i].UpstreamGroupID] = &groups[i]
 	}
+	// R9：分类归属随列表一起下发（一次性加载分类表，避免逐商品查库）。
+	categoryIndex, err := h.categoryIndex(c.Request.Context())
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
 
 	views := make([]adminProductView, 0, len(items))
 	for i := range items {
 		product := &items[i]
 		rule, prices, stockControl := h.resolvePricing(product)
-		views = append(views, newAdminProductView(product, groupByUpstreamID[product.UpstreamGroupID], rule, prices, stockControl))
+		views = append(views, newAdminProductView(
+			product, groupByUpstreamID[product.UpstreamGroupID], categoryIndex.resolve(product), rule, prices, stockControl))
 	}
 
 	response.Success(c, adminProductListView{
@@ -607,6 +633,13 @@ func (h *productHandler) adminProductDetail(c *gin.Context, product *model.Produ
 		h.logger.Warn("查询商品分组失败", "error", err, "product_id", product.ID)
 	}
 
+	// R9 分类归属：与分组同口径降级（查库失败只告警，视图按未归类输出）。
+	categoryIndex, err := h.categoryIndex(ctx)
+	if err != nil {
+		h.logger.Warn("查询商品分类失败", "error", err, "product_id", product.ID)
+		categoryIndex = adminCategoryIndex{}
+	}
+
 	rule, upstreamPrices, prices, err := productPrices(product)
 	if err != nil {
 		h.logger.Warn("商品定价数据异常，回退缺省规则", "error", err, "product_id", product.ID)
@@ -615,13 +648,22 @@ func (h *productHandler) adminProductDetail(c *gin.Context, product *model.Produ
 	cache := h.configCache(product)
 
 	return adminProductDetailView{
-		adminProductView: newAdminProductView(product, group, rule, prices, cache.Product.StockControl),
+		adminProductView: newAdminProductView(product, group, categoryIndex.resolve(product), rule, prices, cache.Product.StockControl),
 		Description:      product.Description,
 		DescriptionLines: descriptionLines(product.Description),
 		ConfigGroups:     newConfigGroupViews(cache, rule, true),
 		CustomFields:     newCustomFieldViews(cache),
 		UpstreamPrices:   upstreamPrices,
 	}
+}
+
+// categoryIndex 一次性加载全部分类的 id 索引（主分类 + 子分类，表很小）。
+func (h *productHandler) categoryIndex(ctx context.Context) (adminCategoryIndex, error) {
+	items, err := h.store.ListProductCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newAdminCategoryIndex(items), nil
 }
 
 // resolvePricing 解析商品的定价规则与本地售价；异常时回退缺省规则并告警

@@ -2,7 +2,7 @@ import { cleanup as cleanupRender, screen, waitFor, within } from '@testing-libr
 import { describe, expect, it } from 'vitest'
 
 import type { AdminRole } from '@/api/types'
-import { makeAdminAccount, makeAdminTicket } from '@/test/fixtures'
+import { makeAdminAccount, makeAdminCategory, makeAdminTicket } from '@/test/fixtures'
 import { installFetchMock, ok, renderApp, seedAdminProfile, seedAdminToken } from '@/test/harness'
 
 // 管理后台**角色权限渲染矩阵**：
@@ -24,6 +24,9 @@ function mockBackend(role: AdminRole) {
     }
     if (path === '/api/v1/admin/tickets') {
       return ok({ items: [makeAdminTicket()], page: 1, page_size: 20, total: 1 })
+    }
+    if (path === '/api/v1/admin/categories') {
+      return ok({ items: [makeAdminCategory()] })
     }
     if (path === '/api/v1/admin/orders') {
       return ok({ items: [], page: 1, page_size: 20, total: 0 })
@@ -52,13 +55,14 @@ function sidebarLabels(): string[] {
 }
 
 describe('管理后台 · 角色权限矩阵', () => {
-  it('admin 侧栏含全部 8 个入口', async () => {
+  it('admin 侧栏含全部 9 个入口', async () => {
     await renderAs('admin', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
     expect(sidebarLabels().map((label) => label.trim())).toEqual([
       '仪表盘',
       '商品',
+      '分类',
       '订单',
       '会员',
       '实例',
@@ -75,7 +79,7 @@ describe('管理后台 · 角色权限矩阵', () => {
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).not.toContain('工单')
     expect(labels).not.toContain('设置')
-    expect(labels).toEqual(['仪表盘', '商品', '订单', '会员', '实例', '通知'])
+    expect(labels).toEqual(['仪表盘', '商品', '分类', '订单', '会员', '实例', '通知'])
   })
 
   it('support 侧栏无设置入口、保留工单入口', async () => {
@@ -85,7 +89,7 @@ describe('管理后台 · 角色权限矩阵', () => {
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).toContain('工单')
     expect(labels).not.toContain('设置')
-    expect(labels).toEqual(['仪表盘', '商品', '订单', '会员', '实例', '工单', '通知'])
+    expect(labels).toEqual(['仪表盘', '商品', '分类', '订单', '会员', '实例', '工单', '通知'])
   })
 
   it('finance 直接访问工单页：无权占位且不请求工单接口', async () => {
@@ -131,6 +135,22 @@ describe('管理后台 · 角色权限矩阵', () => {
       expect(screen.queryByText('无权访问该页面')).not.toBeInTheDocument()
       expect(screen.getAllByRole('heading', { name: '订单' }).length).toBeGreaterThan(0)
       // 每次循环结束卸载上一次渲染，避免多份应用同时挂在 document 上。
+      cleanupRender()
+    }
+  })
+
+  it('分类页为查看类：三个角色都可读并请求分类树（写操作另按 categories.write）', async () => {
+    for (const role of ['admin', 'finance', 'support'] as const) {
+      const fetchMock = await renderAs(role, '/admin/categories')
+      await waitFor(() => {
+        expect(
+          fetchMock.mock.calls.some(([input]) =>
+            String(input).includes('/api/v1/admin/categories'),
+          ),
+        ).toBe(true)
+      })
+      expect(screen.queryByText('无权访问该页面')).not.toBeInTheDocument()
+      expect(screen.getAllByRole('heading', { name: '分类' }).length).toBeGreaterThan(0)
       cleanupRender()
     }
   })

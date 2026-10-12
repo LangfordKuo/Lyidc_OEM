@@ -57,8 +57,10 @@ type ProductFilter struct {
 	PageSize int
 	// UpstreamGroupID 非 nil 时按分组过滤（由 handler 把本地分组 ID 解析成上游分组 ID）。
 	UpstreamGroupID *int
-	Status          string
-	Keyword         string
+	// CategoryID 非 nil 时按**子分类**过滤（R9，契约 10.4）；指针指向 0 表示只看未归类。
+	CategoryID *uint64
+	Status     string
+	Keyword    string
 }
 
 // ProductUpdate 描述 PUT /admin/products/:id 的可选字段：nil 表示不修改。
@@ -360,6 +362,9 @@ func (s *Store) ListProducts(ctx context.Context, filter ProductFilter) ([]model
 	query := db.Model(&model.Product{})
 	if filter.UpstreamGroupID != nil {
 		query = query.Where("upstream_group_id = ?", *filter.UpstreamGroupID)
+	}
+	if filter.CategoryID != nil {
+		query = query.Where("category_id = ?", *filter.CategoryID)
 	}
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)

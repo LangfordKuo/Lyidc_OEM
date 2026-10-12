@@ -21,6 +21,7 @@ import PayResult from '@/pages/PayResult'
 import ProductDetail from '@/pages/ProductDetail'
 import Products from '@/pages/Products'
 import Register from '@/pages/Register'
+import AdminCategories from '@/pages/admin/AdminCategories'
 import AdminDashboard from '@/pages/admin/AdminDashboard'
 import AdminInstanceDetail from '@/pages/admin/AdminInstanceDetail'
 import AdminInstances from '@/pages/admin/AdminInstances'
@@ -89,6 +90,7 @@ export const routes: RouteObject[] = [
             children: [
               { index: true, element: <AdminDashboard /> },
               { path: 'products', element: <AdminProducts /> },
+              { path: 'categories', element: <AdminCategories /> },
               { path: 'orders', element: <AdminOrders /> },
               { path: 'orders/:id', element: <AdminOrderDetail /> },
               { path: 'members', element: <AdminMembers /> },

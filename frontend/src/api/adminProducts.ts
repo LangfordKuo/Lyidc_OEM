@@ -12,7 +12,10 @@ import type {
 // 角色矩阵（契约 10.5）：查看类（列表/详情/分组）三类角色均可读；导入 / 改定价 / 上下架 /
 // 改分组为 admin + finance，support 一律 403（界面侧按同一矩阵隐藏/禁用入口）。
 
-/** GET /api/v1/admin/products —— 商品分页（含下架商品；group_id/status/keyword 过滤）。 */
+/**
+ * GET /api/v1/admin/products —— 商品分页（含下架商品）。
+ * 过滤：group_id（本地分组 ID）/ status / keyword / category_id（本地子分类 ID，0 = 只看未归类）。
+ */
 export function listAdminProducts(
   params: {
     page?: number
@@ -20,6 +23,7 @@ export function listAdminProducts(
     group_id?: number
     status?: 'on' | 'off'
     keyword?: string
+    category_id?: number
   } = {},
 ): Promise<Paged<AdminProduct>> {
   return http.get<Paged<AdminProduct>>('/admin/products', { auth: 'admin', query: { ...params } })

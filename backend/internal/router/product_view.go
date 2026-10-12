@@ -51,6 +51,53 @@ type customFieldView struct {
 	Regexpr     string `json:"regexpr"`
 }
 
+// adminCategoryRefView 是管理端商品视图里的分类精简引用（R9），
+// 与会员端 memberCategoryRefView 同形（id + name），形状对齐 group.parent。
+type adminCategoryRefView struct {
+	ID   uint64 `json:"id"`
+	Name string `json:"name"`
+}
+
+// adminCategoryInfo 是商品所属分类的解析结果（R9）：ID 为**子分类** ID（0 = 未归类），
+// Name 为子分类名，Parent 为主分类引用。未归类或分类行缺失时三者都是零值，
+// 视图输出 0 / 空串 / `{id:0,name:""}`（契约 10.4：三键始终存在，且不回退成组名）。
+type adminCategoryInfo struct {
+	ID     uint64
+	Name   string
+	Parent adminCategoryRefView
+}
+
+// adminCategoryIndex 是 id → 分类行索引：列表/详情都一次性加载全部分类（表很小），
+// 避免逐商品查库（N+1）。
+type adminCategoryIndex map[uint64]model.ProductCategory
+
+func newAdminCategoryIndex(items []model.ProductCategory) adminCategoryIndex {
+	index := make(adminCategoryIndex, len(items))
+	for i := range items {
+		index[items[i].ID] = items[i]
+	}
+	return index
+}
+
+// resolve 解析商品挂到的子分类与所属主分类。
+func (idx adminCategoryIndex) resolve(product *model.Product) adminCategoryInfo {
+	if product.CategoryID == 0 {
+		return adminCategoryInfo{}
+	}
+	sub, ok := idx[product.CategoryID]
+	if !ok {
+		// 分类行缺失（异常数据）：按未归类输出，不回退组名。
+		return adminCategoryInfo{}
+	}
+	info := adminCategoryInfo{ID: sub.ID, Name: sub.Name}
+	if sub.ParentID != nil {
+		if parent, ok := idx[*sub.ParentID]; ok {
+			info.Parent = adminCategoryRefView{ID: parent.ID, Name: parent.Name}
+		}
+	}
+	return info
+}
+
 // adminProductView 是管理端商品列表项（含本地定价与计算后的售价）。
 type adminProductView struct {
 	ID              uint64       `json:"id"`
@@ -68,8 +115,13 @@ type adminProductView struct {
 	OntrialMax      int          `json:"ontrial_max"`
 	Pricing         pricing.Rule `json:"pricing"`
 	Prices          priceView    `json:"prices"`
-	CreatedAt       string       `json:"created_at"`
-	UpdatedAt       string       `json:"updated_at"`
+	// R9 分类归属（契约 10.4）：与 group_id / group_name（上游产品组）并列、互不替代。
+	// CategoryID 为**子分类** ID（0 = 未归类）；三键始终存在（未归类输出 0/空串/零值引用）。
+	CategoryID     uint64               `json:"category_id"`
+	CategoryName   string               `json:"category_name"`
+	CategoryParent adminCategoryRefView `json:"category_parent"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
 }
 
 // adminProductDetailView 是管理端商品详情（列表项 + 描述 + 可配置项 + 上游价格原文）。
@@ -210,8 +262,9 @@ func newPriceView(prices map[string]string) priceView {
 	return view
 }
 
-// newAdminProductView 组装管理端商品视图；分组可能为 nil（分组未导入时的兜底）。
-func newAdminProductView(product *model.Product, group *model.ProductGroup, rule pricing.Rule, prices map[string]string, stockControl int) adminProductView {
+// newAdminProductView 组装管理端商品视图；分组可能为 nil（分组未导入时的兜底），
+// category 传分类解析结果（adminCategoryIndex.resolve），未归类时为零值。
+func newAdminProductView(product *model.Product, group *model.ProductGroup, category adminCategoryInfo, rule pricing.Rule, prices map[string]string, stockControl int) adminProductView {
 	view := adminProductView{
 		ID:              product.ID,
 		UpstreamPID:     product.UpstreamPID,
@@ -226,6 +279,9 @@ func newAdminProductView(product *model.Product, group *model.ProductGroup, rule
 		OntrialMax:      product.OntrialMax,
 		Pricing:         rule,
 		Prices:          newPriceView(prices),
+		CategoryID:      category.ID,
+		CategoryName:    category.Name,
+		CategoryParent:  category.Parent,
 		CreatedAt:       formatTime(product.CreatedAt),
 		UpdatedAt:       formatTime(product.UpdatedAt),
 	}

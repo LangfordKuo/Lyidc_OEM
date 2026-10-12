@@ -121,6 +121,43 @@ export function validateCancelReason(value: string): string {
   return [...value.trim()].length > 200 ? '原因最多 200 个字符' : ''
 }
 
+// ---------------------------------------------------------------------------
+// 管理后台：商品分组与两级分类的名称 / 排序（契约 10.4，两处口径完全一致）
+// ---------------------------------------------------------------------------
+
+export const CATALOG_SORT_MAX = 999999
+
+/**
+ * 分组/分类名校验：去首尾空格后 1-128 个字符。
+ * noun 用于空值提示（如 '分组名称' / '分类名称'），默认「名称」。
+ */
+export function validateCatalogName(value: string, noun = '名称'): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return `请输入${noun}`
+  }
+  if (trimmed.length > 128) {
+    return '名称最多 128 个字符'
+  }
+  return ''
+}
+
+/** 分组/分类排序校验：整数，-999999 ~ 999999。 */
+export function validateCatalogSort(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入排序值'
+  }
+  if (!/^-?\d+$/.test(trimmed)) {
+    return '排序需为整数'
+  }
+  const sort = Number(trimmed)
+  if (sort < -CATALOG_SORT_MAX || sort > CATALOG_SORT_MAX) {
+    return `排序需为 ${-CATALOG_SORT_MAX} 到 ${CATALOG_SORT_MAX} 之间的整数`
+  }
+  return ''
+}
+
 /**
  * 邮箱地址校验（后台设置里的发件人 / 测试收件地址等表单预检）：
  * 只做「形状」判断，与注册规则同口径；空串返回空错误（调用方按需决定是否必填）。

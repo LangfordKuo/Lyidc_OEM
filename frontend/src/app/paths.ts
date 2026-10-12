@@ -23,6 +23,7 @@ export const paths = {
   adminLogin: '/admin/login',
   admin: '/admin',
   adminProducts: '/admin/products',
+  adminCategories: '/admin/categories',
   adminOrders: '/admin/orders',
   adminOrderDetail: (id: number | string) => `/admin/orders/${id}`,
   adminMembers: '/admin/members',
@@ -55,6 +56,7 @@ export const consoleNavItems = [
 export const adminNavItems = [
   { to: paths.admin, label: '仪表盘', end: true, page: 'dashboard', description: '全站关键指标' },
   { to: paths.adminProducts, label: '商品', end: false, page: 'products', description: '定价、上下架与导入' },
+  { to: paths.adminCategories, label: '分类', end: false, page: 'categories', description: '两级分类改名与改挂' },
   { to: paths.adminOrders, label: '订单', end: false, page: 'orders', description: '订单查询与交付处置' },
   { to: paths.adminMembers, label: '会员', end: false, page: 'members', description: '会员资料与余额流水' },
   { to: paths.adminInstances, label: '实例', end: false, page: 'instances', description: '实例状态与操作' },

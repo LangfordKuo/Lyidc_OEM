@@ -19,40 +19,21 @@ import {
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { permissionHint } from '@/lib/adminRoles'
+import { validateCatalogName, validateCatalogSort } from '@/lib/validate'
 import { cn } from '@/lib/utils'
 
 // 商品分组面板（契约 10.4）：可折叠区块展示全部分组（含空分组）与商品计数，
 // 支持「点击分组行 → 列表按该分组筛选」与「重命名 / 改排序」（仅 admin / finance，groups.write）。
 // 分组名与排序是本地字段，导入不会覆盖，因此可放心按自己的品牌命名。
 
-const MAX_SORT = 999999
-
-/** 分组名校验：去首尾空格后 1-128 个字符。 */
+/** 分组名校验：去首尾空格后 1-128 个字符（口径见 lib/validate，分类页同一套）。 */
 function validateGroupName(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return '请输入分组名称'
-  }
-  if (trimmed.length > 128) {
-    return '名称最多 128 个字符'
-  }
-  return ''
+  return validateCatalogName(value, '分组名称')
 }
 
-/** 排序校验：整数，-999999 ~ 999999。 */
+/** 排序校验：整数，-999999 ~ 999999（口径见 lib/validate）。 */
 function validateGroupSort(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return '请输入排序值'
-  }
-  if (!/^-?\d+$/.test(trimmed)) {
-    return '排序需为整数'
-  }
-  const sort = Number(trimmed)
-  if (sort < -MAX_SORT || sort > MAX_SORT) {
-    return `排序需为 ${-MAX_SORT} 到 ${MAX_SORT} 之间的整数`
-  }
-  return ''
+  return validateCatalogSort(value)
 }
 
 export default function ProductGroupsPanel({

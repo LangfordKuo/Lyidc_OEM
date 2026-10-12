@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -288,7 +289,7 @@ func TestRenewAmountIncludesConfigDeltas(t *testing.T) {
 	// 商品：基础价月付 20.00，数据盘单档位 [0-256 @0.50]，CPU 4核 +20.00。
 	now := time.Now().UTC()
 	product := model.Product{
-		UpstreamPID:     9101, UpstreamGroupID: 1, Name: "香港二区 CN2 A型",
+		UpstreamPID: 9101, UpstreamGroupID: 1, Name: "香港二区 CN2 A型",
 		Type: "dcimcloud", Module: "idcsmart_common",
 		ConfigJSON:         `{"config_groups":` + r7ConfigGroups + `}`,
 		UpstreamPricesJSON: `{"code":"CNY","prices":{"monthly":"20.00","annual":"200.00"}}`,
@@ -307,8 +308,8 @@ func TestRenewAmountIncludesConfigDeltas(t *testing.T) {
 		TradeNo: "O20261013000000ORIG01", MemberID: member.ID,
 		ProductID: product.ID, ProductName: product.Name, Cycle: "monthly", Qty: 1,
 		ConfigJSON: `{"5":"52","10":"50"}`,
-		Amount: "65.00", DiscountAmount: "0.00", FinalAmount: "65.00",
-		Status: model.OrderStatusActive, Type:   model.OrderTypeNew,
+		Amount:     "65.00", DiscountAmount: "0.00", FinalAmount: "65.00",
+		Status: model.OrderStatusActive, Type: model.OrderTypeNew,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := gdb.Create(&original).Error; err != nil {
@@ -563,6 +564,251 @@ func TestAdminCategoryManagement(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
 		t.Fatalf("挂主分类应 40002: HTTP %d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// TestAdminProductsExposeCategoryFields 管理端商品视图下发分类归属（R9，契约 10.4）：
+// 列表与详情都带 category_id / category_name / category_parent；未归类三键输出零值；
+// 改挂与取消归类后字段即时反映。
+func TestAdminProductsExposeCategoryFields(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newProductEngine(t, gdb, newFakeCatalogClient(t, standardCatalog()))
+	adminToken := adminTokenFor(t, engine, gdb, model.RoleAdmin)
+	importProducts(t, engine, adminToken)
+
+	categories := adminCategories(t, engine, adminToken)
+	hk := categories.Items[0]    // 主分类「香港」
+	hkSub := hk.Subcategories[0] // 子分类「香港二区」
+	us := categories.Items[1]    // 主分类「美国」
+	usSub := us.Subcategories[0] // 子分类「美国一区」
+	pid := productIDByUpstreamPID(t, gdb, 101)
+
+	listItem := func(id uint64) (adminProductView, string) {
+		t.Helper()
+		rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/products", adminToken, nil)
+		if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+			t.Fatalf("商品列表请求失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+		}
+		for _, item := range decodeData[adminProductListView](t, envelope).Items {
+			if item.ID == id {
+				return item, string(envelope.Data)
+			}
+		}
+		t.Fatalf("列表里找不到商品 %d", id)
+		return adminProductView{}, ""
+	}
+	detailView := func(id uint64) adminProductView {
+		t.Helper()
+		rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/products/"+itoa(id), adminToken, nil)
+		if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+			t.Fatalf("商品详情请求失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+		}
+		return decodeData[adminProductDetailView](t, envelope).adminProductView
+	}
+
+	// 导入派生后：列表与详情都指向子分类「香港二区」+ 主分类「香港」。
+	listed, _ := listItem(pid)
+	for _, view := range []adminProductView{listed, detailView(pid)} {
+		if view.CategoryID != hkSub.ID || view.CategoryName != "香港二区" {
+			t.Fatalf("分类归属 = %d/%q, want %d/香港二区", view.CategoryID, view.CategoryName, hkSub.ID)
+		}
+		if view.CategoryParent.ID != hk.ID || view.CategoryParent.Name != "香港" {
+			t.Fatalf("主分类引用 = %+v, want %d/香港", view.CategoryParent, hk.ID)
+		}
+	}
+
+	// 取消归类（category_id=0）：三键输出零值且**不省略键**（契约 10.4）。
+	rec, envelope := doAPI(t, engine, http.MethodPut, "/api/v1/admin/products/"+itoa(pid), adminToken,
+		map[string]any{"category_id": 0})
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("取消归类失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+	item, raw := listItem(pid)
+	if item.CategoryID != 0 || item.CategoryName != "" || item.CategoryParent != (adminCategoryRefView{}) {
+		t.Fatalf("未归类字段应为零值: %+v", item)
+	}
+	for _, key := range []string{`"category_id"`, `"category_name"`, `"category_parent"`} {
+		if !strings.Contains(raw, key) {
+			t.Fatalf("列表项缺少 %s 键（未归类也应输出）: %s", key, raw)
+		}
+	}
+	if detail := detailView(pid); detail.CategoryID != 0 || detail.CategoryName != "" {
+		t.Fatalf("详情未归类字段应为零值: %+v", detail)
+	}
+
+	// 改挂到子分类「美国一区」：子分类与主分类引用都换掉。
+	rec, envelope = doAPI(t, engine, http.MethodPut, "/api/v1/admin/products/"+itoa(pid), adminToken,
+		map[string]any{"category_id": usSub.ID})
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("改挂失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+	updated := decodeData[adminProductDetailView](t, envelope).adminProductView
+	if updated.CategoryID != usSub.ID || updated.CategoryName != "美国一区" {
+		t.Fatalf("改挂后的分类归属 = %d/%q, want %d/美国一区", updated.CategoryID, updated.CategoryName, usSub.ID)
+	}
+	if updated.CategoryParent.ID != us.ID || updated.CategoryParent.Name != "美国" {
+		t.Fatalf("改挂后的主分类引用 = %+v, want %d/美国", updated.CategoryParent, us.ID)
+	}
+	if item, _ := listItem(pid); item.CategoryID != usSub.ID {
+		t.Fatalf("列表未反映改挂: %+v", item)
+	}
+}
+
+// TestAdminProductListFiltersByCategory 管理端商品列表按子分类过滤（R9，契约 10.4）：
+// category_id 指向子分类；0 = 只看未归类；非法/不存在给 40001 / 404。
+func TestAdminProductListFiltersByCategory(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newProductEngine(t, gdb, newFakeCatalogClient(t, standardCatalog()))
+	adminToken := adminTokenFor(t, engine, gdb, model.RoleAdmin)
+	importProducts(t, engine, adminToken)
+
+	categories := adminCategories(t, engine, adminToken)
+	hkSub := categories.Items[0].Subcategories[0] // 「香港二区」：2 个商品
+	usSub := categories.Items[1].Subcategories[0] // 「美国一区」：1 个商品
+
+	listByCategory := func(query string) adminProductListView {
+		t.Helper()
+		rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/products"+query, adminToken, nil)
+		if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+			t.Fatalf("按分类过滤失败（%s）: HTTP %d body=%s", query, rec.Code, rec.Body.String())
+		}
+		return decodeData[adminProductListView](t, envelope)
+	}
+
+	if list := listByCategory("?category_id=" + itoa(hkSub.ID)); list.Total != 2 {
+		t.Fatalf("香港二区过滤 total=%d, want 2", list.Total)
+	}
+	if list := listByCategory("?category_id=" + itoa(usSub.ID)); list.Total != 1 {
+		t.Fatalf("美国一区过滤 total=%d, want 1", list.Total)
+	}
+	if list := listByCategory("?category_id=0"); list.Total != 0 {
+		t.Fatalf("未归类过滤 total=%d, want 0（导入后全部已归类）", list.Total)
+	}
+
+	// 取消归类一个商品后，category_id=0 能命中它，原分类计数随之减少。
+	pid := productIDByUpstreamPID(t, gdb, 101)
+	rec, envelope := doAPI(t, engine, http.MethodPut, "/api/v1/admin/products/"+itoa(pid), adminToken,
+		map[string]any{"category_id": 0})
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("取消归类失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+	if list := listByCategory("?category_id=0"); list.Total != 1 {
+		t.Fatalf("未归类过滤 total=%d, want 1", list.Total)
+	}
+	if list := listByCategory("?category_id=" + itoa(hkSub.ID)); list.Total != 1 {
+		t.Fatalf("香港二区过滤 total=%d, want 1", list.Total)
+	}
+
+	// 非法与不存在的分类过滤参数。
+	invalid := []struct {
+		query string
+		code  int
+		http  int
+	}{
+		{"?category_id=abc", response.CodeInvalidParam, http.StatusBadRequest},
+		{"?category_id=-1", response.CodeInvalidParam, http.StatusBadRequest},
+		{"?category_id=999999", response.CodeNotFound, http.StatusNotFound},
+	}
+	for _, item := range invalid {
+		rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/products"+item.query, adminToken, nil)
+		if rec.Code != item.http || envelope.Code != item.code {
+			t.Fatalf("%s 应返回 HTTP %d/code %d，实际 HTTP %d/code %d",
+				item.query, item.http, item.code, rec.Code, envelope.Code)
+		}
+	}
+}
+
+// TestAdminCategoryProductsCountsUseLowercaseKeys 分类接口的子分类 products 计数键名
+// 必须是小写 total/on/off（契约 10.4）。
+//
+// 这里**不走**类型化解码：struct tag 在解码端不参与校验，把 adminSubcategoryView.Products
+// 换回不带 json tag 的 store.GroupCounts（序列化出大写 Total/On/Off）也能被解进同名字段，
+// 类型化断言抓不到该缺陷。必须反序列化成 map[string]any 后按原始键名断言。
+func TestAdminCategoryProductsCountsUseLowercaseKeys(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newProductEngine(t, gdb, newFakeCatalogClient(t, standardCatalog()))
+	adminToken := adminTokenFor(t, engine, gdb, model.RoleAdmin)
+	importProducts(t, engine, adminToken)
+	// 上架一件「香港二区」商品，让 on/off 计数取到可区分的非零值（导入后默认全下架）。
+	updateProductOK(t, engine, adminToken, productIDByUpstreamPID(t, gdb, 101),
+		map[string]any{"status": model.ProductStatusOn})
+
+	// assertProductsCounts 断言单个 products 对象：只认小写键，且 total/on/off 数值正确。
+	assertProductsCounts := func(where string, products map[string]any, wantTotal, wantOn, wantOff int64) {
+		t.Helper()
+		for _, key := range []string{"total", "on", "off"} {
+			if _, ok := products[key]; !ok {
+				t.Fatalf("%s 的 products 缺少小写键 %q（契约 10.4）: %v", where, key, products)
+			}
+		}
+		for _, key := range []string{"Total", "On", "Off"} {
+			if _, ok := products[key]; ok {
+				t.Fatalf("%s 的 products 出现大写键 %q（应为小写）: %v", where, key, products)
+			}
+		}
+		want := map[string]float64{
+			"total": float64(wantTotal),
+			"on":    float64(wantOn),
+			"off":   float64(wantOff),
+		}
+		for key, expected := range want {
+			if got := products[key]; got != expected {
+				t.Fatalf("%s 的 products.%s = %v, want %v", where, key, got, expected)
+			}
+		}
+	}
+
+	// subcategoryProducts 从原始 JSON 树里取指定子分类的 products 对象（保留原始键名）。
+	subcategoryProducts := func(raw json.RawMessage, name string) map[string]any {
+		t.Helper()
+		var list map[string]any
+		if err := json.Unmarshal(raw, &list); err != nil {
+			t.Fatalf("解析 data 失败: %v (data=%s)", err, raw)
+		}
+		items, _ := list["items"].([]any)
+		for _, item := range items {
+			main, _ := item.(map[string]any)
+			subs, _ := main["subcategories"].([]any)
+			for _, sub := range subs {
+				obj, _ := sub.(map[string]any)
+				if obj["name"] != name {
+					continue
+				}
+				products, ok := obj["products"].(map[string]any)
+				if !ok {
+					t.Fatalf("子分类 %q 的 products 不是对象: %v", name, obj)
+				}
+				return products
+			}
+		}
+		t.Fatalf("找不到子分类 %q: %s", name, raw)
+		return nil
+	}
+
+	// GET /admin/categories：两处子分类的计数都要按小写键下发。
+	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/categories", adminToken, nil)
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("查分类失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+	assertProductsCounts("GET 香港二区", subcategoryProducts(envelope.Data, "香港二区"), 2, 1, 1)
+	assertProductsCounts("GET 美国一区", subcategoryProducts(envelope.Data, "美国一区"), 1, 0, 1)
+
+	// PUT /admin/categories/:id 的子分类响应走 categoryView 同一序列化口径。
+	list := adminCategories(t, engine, adminToken)
+	subID := list.Items[0].Subcategories[0].ID // 香港二区
+	rec, envelope = doAPI(t, engine, http.MethodPut, "/api/v1/admin/categories/"+itoa(subID), adminToken,
+		map[string]any{"sort": 5})
+	if rec.Code != http.StatusOK || envelope.Code != response.CodeSuccess {
+		t.Fatalf("改子分类失败: HTTP %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated map[string]any
+	if err := json.Unmarshal(envelope.Data, &updated); err != nil {
+		t.Fatalf("解析 PUT data 失败: %v (data=%s)", err, envelope.Data)
+	}
+	products, ok := updated["products"].(map[string]any)
+	if !ok {
+		t.Fatalf("PUT 响应缺少 products 对象: %s", envelope.Data)
+	}
+	assertProductsCounts("PUT 香港二区", products, 2, 1, 1)
 }
 
 // TestAdminCategoryRoleMatrix 分类接口角色矩阵（契约 10.5 / 12.7）。

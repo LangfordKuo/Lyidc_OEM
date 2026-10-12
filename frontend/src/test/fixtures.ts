@@ -1,10 +1,12 @@
 import type {
   AdminAccount,
+  AdminCategory,
   AdminInstance,
   AdminInstanceDetail,
   AdminOrder,
   AdminProduct,
   AdminProductGroup,
+  AdminSubcategory,
   AdminTicket,
   CouponValidation,
   InstanceDetail,
@@ -394,8 +396,41 @@ export function makeAdminProduct(overrides: Partial<AdminProduct> = {}): AdminPr
     ontrial_max: 0,
     pricing: { mode: 'upstream' },
     prices: makePrices(),
+    category_id: 201,
+    category_name: '香港二区',
+    category_parent: { id: 101, name: '香港' },
     created_at: '2026-10-08T09:00:00Z',
     updated_at: '2026-10-08T09:12:03Z',
+    ...overrides,
+  }
+}
+
+/** 管理端子分类（含商品计数，契约 10.4 的 GET /admin/categories）。 */
+export function makeAdminSubcategory(
+  overrides: Partial<AdminSubcategory> = {},
+): AdminSubcategory {
+  return {
+    id: 201,
+    key: 'z:香港二区',
+    name: '香港二区',
+    sort: 0,
+    products: { total: 6, on: 3, off: 3 },
+    created_at: '2026-10-13T00:00:00Z',
+    updated_at: '2026-10-13T00:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 管理端主分类（带子分类，契约 10.4 的 GET /admin/categories）。 */
+export function makeAdminCategory(overrides: Partial<AdminCategory> = {}): AdminCategory {
+  return {
+    id: 101,
+    key: 'm:香港',
+    name: '香港',
+    sort: 0,
+    created_at: '2026-10-13T00:00:00Z',
+    updated_at: '2026-10-13T00:00:00Z',
+    subcategories: [makeAdminSubcategory()],
     ...overrides,
   }
 }

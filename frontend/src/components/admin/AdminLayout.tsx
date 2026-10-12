@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   BellIcon,
   ExternalLinkIcon,
+  FolderTreeIcon,
   LayoutDashboardIcon,
   LifeBuoyIcon,
   LogOutIcon,
@@ -33,6 +34,7 @@ import { cn } from '@/lib/utils'
 const NAV_ICONS: Record<string, typeof LayoutDashboardIcon> = {
   [paths.admin]: LayoutDashboardIcon,
   [paths.adminProducts]: PackageIcon,
+  [paths.adminCategories]: FolderTreeIcon,
   [paths.adminOrders]: ReceiptTextIcon,
   [paths.adminMembers]: UsersIcon,
   [paths.adminInstances]: ServerIcon,

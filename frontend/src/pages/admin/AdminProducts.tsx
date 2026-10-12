@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { AlertCircleIcon, CheckCircle2Icon, LoaderCircleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { listAdminCategories } from '@/api/adminCategories'
 import {
   importAdminProducts,
   listAdminProductGroups,
@@ -13,6 +14,7 @@ import type { AdminProduct, ProductImportResult } from '@/api/types'
 import { useAdminAuth } from '@/auth/adminAuthContext'
 import AdminTable, { type AdminColumn } from '@/components/admin/AdminTable'
 import FilterSelect, { AdminFilterBar } from '@/components/admin/FilterSelect'
+import ProductCategoryDialog from '@/components/admin/ProductCategoryDialog'
 import ProductGroupsPanel from '@/components/admin/ProductGroupsPanel'
 import ProductPricingDialog from '@/components/admin/ProductPricingDialog'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
@@ -59,7 +61,7 @@ function primaryPrice(prices: CyclePrices): { cycle: BillingCycle; amount: strin
 
 /**
  * AdminProducts 是管理后台「商品」页（契约 10.4 / 10.5）：
- * 列表（关键词 / 分组 / 状态筛选 + 分页）+ 上游导入 + 定价设置 + 上下架 + 分组管理。
+ * 列表（关键词 / 分组 / 分类 / 状态筛选 + 分页）+ 上游导入 + 定价设置 + 改分类 + 上下架 + 分组管理。
  * 角色矩阵：admin / finance 全部可用；support 只读（列表与分组可看，写操作按钮禁用并给出原因）。
  */
 export default function AdminProducts() {
@@ -71,6 +73,7 @@ export default function AdminProducts() {
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [groupId, setGroupId] = useState('')
+  const [categoryId, setCategoryId] = useState('')
   const [status, setStatus] = useState<StatusFilterValue>('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -84,6 +87,7 @@ export default function AdminProducts() {
   const [statusTarget, setStatusTarget] = useState<AdminProduct | null>(null)
   const [statusPending, setStatusPending] = useState(false)
   const [statusError, setStatusError] = useState('')
+  const [categoryTarget, setCategoryTarget] = useState<AdminProduct | null>(null)
 
   const productsState = useAsync(
     () =>
@@ -91,17 +95,21 @@ export default function AdminProducts() {
         page,
         page_size: ADMIN_PAGE_SIZE,
         ...(groupId ? { group_id: Number(groupId) } : {}),
+        ...(categoryId ? { category_id: Number(categoryId) } : {}),
         ...(status ? { status } : {}),
         ...(keyword ? { keyword } : {}),
       }),
-    [page, groupId, status, keyword, refreshKey],
+    [page, groupId, categoryId, status, keyword, refreshKey],
   )
   const groupsState = useAsync(() => listAdminProductGroups(), [refreshKey])
+  // 改分类弹窗的选项来源（契约 10.4）：两级分类树，商品只挂子分类。
+  const categoriesState = useAsync(() => listAdminCategories(), [refreshKey])
 
   const products = productsState.data?.items ?? []
   const groups = groupsState.data?.items ?? []
+  const categories = categoriesState.data?.items ?? []
 
-  /** 刷新列表与分组（写操作成功后调用，保证两侧数据一致）。 */
+  /** 刷新列表 / 分组 / 分类（写操作成功后调用，保证各处数据一致）。 */
   const refresh = () => setRefreshKey((value) => value + 1)
 
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -112,6 +120,11 @@ export default function AdminProducts() {
 
   const changeGroup = (next: string) => {
     setGroupId(next)
+    setPage(1)
+  }
+
+  const changeCategory = (next: string) => {
+    setCategoryId(next)
     setPage(1)
   }
 
@@ -181,6 +194,19 @@ export default function AdminProducts() {
         row.group_name ? row.group_name : <span className="text-muted-foreground">未分组</span>,
     },
     {
+      key: 'category',
+      header: '分类',
+      cell: (row) =>
+        row.category_id ? (
+          <span className="text-foreground">
+            {row.category_parent.name ? `${row.category_parent.name} / ` : ''}
+            {row.category_name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">未归类</span>
+        ),
+    },
+    {
       key: 'status',
       header: '状态',
       cell: (row) =>
@@ -234,6 +260,15 @@ export default function AdminProducts() {
           </Button>
           <Button
             size="sm"
+            variant="outline"
+            disabled={!canWrite}
+            title={canWrite ? undefined : permissionHint('products.write')}
+            onClick={() => setCategoryTarget(row)}
+          >
+            改分类
+          </Button>
+          <Button
+            size="sm"
             variant={row.status === 'on' ? 'destructive' : 'default'}
             disabled={!canWrite}
             title={canWrite ? undefined : permissionHint('products.write')}
@@ -260,7 +295,7 @@ export default function AdminProducts() {
           {!canWrite ? (
             <p className="mt-1 text-xs text-muted-foreground">
               当前角色（{role ? ADMIN_ROLE_LABELS[role] : '未登录'}）为只读视角：导入、定价设置、
-              上下架与分组保存均已禁用（{permissionHint('products.write')}）。
+              改分类、上下架与分组保存均已禁用（{permissionHint('products.write')}）。
             </p>
           ) : null}
         </div>
@@ -340,6 +375,7 @@ export default function AdminProducts() {
             <span className="text-xs text-muted-foreground">
               共 {productsState.data?.total ?? 0} 个商品
               {groupId ? '（已按分组筛选）' : ''}
+              {categoryId ? '（已按分类筛选）' : ''}
             </span>
           }
         >
@@ -382,6 +418,21 @@ export default function AdminProducts() {
               ...groups.map((group) => ({ value: String(group.id), label: group.name })),
             ]}
           />
+          <FilterSelect
+            label="分类"
+            value={categoryId}
+            onChange={changeCategory}
+            options={[
+              { value: '', label: '全部分类' },
+              { value: '0', label: '未归类' },
+              ...categories.flatMap((main) =>
+                main.subcategories.map((sub) => ({
+                  value: String(sub.id),
+                  label: `${main.name} / ${sub.name}`,
+                })),
+              ),
+            ]}
+          />
         </AdminFilterBar>
       </form>
 
@@ -407,7 +458,7 @@ export default function AdminProducts() {
             <EmptyBlock
               title="没有符合条件的商品"
               description={
-                keyword || groupId || status
+                keyword || groupId || categoryId || status
                   ? '换个关键词或筛选条件看看。'
                   : '可以从上游导入商品目录，导入后需先配置定价再上架。'
               }
@@ -443,6 +494,19 @@ export default function AdminProducts() {
             setPricingTarget(null)
             refresh()
             toast.success('定价已保存')
+          }}
+        />
+      ) : null}
+
+      {categoryTarget ? (
+        <ProductCategoryDialog
+          product={categoryTarget}
+          categories={categories}
+          onClose={() => setCategoryTarget(null)}
+          onUpdated={() => {
+            setCategoryTarget(null)
+            refresh()
+            toast.success('已改挂，后续导入不再覆盖该商品分类')
           }}
         />
       ) : null}
