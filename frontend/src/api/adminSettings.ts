@@ -4,9 +4,11 @@ import type {
   EmailTestResult,
   EpaySettings,
   NotificationSettings,
+  ReferralSettings,
   UpdateEmailSMTPSettingsInput,
   UpdateEpaySettingsInput,
   UpdateNotificationSettingsInput,
+  UpdateReferralSettingsInput,
   UpdateUpstreamSettingsInput,
   UpstreamHealth,
   UpstreamSettings,
@@ -80,4 +82,19 @@ export function updateNotificationSettings(
   input: UpdateNotificationSettingsInput,
 ): Promise<NotificationSettings> {
   return http.put<NotificationSettings>('/admin/settings/notifications', input, { auth: 'admin' })
+}
+
+/**
+ * GET /api/v1/admin/settings/referral —— 返佣设置（R10-A，契约 18.5，**仅 admin**）。
+ * 总开关 / 全局默认比例 / 自建券折扣上限。
+ */
+export function fetchReferralSettings(): Promise<ReferralSettings> {
+  return http.get<ReferralSettings>('/admin/settings/referral', { auth: 'admin' })
+}
+
+/** PUT /api/v1/admin/settings/referral —— 局部更新（至少一个字段），改完下一笔支付即用新比例。 */
+export function updateReferralSettings(
+  input: UpdateReferralSettingsInput,
+): Promise<ReferralSettings> {
+  return http.put<ReferralSettings>('/admin/settings/referral', input, { auth: 'admin' })
 }

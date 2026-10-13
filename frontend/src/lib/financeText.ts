@@ -20,6 +20,8 @@ export const LEDGER_TYPE_LABELS: Record<LedgerType, string> = {
   order_pay: '订单支付',
   refund: '退款',
   adjust: '人工调整',
+  // 契约 18.1：返佣发放/冲回/提现冻结/退回（金额有符号）；会员端余额流水不过滤前不展示它。
+  referral_rebate: '邀请返佣',
 }
 
 export function rechargeStatusLabel(status: string): string {

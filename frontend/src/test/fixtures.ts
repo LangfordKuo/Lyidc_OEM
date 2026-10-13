@@ -20,6 +20,11 @@ import type {
   ProductDetail,
   ProductSummary,
   Recharge,
+  ReferralInvitee,
+  ReferralOverview,
+  ReferralPayout,
+  ReferralRebate,
+  MemberCoupon,
   Ticket,
   TicketMessage,
 } from '@/api/types'
@@ -166,6 +171,7 @@ export function makeMember(overrides: Partial<Member> = {}): Member {
     created_at: '2026-10-08T06:18:31Z',
     updated_at: '2026-10-08T06:18:31Z',
     last_login_at: '2026-10-08T06:20:02Z',
+    rebate_percent_override: null,
     ...overrides,
   }
 }
@@ -476,6 +482,102 @@ export function makeAdminTicket(overrides: Partial<AdminTicket> = {}): AdminTick
     ...makeTicket(),
     member_id: 1,
     member: { id: 1, username: 'demo7a', nickname: 'demo7a' },
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 邀请返佣（契约 18.5）
+// ---------------------------------------------------------------------------
+
+/** 我的返佣概览。 */
+export function makeReferralOverview(overrides: Partial<ReferralOverview> = {}): ReferralOverview {
+  return {
+    enabled: true,
+    invite_code: 'ABCD2345',
+    invite_link: 'https://shop.example.com/register?invite=ABCD2345',
+    rebate_balance: '20.00',
+    effective_percent: '20.00',
+    invitee_count: 1,
+    total_rebate: '20.00',
+    ...overrides,
+  }
+}
+
+/** 返佣流水行。 */
+export function makeReferralRebate(overrides: Partial<ReferralRebate> = {}): ReferralRebate {
+  return {
+    id: 1,
+    order_id: 1,
+    order_trade_no: 'O20261008143015K7Q2ZP',
+    order_type: 'new',
+    buyer_id: 2,
+    buyer_username: 'friend1',
+    base_amount: '100.00',
+    discount_amount: '0.00',
+    ratio_percent: '20.00',
+    ratio_source: 'global',
+    rebate_amount: '20.00',
+    status: 'granted',
+    note: '',
+    created_at: '2026-10-09T02:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 我邀请的会员行。 */
+export function makeReferralInvitee(overrides: Partial<ReferralInvitee> = {}): ReferralInvitee {
+  return {
+    member_id: 2,
+    username: 'friend1',
+    joined_at: '2026-10-08T12:00:00Z',
+    order_count: 1,
+    total_spent: '100.00',
+    total_rebate: '20.00',
+    ...overrides,
+  }
+}
+
+/** 邀请人自建券。 */
+export function makeMemberCoupon(overrides: Partial<MemberCoupon> = {}): MemberCoupon {
+  return {
+    id: 11,
+    code: 'FRIEND20',
+    type: 'percent',
+    value: '20.00',
+    cycles: [],
+    starts_at: null,
+    expires_at: null,
+    max_uses: 0,
+    used_count: 2,
+    status: 'on',
+    comment: '老带新',
+    owner_member_id: 1,
+    source: 'member',
+    created_at: '2026-10-09T01:00:00Z',
+    updated_at: '2026-10-09T01:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 提现 / 转余额申请（账号字段后端已脱敏）。 */
+export function makeReferralPayout(overrides: Partial<ReferralPayout> = {}): ReferralPayout {
+  return {
+    id: 21,
+    kind: 'withdraw',
+    member_id: 1,
+    amount: '15.00',
+    channel: 'wechat',
+    account_name: '张**',
+    account_no: '12****34',
+    status: 'pending',
+    remark: '',
+    review_note: '',
+    reviewed_by: 0,
+    reviewed_at: null,
+    paid_at: null,
+    created_at: '2026-10-09T03:00:00Z',
+    updated_at: '2026-10-09T03:00:00Z',
     ...overrides,
   }
 }

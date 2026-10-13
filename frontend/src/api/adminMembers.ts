@@ -7,6 +7,7 @@ import type {
   Paged,
   Recharge,
   RechargeStatus,
+  UpdateMemberInput,
 } from './types'
 
 // 管理端会员与对账接口（契约 6.3 / 12.6）。
@@ -29,6 +30,15 @@ export function listAdminMembers(
 /** PUT /api/v1/admin/members/:id/status —— 启用/禁用会员（admin / finance）。 */
 export function updateMemberStatus(id: number, status: MemberStatus): Promise<Member> {
   return http.put<Member>(`/admin/members/${id}/status`, { status }, { auth: 'admin' })
+}
+
+/**
+ * PUT /api/v1/admin/members/:id —— 会员更新（R10-B，契约 6.3，admin / finance）。
+ * 本批只承载会员级返佣特批比例 `rebate_percent_override`（三态：键缺席不改 / null 清空 / 字符串设值）；
+ * 请求体里出现其它字段会被 40001 拒绝。
+ */
+export function updateMember(id: number, input: UpdateMemberInput): Promise<Member> {
+  return http.put<Member>(`/admin/members/${id}`, input, { auth: 'admin' })
 }
 
 /** GET /api/v1/admin/ledger —— 全站余额流水分页（admin / finance；可按会员与类型筛选）。 */

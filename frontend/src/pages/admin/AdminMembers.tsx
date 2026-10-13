@@ -6,6 +6,7 @@ import {
   listAdminLedger,
   listAdminMembers,
   listAdminRecharges,
+  updateMember,
   updateMemberStatus,
 } from '@/api/adminMembers'
 import { errorMessage } from '@/api/client'
@@ -37,6 +38,7 @@ import { ledgerTypeLabel, rechargeStatusLabel, rechargeStatusTone } from '@/lib/
 import { formatDateTime, formatDateTimeOr, formatMoney } from '@/lib/format'
 import { memberStatusLabel, memberStatusTone } from '@/lib/memberText'
 import { ADMIN_PAGE_SIZE } from '@/lib/pagination'
+import { validateRebatePercent } from '@/lib/validate'
 
 // AdminMembers 是管理后台「会员」页（契约 6.3 / 6.4 / 12.6 / 12.7）：
 //   列表：用户名/邮箱模糊搜索 + 状态筛选 + 分页；操作列可查看详情、启用/禁用。
@@ -187,6 +189,19 @@ export default function AdminMembers() {
       cell: (member) => formatMoney(member.balance),
     },
     {
+      key: 'rebate_percent_override',
+      header: '返佣特批',
+      className: 'whitespace-nowrap',
+      cell: (member) =>
+        member.rebate_percent_override ? (
+          <span className="text-sm font-medium text-foreground">
+            已特批 {member.rebate_percent_override}%
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">全局</span>
+        ),
+    },
+    {
       key: 'created_at',
       header: '注册时间',
       cell: (member) => (
@@ -324,7 +339,13 @@ export default function AdminMembers() {
         />
       ) : null}
 
-      {detail ? <MemberDetailDialog member={detail} onClose={() => setDetail(null)} /> : null}
+      {detail ? (
+        <MemberDetailDialog
+          member={detail}
+          onClose={() => setDetail(null)}
+          onMemberUpdated={(updated) => setDetail(updated)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={pendingToggle !== null}
@@ -363,11 +384,20 @@ export default function AdminMembers() {
 }
 
 /**
- * 会员详情弹窗：资料（InfoList）+ 余额 + 余额流水 + 充值单。
+ * 会员详情弹窗：资料（InfoList）+ 余额 + 返佣特批比例 + 余额流水 + 充值单。
  * 流水与充值单属财务对账（finance.reconcile = admin/finance）：support 打开时**不请求**这两个
  * 接口（useAsync 的 enabled=false，避免无谓的 403），改为展示权限说明。
+ * 特批比例写操作走 members.rebate（admin/finance）；support 只读展示、入口禁用。
  */
-function MemberDetailDialog({ member, onClose }: { member: Member; onClose: () => void }) {
+function MemberDetailDialog({
+  member,
+  onClose,
+  onMemberUpdated,
+}: {
+  member: Member
+  onClose: () => void
+  onMemberUpdated: (member: Member) => void
+}) {
   const { role } = useAdminAuth()
   const canReconcile = hasPermission(role, 'finance.reconcile')
 
@@ -522,6 +552,8 @@ function MemberDetailDialog({ member, onClose }: { member: Member; onClose: () =
             </p>
           </div>
 
+          <RebateOverrideEditor member={member} onUpdated={onMemberUpdated} />
+
           {canReconcile ? (
             <>
               <section className="space-y-3">
@@ -617,5 +649,110 @@ function MemberDetailDialog({ member, onClose }: { member: Member; onClose: () =
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * 会员级返佣特批比例（契约 6.3 三态）：
+ *   不改（不点保存就不发请求）/ 清空（提交 null）/ 设值（0.00-100.00 两位小数）。
+ * 只影响**之后**发放的返佣（比例是发放时快照），下调或清空不回收已发放金额。
+ */
+function RebateOverrideEditor({
+  member,
+  onUpdated,
+}: {
+  member: Member
+  onUpdated: (member: Member) => void
+}) {
+  const { role } = useAdminAuth()
+  const canWrite = hasPermission(role, 'members.rebate')
+
+  const [draft, setDraft] = useState(member.rebate_percent_override ?? '')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (patch: { rebate_percent_override: string | null }) => {
+    setPending(true)
+    setError('')
+    try {
+      const updated = await updateMember(member.id, patch)
+      onUpdated(updated)
+      setDraft(updated.rebate_percent_override ?? '')
+      toast.success(
+        patch.rebate_percent_override === null
+          ? '已清空特批比例，回到全局默认'
+          : `已设特批比例 ${patch.rebate_percent_override}%`,
+      )
+    } catch (err) {
+      setError(errorMessage(err, '保存失败，请稍后重试'))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border border-border px-4 py-3">
+      <div>
+        <h3 className="text-sm font-medium text-foreground">返佣特批比例</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          当前：{member.rebate_percent_override ? `已特批 ${member.rebate_percent_override}%` : '全局'}
+          （生效比例 = 会员特批优先，否则全局默认；只影响之后发放的返佣）。
+        </p>
+        {!canWrite ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            当前角色只读：{permissionHint('members.rebate')}。
+          </p>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor={`rebate_override_${member.id}`} className="text-xs text-muted-foreground">
+            比例（%）· 留空并点保存 = 清空
+          </Label>
+          <Input
+            id={`rebate_override_${member.id}`}
+            name={`rebate_override_${member.id}`}
+            className="w-40"
+            inputMode="decimal"
+            placeholder={member.rebate_percent_override ?? '走全局默认'}
+            value={draft}
+            disabled={!canWrite || pending}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              setError('')
+            }}
+          />
+        </div>
+        <Button
+          size="sm"
+          disabled={!canWrite || pending}
+          title={canWrite ? undefined : permissionHint('members.rebate')}
+          onClick={() => {
+            const message = validateRebatePercent(draft)
+            if (message) {
+              setError(message)
+              return
+            }
+            const trimmed = draft.trim()
+            // 三态里「设值」走字符串、「清空」走 null；「不改」= 不点保存。
+            void submit({ rebate_percent_override: trimmed || null })
+          }}
+        >
+          保存特批比例
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canWrite || pending || !member.rebate_percent_override}
+          title={canWrite ? undefined : permissionHint('members.rebate')}
+          onClick={() => void submit({ rebate_percent_override: null })}
+        >
+          清空
+        </Button>
+      </div>
+
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </section>
   )
 }

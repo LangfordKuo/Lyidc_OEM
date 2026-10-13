@@ -15,7 +15,13 @@ import {
 
 // 管理后台「会员」页：搜索参数、禁用/启用二次确认（含请求体）、详情弹窗的对账数据与角色矩阵。
 
-const MEMBER = makeMember({ id: 1, username: 'demo7a', email: 'demo7a@example.com', balance: '250.00' })
+const MEMBER = makeMember({
+  id: 1,
+  username: 'demo7a',
+  email: 'demo7a@example.com',
+  balance: '250.00',
+  rebate_percent_override: '10.00',
+})
 const DISABLED = makeMember({
   id: 2,
   username: 'banned',
@@ -52,6 +58,9 @@ function mockMembers(role: 'admin' | 'finance' | 'support' = 'admin', handler?: 
     }
     if (path === '/api/v1/admin/members/1/status' && init.method === 'PUT') {
       return ok({ ...MEMBER, status: 'disabled' })
+    }
+    if (path === '/api/v1/admin/members/1' && init.method === 'PUT') {
+      return ok(MEMBER)
     }
     return handler?.(url, init)
   })
@@ -151,6 +160,85 @@ describe('管理后台 · 会员管理', () => {
       fetchMock.mock.calls.some(
         ([input]) =>
           String(input).includes('/admin/ledger') || String(input).includes('/admin/recharges'),
+      ),
+    ).toBe(false)
+  })
+
+  it('返佣特批比例：列表展示已特批值，设值提交字符串三态', async () => {
+    const fetchMock = await renderMembers()
+    const user = userEvent.setup()
+
+    // 列表列展示「已特批 10.00%」
+    expect(screen.getByText('已特批 10.00%')).toBeInTheDocument()
+
+    await user.click(screen.getAllByRole('button', { name: '详情' })[0])
+    await screen.findByText('会员详情 · demo7a')
+
+    const input = screen.getByLabelText('比例（%）· 留空并点保存 = 清空')
+    await user.clear(input)
+    await user.type(input, '25.50')
+    await user.click(screen.getByRole('button', { name: '保存特批比例' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/members/1') &&
+          !String(input).includes('/status') &&
+          init?.method === 'PUT',
+      )
+      expect(call).toBeTruthy()
+      expect(requestBody(call?.[1] as RequestInit)).toEqual({ rebate_percent_override: '25.50' })
+    })
+  })
+
+  it('返佣特批比例：清空提交 null，不点保存则不改（不发请求）', async () => {
+    const fetchMock = await renderMembers()
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: '详情' })[0])
+    await screen.findByText('会员详情 · demo7a')
+
+    // 不改：只打开详情不保存 → 不产生 PUT /admin/members/1
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/members/1') &&
+          !String(input).includes('/status') &&
+          init?.method === 'PUT',
+      ),
+    ).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: '清空' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/members/1') &&
+          !String(input).includes('/status') &&
+          init?.method === 'PUT',
+      )
+      expect(call).toBeTruthy()
+      expect(requestBody(call?.[1] as RequestInit)).toEqual({ rebate_percent_override: null })
+    })
+  })
+
+  it('返佣特批比例：客服只读，保存与清空按钮禁用', async () => {
+    const fetchMock = await renderMembers('support')
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('button', { name: '详情' })[0])
+    await screen.findByText('会员详情 · demo7a')
+
+    expect(screen.getByRole('button', { name: '保存特批比例' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '清空' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '保存特批比例' }))
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/members/1') &&
+          !String(input).includes('/status') &&
+          init?.method === 'PUT',
       ),
     ).toBe(false)
   })

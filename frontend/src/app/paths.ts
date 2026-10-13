@@ -15,6 +15,7 @@ export const paths = {
   consoleServerDetail: (id: number | string) => `/console/servers/${id}`,
   consoleOrders: '/console/orders',
   consoleRecharge: '/console/recharge',
+  consoleReferral: '/console/referral',
   consoleTickets: '/console/tickets',
   consoleTicketDetail: (id: number | string) => `/console/tickets/${id}`,
   consoleNotifications: '/console/notifications',
@@ -30,6 +31,7 @@ export const paths = {
   adminOrders: '/admin/orders',
   adminOrderDetail: (id: number | string) => `/admin/orders/${id}`,
   adminMembers: '/admin/members',
+  adminReferral: '/admin/referral',
   adminInstances: '/admin/instances',
   adminInstanceDetail: (id: number | string) => `/admin/instances/${id}`,
   adminTickets: '/admin/tickets',
@@ -50,6 +52,8 @@ export const consoleNavItems = [
   { to: paths.consoleServers, label: '我的服务器', end: false },
   { to: paths.consoleOrders, label: '我的订单', end: false },
   { to: paths.consoleRecharge, label: '余额充值', end: false },
+  // 邀请有礼紧挨余额充值：两者都是「钱」的入口（返现余额可提现/转余额），语义上同一组。
+  { to: paths.consoleReferral, label: '邀请有礼', end: false },
   { to: paths.consoleTickets, label: '工单', end: false },
   { to: paths.consoleNotifications, label: '通知', end: false },
 ] as const
@@ -68,6 +72,14 @@ export const adminNavItems = [
   },
   { to: paths.adminOrders, label: '订单', end: false, page: 'orders', description: '订单查询与交付处置' },
   { to: paths.adminMembers, label: '会员', end: false, page: 'members', description: '会员资料与余额流水' },
+  // 返佣管理紧挨会员：审核对象是会员的提现/转余额申请，特批比例也在会员页。
+  {
+    to: paths.adminReferral,
+    label: '返佣管理',
+    end: false,
+    page: 'referral',
+    description: '提现/转余额审核与返佣流水',
+  },
   { to: paths.adminInstances, label: '实例', end: false, page: 'instances', description: '实例状态与操作' },
   { to: paths.adminTickets, label: '工单', end: false, page: 'tickets', description: '客服工单处理' },
   { to: paths.adminSettings, label: '设置', end: false, page: 'settings', description: '支付、上游、邮件与通知' },

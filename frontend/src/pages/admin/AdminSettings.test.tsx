@@ -61,6 +61,14 @@ const NOTIFY = {
   updated_at: '2026-10-08T06:26:00Z',
 }
 
+const REFERRAL = {
+  enabled: true,
+  default_percent: '10.00',
+  max_coupon_percent: '50.00',
+  updated_by: 1,
+  updated_at: '2026-10-08T06:28:00Z',
+}
+
 function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin') {
   return installFetchMock((url, init) => {
     const path = url.pathname
@@ -93,6 +101,9 @@ function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin') {
     }
     if (path === '/api/v1/admin/settings/notifications') {
       return init.method === 'PUT' ? ok(NOTIFY) : ok(NOTIFY)
+    }
+    if (path === '/api/v1/admin/settings/referral') {
+      return init.method === 'PUT' ? ok(REFERRAL) : ok(REFERRAL)
     }
     return undefined
   })
@@ -220,6 +231,45 @@ describe('管理后台 · 全站设置', () => {
         expiry_reminder_days: 3,
       })
     })
+  })
+
+  it('返佣设置：总开关与比例只提交变化字段', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+
+    expect(screen.getByText('返佣设置（referral）')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch', { name: '返佣总开关' }))
+    await user.type(screen.getByLabelText('全局默认返佣比例（%，留空保持不变）'), '25.00')
+    await user.click(screen.getByRole('button', { name: '保存返佣设置' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/admin/settings/referral') && init?.method === 'PUT',
+      )
+      expect(call).toBeTruthy()
+      expect(requestBody(call?.[1] as RequestInit)).toEqual({
+        enabled: false,
+        default_percent: '25.00',
+      })
+    })
+  })
+
+  it('返佣设置：自建券折扣上限越界被前端拦截（不发请求）', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+
+    await user.type(screen.getByLabelText('自建券折扣上限（%，留空保持不变）'), '101')
+    await user.click(screen.getByRole('button', { name: '保存返佣设置' }))
+
+    expect(await screen.findByText('比例不能超过 100.00')).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).includes('/admin/settings/referral') && init?.method === 'PUT',
+      ),
+    ).toBe(false)
   })
 
   it('财务与客服角色：整页无权占位且不请求设置接口', async () => {

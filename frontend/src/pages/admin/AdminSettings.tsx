@@ -7,18 +7,21 @@ import {
   fetchEmailSMTPSettings,
   fetchEpaySettings,
   fetchNotificationSettings,
+  fetchReferralSettings,
   fetchUpstreamHealth,
   fetchUpstreamSettings,
   sendTestEmail,
   updateEmailSMTPSettings,
   updateEpaySettings,
   updateNotificationSettings,
+  updateReferralSettings,
   updateUpstreamSettings,
 } from '@/api/adminSettings'
 import type {
   EmailSMTPSettings,
   EpaySettings,
   NotificationSettings,
+  ReferralSettings,
   SMTPEncryption,
   UpstreamHealth,
   UpstreamSettings,
@@ -41,7 +44,7 @@ import { useAsync } from '@/hooks/useAsync'
 import { hasPermission } from '@/lib/adminRoles'
 import { formatDateTimeOr } from '@/lib/format'
 import { SECRET_KEEP, secretPayload, type SecretState } from '@/lib/secret'
-import { validateEmail } from '@/lib/validate'
+import { validateEmail, validateRebatePercent } from '@/lib/validate'
 
 /**
  * AdminSettings 是管理后台「设置」页（契约 12.1 / 17.3）：易支付、上游对接、SMTP、通知开关。
@@ -62,7 +65,7 @@ export default function AdminSettings() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          支付渠道、上游对接、邮件与通知开关。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
+          支付渠道、上游对接、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
         </p>
       </header>
 
@@ -70,6 +73,7 @@ export default function AdminSettings() {
       <UpstreamSection />
       <SMTPSection />
       <NotificationSection />
+      <ReferralSection />
     </div>
   )
 }
@@ -924,6 +928,150 @@ function NotificationSection() {
               </>
             ) : (
               '保存通知开关'
+            )}
+          </Button>
+          <UpdatedFootnote at={current.updated_at} by={current.updated_by} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * 返佣设置（契约 18.5，R10-A）：总开关、全局默认返佣比例、自建券折扣上限。
+ * 仅 admin（设置页整页闸门已挡 finance / support）；比例越界由后端 40002 判定。
+ */
+function ReferralSection() {
+  const state = useAsync(fetchReferralSettings, [])
+  const [form, setForm] = useState<ReferralSettings | null>(null)
+  const [defaultPercent, setDefaultPercent] = useState('')
+  const [maxCouponPercent, setMaxCouponPercent] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  const current = form ?? state.data
+
+  if (state.loading && !current) {
+    return <LoadingBlock label="正在读取返佣设置…" />
+  }
+  if (state.error && !current) {
+    return <ErrorState message={state.error} onRetry={state.reload} />
+  }
+  if (!current) {
+    return null
+  }
+
+  const handleSave = async () => {
+    const base = state.data
+    if (!base) {
+      return
+    }
+    const defaultError = validateRebatePercent(defaultPercent)
+    const maxError = validateRebatePercent(maxCouponPercent)
+    const firstError = defaultError || maxError
+    if (firstError) {
+      setError(firstError)
+      return
+    }
+
+    const payload: Record<string, unknown> = {}
+    if (current.enabled !== base.enabled) {
+      payload.enabled = current.enabled
+    }
+    const defaultTrimmed = defaultPercent.trim()
+    if (defaultTrimmed && defaultTrimmed !== base.default_percent) {
+      payload.default_percent = defaultTrimmed
+    }
+    const maxTrimmed = maxCouponPercent.trim()
+    if (maxTrimmed && maxTrimmed !== base.max_coupon_percent) {
+      payload.max_coupon_percent = maxTrimmed
+    }
+
+    if (Object.keys(payload).length === 0) {
+      toast.info('没有需要保存的修改')
+      return
+    }
+
+    setPending(true)
+    setError('')
+    try {
+      await updateReferralSettings(payload)
+      setForm(null)
+      setDefaultPercent('')
+      setMaxCouponPercent('')
+      state.reload()
+      toast.success('返佣设置已保存')
+    } catch (err) {
+      setError(errorMessage(err, '保存失败，请稍后重试'))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">返佣设置（referral）</CardTitle>
+        <CardDescription>
+          总开关、全局默认返佣比例与邀请人自建券折扣上限。改完下一笔支付即用新比例；
+          自建券折扣上限 = min(此处上限, 邀请人的生效返佣比例)。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <SectionError message={error} />
+
+        <ToggleField
+          id="referral_enabled"
+          label="返佣总开关"
+          description="关闭后支付成功不发放任何返佣；已发放的返佣与已生成的邀请码不受影响"
+          value={current.enabled}
+          onChange={(value) => setForm({ ...current, enabled: value })}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor="referral_default_percent">
+              全局默认返佣比例（%，留空保持不变）
+            </FieldLabel>
+            <Input
+              id="referral_default_percent"
+              name="referral_default_percent"
+              inputMode="decimal"
+              placeholder={`当前 ${current.default_percent}%`}
+              value={defaultPercent}
+              onChange={(event) => {
+                setDefaultPercent(event.target.value)
+                setError('')
+              }}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="referral_max_coupon_percent">
+              自建券折扣上限（%，留空保持不变）
+            </FieldLabel>
+            <Input
+              id="referral_max_coupon_percent"
+              name="referral_max_coupon_percent"
+              inputMode="decimal"
+              placeholder={`当前 ${current.max_coupon_percent}%`}
+              value={maxCouponPercent}
+              onChange={(event) => {
+                setMaxCouponPercent(event.target.value)
+                setError('')
+              }}
+            />
+          </Field>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={pending} onClick={handleSave}>
+            {pending ? (
+              <>
+                <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
+                保存中…
+              </>
+            ) : (
+              '保存返佣设置'
             )}
           </Button>
           <UpdatedFootnote at={current.updated_at} by={current.updated_by} />

@@ -111,4 +111,81 @@ describe('注册页', () => {
 
     expect(await screen.findByText('用户名已被占用')).toBeInTheDocument()
   })
+
+  it('从邀请链接进入时自动预填邀请码（用户可改）', async () => {
+    installFetchMock(() => undefined)
+    const user = userEvent.setup()
+    renderApp(['/register?invite=ABCD2345'])
+
+    const inviteInput = screen.getByLabelText('邀请码（选填）')
+    expect(inviteInput).toHaveValue('ABCD2345')
+
+    // 预填只是默认值：改掉之后提交体以输入框为准
+    await user.clear(inviteInput)
+    await user.type(inviteInput, 'WXYZ6789')
+    expect(inviteInput).toHaveValue('WXYZ6789')
+  })
+
+  it('提交体带上 invite_code；留空则不传该键', async () => {
+    const fetchMock = installFetchMock((url) => {
+      if (url.pathname === '/api/v1/auth/register') {
+        return ok(makeMember({ username: 'newuser', email: 'new@example.com' }))
+      }
+      if (url.pathname === '/api/v1/auth/login') {
+        return ok({
+          token: 'fresh-token',
+          expires_at: '2026-10-15T06:20:02Z',
+          member: { id: 2, username: 'newuser', status: 'active' },
+        })
+      }
+      if (url.pathname === '/api/v1/members/me') {
+        return ok(makeMember({ id: 2, username: 'newuser' }))
+      }
+      return undefined
+    })
+    const user = userEvent.setup()
+    renderApp(['/register?invite=ABCD2345'])
+
+    await fillForm(user, {
+      username: 'newuser',
+      email: 'new@example.com',
+      password: 'password123',
+      confirm: 'password123',
+    })
+    await user.click(screen.getByRole('button', { name: '注册并登录' }))
+
+    await waitFor(() => {
+      const registerCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes('/auth/register'),
+      )
+      expect(registerCall).toBeTruthy()
+      expect(requestBody(registerCall?.[1] as RequestInit)).toEqual({
+        username: 'newuser',
+        email: 'new@example.com',
+        password: 'password123',
+        invite_code: 'ABCD2345',
+      })
+    })
+  })
+
+  it('邀请码非法/不存在/自邀：后端 40002 message 原样展示', async () => {
+    installFetchMock((url) => {
+      if (url.pathname === '/api/v1/auth/register') {
+        return { status: 400, body: { code: 40002, message: '不能使用自己的邀请码', data: null } }
+      }
+      return undefined
+    })
+    const user = userEvent.setup()
+    renderApp(['/register?invite=SELF0001'])
+
+    await fillForm(user, {
+      username: 'selfinvite',
+      email: 'self@example.com',
+      password: 'password123',
+      confirm: 'password123',
+    })
+    await user.click(screen.getByRole('button', { name: '注册并登录' }))
+
+    expect(await screen.findByText('不能使用自己的邀请码')).toBeInTheDocument()
+  })
 })

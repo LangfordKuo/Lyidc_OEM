@@ -25,6 +25,8 @@ export type AdminPermission =
   // 会员（契约 6.4）
   | 'members.read'
   | 'members.status'
+  // 会员级返佣特批比例（契约 6.3 / 18.6，写权限与 members.status 同口径）
+  | 'members.rebate'
   // 商品（契约 10.5）
   | 'products.read'
   | 'products.write'
@@ -44,6 +46,9 @@ export type AdminPermission =
   | 'tickets.access'
   // 财务对账（契约 12.6）
   | 'finance.reconcile'
+  // 返佣管理（契约 18.6：查看类财务域、审核与打款仅 admin）
+  | 'referral.read'
+  | 'referral.review'
   // 后台设置（契约 12.1 / 17.3，含读取）
   | 'settings.access'
   // 上游探活（契约第 9 节：管理端 token 即可，三类角色都可只读探活）
@@ -54,6 +59,7 @@ export type AdminPermission =
 const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
   'members.read': ['admin', 'finance', 'support'],
   'members.status': ['admin', 'finance'],
+  'members.rebate': ['admin', 'finance'],
 
   'products.read': ['admin', 'finance', 'support'],
   'products.write': ['admin', 'finance'],
@@ -73,6 +79,9 @@ const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
 
   'finance.reconcile': ['admin', 'finance'],
 
+  'referral.read': ['admin', 'finance'],
+  'referral.review': ['admin'],
+
   'settings.access': ['admin'],
 
   'upstream.probe': ['admin', 'finance', 'support'],
@@ -84,6 +93,7 @@ const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
 const PERMISSION_LABELS: Record<AdminPermission, string> = {
   'members.read': '查看会员',
   'members.status': '禁用/启用会员',
+  'members.rebate': '设置会员返佣特批比例',
   'products.read': '查看商品',
   'products.write': '修改定价或上下架',
   'products.import': '上游导入商品',
@@ -97,6 +107,8 @@ const PERMISSION_LABELS: Record<AdminPermission, string> = {
   'instances.cancel': '提交实例终止申请',
   'tickets.access': '处理工单',
   'finance.reconcile': '财务对账（充值单与流水）',
+  'referral.read': '查看返佣管理（提现/转余额申请与返佣流水）',
+  'referral.review': '审核提现/转余额并标记打款',
   'settings.access': '后台设置',
   'upstream.probe': '上游探活',
   'notifications.read': '站内通知',
@@ -142,6 +154,7 @@ export type AdminPage =
   | 'products'
   | 'orders'
   | 'members'
+  | 'referral'
   | 'instances'
   | 'tickets'
   | 'settings'
@@ -149,7 +162,8 @@ export type AdminPage =
 
 /**
  * canAccessAdminPage 判断角色能否进入某个后台页面（整页 403 的域）：
- * 工单页仅 admin/support、设置页仅 admin，其余页面三类角色均可。
+ * 工单页仅 admin/support、设置页仅 admin、返佣管理页仅 admin/finance（support 无入口，
+ * 见契约 18.6 / 12.7），其余页面三类角色均可。
  * 商品与分类合并页（products）三类角色都可进——分类写操作另按 categories.write（仅 admin）
  * 闸门，finance / support 的分类页签是只读视图。
  */
@@ -159,6 +173,8 @@ export function canAccessAdminPage(role: AdminRole | null | undefined, page: Adm
       return hasPermission(role, 'tickets.access')
     case 'settings':
       return hasPermission(role, 'settings.access')
+    case 'referral':
+      return hasPermission(role, 'referral.read')
     default:
       return Boolean(role)
   }

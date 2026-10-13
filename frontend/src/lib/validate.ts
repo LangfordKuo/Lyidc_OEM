@@ -19,7 +19,7 @@ export const loginSchema = z.object({
 
 export type LoginForm = z.infer<typeof loginSchema>
 
-/** 注册表单：与契约 6.2 的注册规则逐条对齐。 */
+/** 注册表单：与契约 6.2 的注册规则逐条对齐；邀请码为选填（契约 18.5）。 */
 export const registerSchema = z
   .object({
     username: z
@@ -37,6 +37,9 @@ export const registerSchema = z
       .refine((value) => byteLength(value) >= 8, '密码至少 8 个字节')
       .refine((value) => byteLength(value) <= 72, '密码最多 72 个字节'),
     confirm: z.string().min(1, '请再次输入密码'),
+    // 邀请码选填：合法性与存在性由后端判定（非法/不存在/自邀 → 40002，原样展示 message）。
+    // 前端只拦「明显过长」，避免把无效请求打到后端。
+    invite_code: z.string().refine((value) => value.trim().length <= 32, '邀请码最多 32 个字符'),
   })
   .superRefine((data, ctx) => {
     // confirm 为空时由上面的 min(1) 报错，这里只处理「已填但不一致」。
@@ -172,6 +175,105 @@ export function validateEmail(value: string): string {
   }
   if (!EMAIL_PATTERN.test(trimmed)) {
     return '邮箱格式不正确'
+  }
+  return ''
+}
+
+// ---------------------------------------------------------------------------
+// 邀请返佣（契约 18.5）：自建券、提现 / 转余额表单预校验。
+// 只做「提前提示」，折扣上限、余额不足、负数余额等业务口径一律以后端 message 为准。
+// ---------------------------------------------------------------------------
+
+/** 提现 / 转余额金额：契约 18.5 —— 十进制、最多两位小数、> 0（余额上限由后端判）。 */
+export function validatePayoutAmount(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入金额'
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return '金额格式不正确（最多两位小数）'
+  }
+  if (Number(trimmed) <= 0) {
+    return '金额必须大于 0'
+  }
+  return ''
+}
+
+/** 自建券码：契约 11.1 / 18.5 —— 3-32 位 `[A-Za-z0-9_-]`。 */
+export function validateCouponCode(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入优惠码'
+  }
+  if (!/^[A-Za-z0-9_-]{3,32}$/.test(trimmed)) {
+    return '优惠码需为 3-32 位字母、数字、下划线或短横线'
+  }
+  return ''
+}
+
+/**
+ * 自建券折扣百分比：契约 18.5 —— 0 < x ≤ 100 且两位小数。
+ * 是否超过折扣上限由后端判定（40002 的 message 含当前上限），前端只拦写法与越界 100。
+ */
+export function validateCouponValue(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入折扣百分比'
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return '折扣百分比格式不正确（最多两位小数）'
+  }
+  const num = Number(trimmed)
+  if (num <= 0) {
+    return '折扣百分比必须大于 0'
+  }
+  if (num > 100) {
+    return '折扣百分比不能超过 100.00'
+  }
+  return ''
+}
+
+/** 自建券使用次数上限：整数 ≥ 0（0 = 不限）。 */
+export function validateCouponMaxUses(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return '使用次数上限需为非负整数'
+  }
+  return ''
+}
+
+/** 自建券备注 / 出账备注：≤ 255 字符。 */
+export function validateRemark(value: string): string {
+  return [...value.trim()].length > 255 ? '备注最多 255 个字符' : ''
+}
+
+/** 提现收款人姓名 / 账号：契约 18.5 —— 去首尾空白后 1-64 字符。 */
+export function validatePayoutAccount(value: string, label: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return `请输入${label}`
+  }
+  if (trimmed.length > 64) {
+    return `${label}最多 64 个字符`
+  }
+  return ''
+}
+
+/** 特批返佣比例：契约 6.3 —— 0.00-100.00 两位小数（空值表示清空）。 */
+export function validateRebatePercent(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return '比例格式不正确（如 20.00）'
+  }
+  const num = Number(trimmed)
+  if (num > 100) {
+    return '比例不能超过 100.00'
   }
   return ''
 }

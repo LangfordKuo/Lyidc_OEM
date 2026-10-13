@@ -17,6 +17,9 @@ import { registerSchema, type RegisterForm } from '@/lib/validate'
 /**
  * 会员注册页：字段规则严格对齐契约 6.2（用户名 3-32 位、邮箱 ≤128 字节、密码 8-72 字节），
  * 注册成功后自动登录并回跳 redirect。
+ *
+ * 邀请码（契约 18.5）：选填；从邀请链接 `/register?invite=XXXX` 进入时自动预填（用户可改）。
+ * 非法 / 不存在 / 自邀由后端 40002 判定，message 原样展示。
  */
 export default function Register() {
   const [searchParams] = useSearchParams()
@@ -26,9 +29,18 @@ export default function Register() {
   const redirectTarget = safeRedirect(searchParams.get('redirect'))
   const [serverError, setServerError] = useState('')
 
+  // 邀请链接带来的邀请码：进页面读 query 预填，仅作默认值，用户可改可清。
+  const inviteFromQuery = (searchParams.get('invite') ?? '').trim()
+
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { username: '', email: '', password: '', confirm: '' },
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+      confirm: '',
+      invite_code: inviteFromQuery,
+    },
   })
 
   if (isAuthenticated && !initializing) {
@@ -37,11 +49,14 @@ export default function Register() {
 
   const onSubmit = form.handleSubmit(async (values) => {
     setServerError('')
+    const inviteCode = values.invite_code.trim()
     try {
       await registerMember({
         username: values.username.trim(),
         email: values.email.trim(),
         password: values.password,
+        // 空邀请码不传键（契约：缺省或 null = 不走邀请注册）。
+        ...(inviteCode ? { invite_code: inviteCode } : {}),
       })
       navigate(redirectTarget, { replace: true })
     } catch (error) {
@@ -124,6 +139,20 @@ export default function Register() {
           />
           <FieldError errors={[form.formState.errors.confirm]} />
           <FieldDescription>用户名与邮箱唯一且大小写不敏感。</FieldDescription>
+        </Field>
+
+        {/* 邀请码放主字段之后：选填、不打断注册主流程；从邀请链接进入时已预填，可改可清。 */}
+        <Field data-invalid={form.formState.errors.invite_code ? true : undefined}>
+          <FieldLabel htmlFor="register-invite">邀请码（选填）</FieldLabel>
+          <Input
+            id="register-invite"
+            autoComplete="off"
+            placeholder={inviteFromQuery ? '已从邀请链接带出，可修改' : '有邀请码可填写'}
+            aria-invalid={form.formState.errors.invite_code ? true : undefined}
+            {...form.register('invite_code')}
+          />
+          <FieldError errors={[form.formState.errors.invite_code]} />
+          <FieldDescription>填写后与邀请人绑定；不填不影响注册。</FieldDescription>
         </Field>
 
         <Button type="submit" className="h-10 w-full text-base" disabled={form.formState.isSubmitting}>

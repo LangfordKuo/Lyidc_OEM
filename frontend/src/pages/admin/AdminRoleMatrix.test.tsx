@@ -6,7 +6,7 @@ import { makeAdminAccount, makeAdminCategory, makeAdminTicket } from '@/test/fix
 import { installFetchMock, ok, renderApp, seedAdminProfile, seedAdminToken } from '@/test/harness'
 
 // 管理后台**角色权限渲染矩阵**：
-//   1. 侧栏入口按角色隐藏（工单仅 admin/support，设置仅 admin）；
+//   1. 侧栏入口按角色隐藏（工单仅 admin/support，设置仅 admin，返佣管理仅 admin/finance）；
 //   2. 整页无权限时渲染占位且**不发起无权限请求**（服务端仍会独立 403，前端只是提前规避）；
 //   3. admin 与 finance 的可见性差异（对账、写操作）。
 
@@ -55,7 +55,7 @@ function sidebarLabels(): string[] {
 }
 
 describe('管理后台 · 角色权限矩阵', () => {
-  it('admin 侧栏含全部 8 个入口（商品与分类合并为一项，R9-B）', async () => {
+  it('admin 侧栏含全部 9 个入口（商品与分类合并为一项，R9-B；返佣管理 R10-C）', async () => {
     await renderAs('admin', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
@@ -64,6 +64,7 @@ describe('管理后台 · 角色权限矩阵', () => {
       '商品与分类',
       '订单',
       '会员',
+      '返佣管理',
       '实例',
       '工单',
       '设置',
@@ -71,23 +72,24 @@ describe('管理后台 · 角色权限矩阵', () => {
     ])
   })
 
-  it('finance 侧栏无工单与设置入口，其余保留', async () => {
+  it('finance 侧栏无工单与设置入口，保留返佣管理（查看类），其余保留', async () => {
     await renderAs('finance', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).not.toContain('工单')
     expect(labels).not.toContain('设置')
-    expect(labels).toEqual(['仪表盘', '商品与分类', '订单', '会员', '实例', '通知'])
+    expect(labels).toEqual(['仪表盘', '商品与分类', '订单', '会员', '返佣管理', '实例', '通知'])
   })
 
-  it('support 侧栏无设置入口、保留工单入口', async () => {
+  it('support 侧栏无设置与返佣管理入口、保留工单入口', async () => {
     await renderAs('support', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
     const labels = sidebarLabels().map((label) => label.trim())
     expect(labels).toContain('工单')
     expect(labels).not.toContain('设置')
+    expect(labels).not.toContain('返佣管理')
     expect(labels).toEqual(['仪表盘', '商品与分类', '订单', '会员', '实例', '工单', '通知'])
   })
 

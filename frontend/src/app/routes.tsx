@@ -11,6 +11,7 @@ import ConsoleNotifications from '@/pages/ConsoleNotifications'
 import ConsoleOrders from '@/pages/ConsoleOrders'
 import ConsoleOverview from '@/pages/ConsoleOverview'
 import ConsoleRecharge from '@/pages/ConsoleRecharge'
+import ConsoleReferral from '@/pages/ConsoleReferral'
 import ConsoleServerDetail from '@/pages/ConsoleServerDetail'
 import ConsoleServers from '@/pages/ConsoleServers'
 import ConsoleTicketDetail from '@/pages/ConsoleTicketDetail'
@@ -31,6 +32,7 @@ import AdminNotifications from '@/pages/admin/AdminNotifications'
 import AdminOrderDetail from '@/pages/admin/AdminOrderDetail'
 import AdminOrders from '@/pages/admin/AdminOrders'
 import AdminProducts from '@/pages/admin/AdminProducts'
+import AdminReferral from '@/pages/admin/AdminReferral'
 import AdminSettings from '@/pages/admin/AdminSettings'
 import AdminTicketDetail from '@/pages/admin/AdminTicketDetail'
 import AdminTickets from '@/pages/admin/AdminTickets'
@@ -66,6 +68,7 @@ export const routes: RouteObject[] = [
               { path: 'servers/:id', element: <ConsoleServerDetail /> },
               { path: 'orders', element: <ConsoleOrders /> },
               { path: 'recharge', element: <ConsoleRecharge /> },
+              { path: 'referral', element: <ConsoleReferral /> },
               { path: 'tickets', element: <ConsoleTickets /> },
               { path: 'tickets/:id', element: <ConsoleTicketDetail /> },
               { path: 'notifications', element: <ConsoleNotifications /> },
@@ -98,6 +101,7 @@ export const routes: RouteObject[] = [
               { path: 'orders', element: <AdminOrders /> },
               { path: 'orders/:id', element: <AdminOrderDetail /> },
               { path: 'members', element: <AdminMembers /> },
+              { path: 'referral', element: <AdminReferral /> },
               { path: 'instances', element: <AdminInstances /> },
               { path: 'instances/:id', element: <AdminInstanceDetail /> },
               { path: 'tickets', element: <AdminTickets /> },

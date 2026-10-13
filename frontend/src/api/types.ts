@@ -31,6 +31,8 @@ export interface Member {
   created_at: string
   updated_at: string
   last_login_at: string | null
+  /** 会员级返佣特批比例（契约 18.5 / 6.3）：字符串设值、null = 不覆盖（走全局默认）。 */
+  rebate_percent_override?: string | null
 }
 
 /** 登录返回的会员摘要（契约 6.2：仅 id / username / status）。 */
@@ -53,6 +55,8 @@ export interface RegisterInput {
   username: string
   email: string
   password: string
+  /** 邀请码（契约 18.5）：可选；非法/不存在/自邀由后端 40002 判定，前端原样展示 message。 */
+  invite_code?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +522,12 @@ export interface RechargeResult {
   pay: PayInfo
 }
 
-export type LedgerType = 'recharge' | 'order_pay' | 'refund' | 'adjust'
+/**
+ * 余额流水类型（契约 12.3 / 18.1）：R10-A 起枚举扩展 `referral_rebate`
+ * （返佣发放/冲回/提现冻结/退回，金额有符号；会员端 `GET /finance/ledger` 会过滤掉它，
+ * 只在管理端对账出现）。
+ */
+export type LedgerType = 'recharge' | 'order_pay' | 'refund' | 'adjust' | 'referral_rebate'
 
 export interface LedgerEntry {
   id: number
@@ -863,4 +872,191 @@ export interface UpstreamHealth {
   checked_at: string
   /** 仅 connected=false 时出现，内容已脱敏。 */
   error?: string
+}
+
+// ---------------------------------------------------------------------------
+// 邀请返佣（契约 18.5，R10-C 前端消费 R10-A / R10-B 的后端接口）
+// 金额一律定点小数字符串；`rebate_balance` 可为负（负数禁提现与转余额）。
+// ---------------------------------------------------------------------------
+
+/** GET/PUT /api/v1/referral —— 我的返佣概览（PUT 成功也返回同一对象）。 */
+export interface ReferralOverview {
+  enabled: boolean
+  /** 从未开通时为 ""（惰性生成）；已生成则开/关/开不换码。 */
+  invite_code: string
+  /** 站内邀请链接 `{站点}/register?invite={邀请码}`；未配置站点或无码时为 ""。 */
+  invite_link: string
+  /** 邀请返现余额，可为负。 */
+  rebate_balance: string
+  effective_percent: string
+  invitee_count: number
+  total_rebate: string
+}
+
+export interface UpdateReferralInput {
+  enabled: boolean
+}
+
+/** 返佣比例来源（契约 18.1）：商品级 / 会员级特批 / 全局默认。 */
+export type ReferralRatioSource = 'product' | 'member' | 'global'
+
+export type ReferralRebateStatus = 'granted' | 'rolled_back'
+
+/** GET /api/v1/referral/rebates —— 返佣流水行。 */
+export interface ReferralRebate {
+  id: number
+  order_id: number
+  order_trade_no: string
+  order_type: string
+  buyer_id: number
+  buyer_username: string
+  base_amount: string
+  discount_amount: string
+  ratio_percent: string
+  ratio_source: string
+  rebate_amount: string
+  status: string
+  note: string
+  created_at: string
+}
+
+/** GET /api/v1/referral/invitees —— 我邀请的会员行。 */
+export interface ReferralInvitee {
+  member_id: number
+  username: string
+  joined_at: string
+  order_count: number
+  total_spent: string
+  total_rebate: string
+}
+
+/** 邀请人自建券（契约 11.3 券对象 + owner_member_id / source）。 */
+export interface MemberCoupon {
+  id: number
+  code: string
+  /** 本批自建券只允许 percent。 */
+  type: string
+  /** 折扣百分比（percent 时是百分比），一经创建不可改。 */
+  value: string
+  cycles: string[]
+  starts_at: string | null
+  expires_at: string | null
+  max_uses: number
+  used_count: number
+  /** on / off。 */
+  status: string
+  comment: string
+  owner_member_id: number
+  /** platform / member。 */
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateMemberCouponInput {
+  code: string
+  type: 'percent'
+  value: string
+  cycles?: string[]
+  starts_at?: string | null
+  expires_at?: string | null
+  max_uses?: number
+  comment?: string
+}
+
+/**
+ * PUT /api/v1/referral/coupons/:id —— 只允许 status 与 expires_at（三态：null = 清空 = 永不过期）。
+ * 请求体里出现 value / code / type / owner_member_id 一律 40001，故类型上也不给这些字段。
+ */
+export interface UpdateMemberCouponInput {
+  status?: string
+  expires_at?: string | null
+}
+
+/** 出账申请类型：提现 / 转余额（契约 18.1.1）。 */
+export type PayoutKind = 'withdraw' | 'convert'
+
+export type PayoutStatus = 'pending' | 'approved' | 'rejected' | 'paid'
+
+export type PayoutChannel = 'wechat' | 'alipay'
+
+/** 出账申请对象（会员端列表与管理端列表共用；账号字段后端已脱敏）。 */
+export interface ReferralPayout {
+  id: number
+  kind: string
+  member_id: number
+  amount: string
+  /** 提现有 wechat/alipay；转余额恒为空串。 */
+  channel: string
+  /** 已脱敏（姓氏保留 + **）。 */
+  account_name: string
+  /** 已脱敏（前 2 后 2，中间 ****）。 */
+  account_no: string
+  status: string
+  remark: string
+  review_note: string
+  reviewed_by: number
+  reviewed_at: string | null
+  paid_at: string | null
+  created_at: string
+  updated_at: string
+  /** 管理端列表额外带会员概要；会员端列表不带（omitempty）。 */
+  member?: ReferralPayoutMember | null
+}
+
+export interface ReferralPayoutMember {
+  id: number
+  username: string
+  nickname: string
+}
+
+export interface CreateWithdrawalInput {
+  amount: string
+  channel: string
+  account_name: string
+  account_no: string
+  remark?: string
+}
+
+export interface CreateConversionInput {
+  amount: string
+  remark?: string
+}
+
+/** POST .../review —— approve / reject + 可选审核备注。 */
+export interface PayoutReviewInput {
+  action: 'approve' | 'reject'
+  review_note?: string
+}
+
+/** POST .../mark-paid —— 线下已打款；空体或带追加备注。 */
+export interface MarkPaidInput {
+  review_note?: string
+}
+
+/** 审核/打款结果：重复提交幂等时 already=true。 */
+export interface PayoutReviewResult {
+  payout: ReferralPayout
+  already: boolean
+}
+
+/** GET/PUT /api/v1/admin/settings/referral —— 返佣设置（仅 admin）。 */
+export interface ReferralSettings {
+  enabled: boolean
+  default_percent: string
+  max_coupon_percent: string
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateReferralSettingsInput {
+  enabled?: boolean
+  default_percent?: string
+  max_coupon_percent?: string
+}
+
+/** PUT /api/v1/admin/members/:id —— 本批只承载会员级特批比例（三态）。 */
+export interface UpdateMemberInput {
+  /** 键缺席 = 不改；null = 清空；字符串 = 设值（0.00-100.00）。 */
+  rebate_percent_override?: string | null
 }
