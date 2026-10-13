@@ -19,7 +19,7 @@ import { useAsync } from '@/hooks/useAsync'
 import { saveCheckoutDraft } from '@/lib/checkout'
 import { defaultConfigValue } from '@/lib/configControl'
 import { availableCycles, cheapestCycle, type BillingCycle } from '@/lib/cycles'
-import { decodeDescription, formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '@/lib/format'
+import { formatCycleLabel, formatDuration, formatMoney, monthlyEquivalent } from '@/lib/format'
 import { productTypeLabel } from '@/lib/productText'
 import { quotePrice } from '@/lib/priceQuote'
 import { buildLoginUrl } from '@/lib/redirect'
@@ -145,7 +145,6 @@ export default function ProductDetail() {
   }
 
   const hasConfig = data.config_groups.some((group) => group.options.length > 0)
-  const description = decodeDescription(data.description)
   const outOfStock = data.stock_control === 1 && data.stock_qty <= 0
 
   return (
@@ -197,17 +196,6 @@ export default function ProductDetail() {
               </ul>
             ) : null}
           </header>
-
-          <section>
-            <h2 className="mb-3 text-base font-medium text-foreground">商品说明</h2>
-            {description ? (
-              <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm leading-relaxed whitespace-pre-line text-muted-foreground">
-                {description}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">该商品暂无描述。</p>
-            )}
-          </section>
 
           <section>
             <h2 className="mb-3 text-base font-medium text-foreground">

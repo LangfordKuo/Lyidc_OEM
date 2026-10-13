@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-10-12T22:04:04Z",
-  "updated_at": "2026-10-12T23:38:05Z",
+  "updated_at": "2026-10-13T08:45:38Z",
   "files": {
     ".dockerignore": {
       "role": "index",
@@ -65,9 +65,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "42cbecf69ae1793199339acf07d86e292ac3569748aad1d6aeaaddd290583528",
-      "size": 86521,
-      "normalized_sha256": "42cbecf69ae1793199339acf07d86e292ac3569748aad1d6aeaaddd290583528"
+      "sha256": "f88931f0f695b879afe95dba4aef487d1a363dc60456aa03c22a23b627f00f97",
+      "size": 86900,
+      "normalized_sha256": "f88931f0f695b879afe95dba4aef487d1a363dc60456aa03c22a23b627f00f97"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -2171,15 +2171,15 @@
     },
     "frontend/src/components/product/ConfigSelector.test.tsx": {
       "role": "observe",
-      "sha256": "e5c45bdcd3ebb8293cd81da04b05b6cbe40c2711b27cc75cb0281a98150f1ce0",
-      "size": 8447,
-      "normalized_sha256": "75022f37c8de7cb823d53903fa46f7e3d3da85252433c2e3c4b101a3db0a73fb"
+      "sha256": "497d6b20e7a558174704b2e600f89b8775949f27d151b873c0b2dcaf4ab38058",
+      "size": 10457,
+      "normalized_sha256": "b3e710185fa4aa5e876fe516c8d0cc7cde711feb746e7424a380688c4a69b047"
     },
     "frontend/src/components/product/ConfigSelector.tsx": {
       "role": "index",
-      "sha256": "957ad0845656ce7c43a7c9100e23bb95b6ffa40dd339d7f5293f11a205823755",
-      "size": 11369,
-      "normalized_sha256": "957e1122046482e6b808599857880f2f00f3c547598c9684fddd875254be192a"
+      "sha256": "d218d11d3ffd909aa456a1b7adacf85def314b4d0d7f675e94066d277e07997d",
+      "size": 11296,
+      "normalized_sha256": "bcfe0cfa8218dd8cd98297a8a4b1882647a9d64be29026cc64109c4d99c51095"
     },
     "frontend/src/components/product/CyclePriceTable.tsx": {
       "role": "index",
@@ -2699,15 +2699,15 @@
     },
     "frontend/src/pages/ProductDetail.test.tsx": {
       "role": "observe",
-      "sha256": "608399c8c2f1762a80feb5dae6c2b732503995f9514bfb05458e7e2255f665e6",
-      "size": 4157,
-      "normalized_sha256": "aecdf916c4025456fc2904a677ab15c7bcd98d42197bdf964a27a3db49766c49"
+      "sha256": "ec56b76e24546d73630265c53ed2edebf79e7a8564ec32c4531f71374044b8cb",
+      "size": 4349,
+      "normalized_sha256": "919916367406e5900b0c4724009e389df134ed3afb24da8150325d2ada72acd5"
     },
     "frontend/src/pages/ProductDetail.tsx": {
       "role": "index",
-      "sha256": "94fe81cb449d202d01165a714c7dec28a925d19c35fd81e376d91f250b6bfed3",
-      "size": 12132,
-      "normalized_sha256": "45309b09c688fc582ccacf0e5f00896050bd64e9bd566f8b892a4363e0a442fe"
+      "sha256": "cbd60f223a3ad4a8c37388789d20e3e8f0e0a440529141b89e5bf8fbdc5c0b6d",
+      "size": 11565,
+      "normalized_sha256": "30b6f1679d290f874e6a766d42bf3108251d45de1ecfe4a6cf5abbd3f38a7451"
     },
     "frontend/src/pages/Products.test.tsx": {
       "role": "observe",

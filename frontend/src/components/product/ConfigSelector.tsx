@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { MinusIcon, PlusIcon } from 'lucide-react'
 
-import type { ConfigGroup, ConfigOption, ConfigOptionValue } from '@/api/types'
+import type { ConfigGroup, ConfigOption } from '@/api/types'
 import ChoiceChips from '@/components/common/ChoiceChips'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -166,7 +166,7 @@ function ChipsField({
 }
 
 // ---------------------------------------------------------------------------
-// 系统两级选择（option_type=5）：大类 → 版本
+// 系统两级选择（option_type=5）：操作系统 → 系统版本（同一排两个下拉）
 // ---------------------------------------------------------------------------
 
 function OsField({
@@ -184,8 +184,9 @@ function OsField({
   const groups = osGroupsOf(option.values)
   const activeGroup = selectedOsGroup(option, value)
   const versions = groups.find((group) => group.name === activeGroup)?.values ?? []
+  const selectId = `${idPrefix}-option-${option.id}`
 
-  // 切换大类：当前值仍属于该大类时保持（回显），否则落到该大类第一个版本。
+  // 切换操作系统：当前值仍属于新大类时保持（回显），否则落到该大类第一个版本。
   const selectGroup = (name: string) => {
     const group = groups.find((item) => item.name === name)
     if (!group || group.values.length === 0) {
@@ -198,60 +199,43 @@ function OsField({
   return (
     <div className="space-y-2">
       <FieldTitle text={label} />
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">系统大类</p>
-        <ChoiceChips
-          items={groups.map((group) => ({ value: group.name, label: group.name }))}
-          value={activeGroup}
-          onChange={selectGroup}
-          ariaLabel={`${label}大类`}
-          idPrefix={`${idPrefix}-option-${option.id}-group`}
-        />
+      {/* 同一排两个下拉；窄屏（<sm）退化为上下堆叠，保证每个下拉仍够宽可读。 */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Select value={activeGroup || undefined} onValueChange={selectGroup}>
+          <SelectTrigger id={`${selectId}-os`} className="w-full" aria-label={`${label}操作系统`}>
+            <SelectValue placeholder="请选择操作系统" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map((group) => (
+              <SelectItem key={group.name} value={group.name}>
+                {group.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={value || undefined}
+          onValueChange={(next) => onChange(option.id, next)}
+          disabled={versions.length === 0}
+        >
+          <SelectTrigger
+            id={`${selectId}-version`}
+            className="w-full"
+            aria-label={`${label}系统版本`}
+          >
+            <SelectValue
+              placeholder={activeGroup ? '请选择系统版本' : '请先选择操作系统'}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {versions.map((item) => (
+              <SelectItem key={item.id} value={String(item.id)}>
+                {valueDisplayName(item.name)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">具体版本</p>
-        {activeGroup ? (
-          <VersionGroup
-            versions={versions}
-            value={value}
-            onChange={(next) => onChange(option.id, next)}
-            ariaLabel={`${label}版本`}
-            idPrefix={`${idPrefix}-option-${option.id}-version`}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">请先选择系统大类</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** 版本列表：条目多（最多 36 个）时横向换行并限高滚动，避免撑长页面。 */
-function VersionGroup({
-  versions,
-  value,
-  onChange,
-  ariaLabel,
-  idPrefix,
-}: {
-  versions: ConfigOptionValue[]
-  value: string
-  onChange: (value: string) => void
-  ariaLabel: string
-  idPrefix: string
-}) {
-  return (
-    <div className="max-h-44 overflow-y-auto pr-1">
-      <ChoiceChips
-        items={versions.map((item) => ({
-          value: String(item.id),
-          label: valueDisplayName(item.name),
-        }))}
-        value={value}
-        onChange={onChange}
-        ariaLabel={ariaLabel}
-        idPrefix={idPrefix}
-      />
     </div>
   )
 }

@@ -331,7 +331,7 @@ SiteLayout.tsx[AU5T]: F:官网公共布局：顶栏+内容+页脚 | R:code:front
 UserMenu.tsx[IS6S]: F:顶栏用户菜单：余额展示与登出 | R:code:frontend/src/api/finance.ts,code:frontend/src/auth/authContext.ts | A:UserMenu | S:余额实时拉取，登录态里的余额仅作占位
 
 ===D:/Project/Lyidc_OEM/frontend/src/components/product/===
-ConfigSelector.tsx[KB8L]: F:商品配置项矩阵选择控件 | R:code:frontend/src/api/types.ts,code:frontend/src/lib/priceQuote.ts | A:ConfigSelector | S:数量型与选项型控件形态不同，数量型传数量值而非子项 id；差价随选择实时联动计价
+ConfigSelector.tsx[KB8M]: F:商品配置项矩阵选择控件（下拉/单选横条/系统两级下拉/数量步进） | R:code:frontend/src/api/types.ts,code:frontend/src/lib/configControl.ts,code:frontend/src/lib/priceQuote.ts,code:frontend/src/pages/Checkout.tsx | A:ConfigSelector | S:数量型提交数量而非子项 id；详情页与结算页共用本控件，改 OsField 会同时影响两页；切换操作系统时当前值属新大类则保持否则落该大类首个版本；差价随选择实时联动计价
 CyclePriceTable.tsx[KB5T]: F:六周期价格表格 | R:code:frontend/src/lib/cycles.ts | A:CyclePriceTable | S:null 价格表示该周期不可售，须置灰而非显示 0
 CycleSelector.tsx[KB6S]: F:六周期选择器 | R:code:frontend/src/lib/cycles.ts | A:CycleSelector | S:不可售周期置灰不可选；按钮组实现保留 radiogroup 语义与键盘可达性
 PriceBreakdown.tsx[KB6S]: F:成交价差价明细折叠展示 | R:code:frontend/src/lib/priceQuote.ts | A:PriceBreakdownView | S:无差价数据的周期标注 NoteNoPricingData 而不是显示 0 元
@@ -409,7 +409,7 @@ Home.tsx[EB6M]: F:官网首页：产品展示与功能介绍 | R:code:frontend/s
 Login.tsx[IS6S]: F:会员登录页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts,code:frontend/src/lib/redirect.ts | A:Login | S:登录成功后按 safeRedirect 回跳，拒绝外站重定向
 NotFound.tsx[AU3T]: F:404 兜底页 | R:code:frontend/src/app/paths.ts | A:NotFound | S:-
 PayResult.tsx[IB7M]: F:支付结果页：回调跳转后的订单状态确认 | R:code:frontend/src/api/orders.ts,code:frontend/src/lib/checkout.ts | A:PayResult | S:同步跳转不代表已入账，以订单查询结果为准；pending 时可继续支付或取消
-ProductDetail.tsx[EB8M]: F:商品详情页：配置矩阵选择与计价 | R:code:frontend/src/api/products.ts,code:frontend/src/components/product/ConfigSelector.tsx,code:frontend/src/lib/priceQuote.ts | A:ProductDetail | S:选择结果写入 sessionStorage 草稿以支持登录回跳；差价联动展示仅供试算，成交以后端为准
+ProductDetail.tsx[EB8M]: F:商品详情页：配置速览、配置矩阵选择与计价 | R:code:frontend/src/api/products.ts,code:frontend/src/components/product/ConfigSelector.tsx,code:frontend/src/lib/checkout.ts,code:frontend/src/lib/priceQuote.ts | A:ProductDetail | S:选择结果写入 sessionStorage 草稿以支持登录回跳；差价联动展示仅供试算，成交以后端为准；接口 description 仍下发但本页不再展示商品说明区块（R9-C）
 Products.tsx[EB6M]: F:商品目录页：分类浏览与搜索 | R:code:frontend/src/api/products.ts,code:frontend/src/lib/cycles.ts | A:Products | S:目录一次拉全量上架商品由前端切页；不可售周期不出购买入口
 Register.tsx[IS6S]: F:会员注册页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts | A:Register | S:密码校验按 8-72 字节口径与后端一致，中文密码按字节计
 

@@ -1,4 +1,5 @@
-import { render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -64,6 +65,26 @@ function renderSelector(selected: Record<string, string> = {}) {
   return onChange
 }
 
+/** 受控宿主：onChange 后把新值回写进 selection，用于观察「切换操作系统 → 版本列表随之变化」。 */
+function renderControlled(initial: Record<string, string> = {}) {
+  const onChange = vi.fn()
+  function Host() {
+    const [selected, setSelected] = useState(initial)
+    return (
+      <ConfigSelector
+        groups={makeGroups()}
+        selected={selected}
+        onChange={(optionId, valueId) => {
+          onChange(optionId, valueId)
+          setSelected((prev) => ({ ...prev, [String(optionId)]: valueId }))
+        }}
+      />
+    )
+  }
+  render(<Host />)
+  return onChange
+}
+
 describe('配置项控件矩阵（R6）', () => {
   it('同一商品按 option_type 渲染多种控件：下拉 / 横条 / 数量并存', () => {
     renderSelector({ '2': '3', '6': '32', '3': '14', '7': '20' })
@@ -77,9 +98,9 @@ describe('配置项控件矩阵（R6）', () => {
     expect(screen.getByRole('spinbutton', { name: '带宽' })).toHaveValue(20)
     expect(screen.getByRole('button', { name: '增加带宽' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '减少带宽' })).toBeInTheDocument()
-    // 系统：两级（大类 + 版本）
-    expect(screen.getByRole('radiogroup', { name: '操作系统大类' })).toBeInTheDocument()
-    expect(screen.getByRole('radiogroup', { name: '操作系统版本' })).toBeInTheDocument()
+    // 系统：同一排两个下拉（操作系统 + 系统版本）
+    expect(screen.getByRole('combobox', { name: '操作系统操作系统' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '操作系统系统版本' })).toBeInTheDocument()
   })
 
   it('单选横条点击后以「值 id」字符串回调（提交口径不变）', async () => {
@@ -96,51 +117,75 @@ describe('配置项控件矩阵（R6）', () => {
   })
 })
 
-describe('系统两级选择（大类 → 版本）', () => {
-  it('第一级为去重后的大类，第二级按所选大类过滤版本', async () => {
+describe('系统两级选择（操作系统 → 系统版本，同排双下拉）', () => {
+  it('第一级为去重后的操作系统，第二级按所选操作系统过滤版本', async () => {
     const user = userEvent.setup()
-    const onChange = renderSelector({ '2': '3' })
+    renderSelector({ '2': '3' })
 
-    // 大类：Debian / CentOS / Ubuntu（按上游出现顺序去重）
-    const groupBox = screen.getByRole('radiogroup', { name: '操作系统大类' })
-    expect(within(groupBox).getAllByRole('radio').map((item) => item.getAttribute('aria-label'))).toEqual([
-      'Debian',
-      'CentOS',
-      'Ubuntu',
-    ])
+    // 操作系统：Debian / CentOS / Ubuntu（按上游出现顺序去重）
+    await user.click(screen.getByRole('combobox', { name: '操作系统操作系统' }))
+    for (const name of ['Debian', 'CentOS', 'Ubuntu']) {
+      expect(await screen.findByRole('option', { name })).toBeInTheDocument()
+    }
+    await user.keyboard('{Escape}')
 
-    // 默认回显：选中值 3 属 Debian → 版本区只有 Debian 的两个版本
-    const versionBox = screen.getByRole('radiogroup', { name: '操作系统版本' })
-    expect(within(versionBox).getAllByRole('radio').map((item) => item.getAttribute('aria-label'))).toEqual([
+    // 默认回显：选中值 3 属 Debian → 版本下拉回显该版本
+    expect(screen.getByRole('combobox', { name: '操作系统系统版本' })).toHaveTextContent(
       'Debian-10.3.3-x64',
-      'Debian-11.1-x64',
-    ])
-    expect(screen.getByRole('radio', { name: 'Debian-10.3.3-x64' })).toHaveAttribute('aria-checked', 'true')
+    )
+  })
 
-    // 切换大类 → 版本列表过滤，并自动选中该大类第一个版本（值 id 口径）
-    await user.click(screen.getByRole('radio', { name: 'Ubuntu' }))
+  it('切换操作系统后版本下拉随之变化，并自动回落到该大类第一个版本', async () => {
+    const user = userEvent.setup()
+    const onChange = renderControlled({ '2': '3' })
+
+    // 切换到 Ubuntu：当前值不属于 Ubuntu → 落到该大类第一个版本（值 id 口径）
+    await user.click(screen.getByRole('combobox', { name: '操作系统操作系统' }))
+    await user.click(await screen.findByRole('option', { name: 'Ubuntu' }))
     expect(onChange).toHaveBeenCalledWith(2, '10')
+
+    // 版本下拉随之只剩 Ubuntu 的版本
+    await user.click(screen.getByRole('combobox', { name: '操作系统系统版本' }))
+    expect(await screen.findByRole('option', { name: 'Ubuntu-22.04-x64' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Debian-10.3.3-x64' })).not.toBeInTheDocument()
   })
 
-  it('修改已选值时回显大类与版本（草稿/订单快照场景）', () => {
+  it('修改已选值时回显操作系统与版本（草稿/订单快照场景）', () => {
     renderSelector({ '2': '9' })
-    expect(screen.getByRole('radio', { name: 'CentOS' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('radio', { name: 'CentOS-7.9.2111-x64' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.queryByRole('radio', { name: 'Debian-10.3.3-x64' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '操作系统操作系统' })).toHaveTextContent('CentOS')
+    expect(screen.getByRole('combobox', { name: '操作系统系统版本' })).toHaveTextContent(
+      'CentOS-7.9.2111-x64',
+    )
   })
 
-  it('未选大类时第二级置灰并提示', () => {
+  it('未选操作系统时版本下拉禁用并给 placeholder（不留死文案）', () => {
     renderSelector()
-    expect(screen.getByText('请先选择系统大类')).toBeInTheDocument()
-    expect(screen.queryByRole('radiogroup', { name: '操作系统版本' })).not.toBeInTheDocument()
+    const versionBox = screen.getByRole('combobox', { name: '操作系统系统版本' })
+    expect(versionBox).toBeDisabled()
+    expect(screen.getByText('请先选择操作系统')).toBeInTheDocument()
+    expect(screen.queryByText('请先选择系统大类')).not.toBeInTheDocument()
   })
 
-  it('点击版本后回调该版本的值 id', async () => {
+  it('选中版本后回调该版本的值 id（提交口径不变）', async () => {
     const user = userEvent.setup()
     const onChange = renderSelector({ '2': '3' })
 
-    await user.click(screen.getByRole('radio', { name: 'Debian-11.1-x64' }))
+    await user.click(screen.getByRole('combobox', { name: '操作系统系统版本' }))
+    await user.click(await screen.findByRole('option', { name: 'Debian-11.1-x64' }))
     expect(onChange).toHaveBeenCalledWith(2, '8')
+  })
+
+  it('重选同一操作系统不改动版本（selectGroup 的保持语义）', async () => {
+    const user = userEvent.setup()
+    const onChange = renderControlled({ '2': '3' })
+
+    // 值 3 = Debian-10.3.3-x64；重选 Debian 时保持该版本而不是落到该大类第一个
+    await user.click(screen.getByRole('combobox', { name: '操作系统操作系统' }))
+    await user.click(await screen.findByRole('option', { name: 'Debian' }))
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('combobox', { name: '操作系统系统版本' })).toHaveTextContent(
+      'Debian-10.3.3-x64',
+    )
   })
 })
 

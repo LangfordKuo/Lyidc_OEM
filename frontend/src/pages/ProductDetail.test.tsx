@@ -19,19 +19,21 @@ function mockDetail() {
 }
 
 describe('商品详情页', () => {
-  it('渲染商品信息、说明、配置项与六周期价格表', async () => {
+  it('渲染商品信息、配置速览、配置项与六周期价格表（不再展示商品说明）', async () => {
     mockDetail()
     renderApp(['/products/1'])
 
     expect(await screen.findByRole('heading', { level: 1, name: '香港二区 CN2 A型' })).toBeInTheDocument()
-    // 说明里的 HTML 标签被解析为纯文本展示（与顶部配置速览同源，故可能有多处）
-    expect(screen.getAllByText(/CPU:2核心/).length).toBeGreaterThan(0)
+    // R9-C：「商品说明」区块已移除，接口 description 不再渲染
+    expect(screen.queryByRole('heading', { name: '商品说明' })).not.toBeInTheDocument()
+    expect(screen.queryByText('该商品暂无描述。')).not.toBeInTheDocument()
     // 顶部配置速览（R5）：直接渲染接口下发的 description_lines
     const overview = screen.getByTestId('product-config-overview')
     expect(within(overview).getByText('CPU:2核心')).toBeInTheDocument()
     expect(within(overview).getByText('内存:1G')).toBeInTheDocument()
     expect(within(overview).getByText('带宽:20M')).toBeInTheDocument()
     // 配置项（上游文案去前缀）
+    expect(screen.getByRole('heading', { name: '配置项' })).toBeInTheDocument()
     expect(screen.getByText('区域')).toBeInTheDocument()
     // 价格表六个周期都在（两年付/三年付不可售）
     expect(screen.getByRole('heading', { name: '价格一览' })).toBeInTheDocument()
