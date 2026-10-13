@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -41,6 +42,17 @@ type adminLoginRequest struct {
 // updateMemberStatusRequest 是 PUT /admin/members/:id/status 请求体。
 type updateMemberStatusRequest struct {
 	Status string `json:"status"`
+}
+
+// updateMemberRequest 是 PUT /admin/members/:id 请求体（契约 6.3，R10-B）。
+// rebate_percent_override 三态：键缺席 = 不改 / null = 清空 / 字符串 = 设值。
+type updateMemberRequest struct {
+	RebatePercentOverride json.RawMessage `json:"rebate_percent_override"`
+}
+
+// provided 判断更新请求是否至少提供了一个字段。
+func (r *updateMemberRequest) provided() bool {
+	return len(r.RebatePercentOverride) > 0
 }
 
 // login 处理 POST /api/v1/admin/auth/login：校验管理员密码并签发管理员 token。
@@ -179,4 +191,72 @@ func (h *adminHandler) updateMemberStatus(c *gin.Context) {
 		return
 	}
 	response.Success(c, newMemberView(updated))
+}
+
+// updateMember 处理 PUT /api/v1/admin/members/:id：管理端会员更新（契约 6.3，R10-B）。
+// 本批只承载会员级返佣特批比例 rebate_percent_override（三态）。
+// 角色守卫（admin/finance）在路由注册处挂载：support 返回 403。
+func (h *adminHandler) updateMember(c *gin.Context) {
+	memberID, err := strconv.ParseUint(strings.TrimSpace(c.Param("id")), 10, 64)
+	if err != nil || memberID == 0 {
+		response.Fail(c, response.CodeInvalidParam, "会员 ID 必须为正整数")
+		return
+	}
+
+	var req updateMemberRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if !req.provided() {
+		response.Fail(c, response.CodeInvalidParam, "至少提供一个字段：rebate_percent_override")
+		return
+	}
+
+	set, value, err := memberRebateOverrideFromRaw(req.RebatePercentOverride)
+	if err != nil {
+		failRuleError(c, err)
+		return
+	}
+	if !set {
+		// 三态里「缺席」已在 provided() 挡掉；走到这里说明字段在但解析不出语义。
+		response.Fail(c, response.CodeInvalidParam,
+			"rebate_percent_override 需为百分比字符串或 null")
+		return
+	}
+
+	ctx := c.Request.Context()
+	if _, err := h.store.MemberByID(ctx, memberID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			response.Fail(c, response.CodeNotFound, msgMemberMissing)
+			return
+		}
+		failDB(c, h.logger, err)
+		return
+	}
+
+	updated, err := h.store.SetMemberRebateOverride(ctx, memberID, value)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		response.Fail(c, response.CodeNotFound, msgMemberMissing)
+		return
+	case err != nil:
+		failDB(c, h.logger, err)
+		return
+	}
+
+	if value == nil {
+		h.logger.Info("会员返佣特批比例已清空", "admin_id", mustAdminID(c), "member_id", memberID)
+	} else {
+		h.logger.Info("会员返佣特批比例已设置",
+			"admin_id", mustAdminID(c), "member_id", memberID, "rebate_percent_override", *value)
+	}
+	response.Success(c, newMemberView(updated))
+}
+
+// mustAdminID 取当前管理员 ID（仅用于日志字段；未登录时返回 0）。
+func mustAdminID(c *gin.Context) uint64 {
+	if admin, ok := adminFromContext(c); ok {
+		return admin.ID
+	}
+	return 0
 }

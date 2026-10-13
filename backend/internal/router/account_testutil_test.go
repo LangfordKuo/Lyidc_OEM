@@ -149,6 +149,8 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM ledger",
 		// 邀请返佣（R10-A）：返佣流水与设置。
 		"DELETE FROM referral_rebates",
+		// 邀请返佣（二）（R10-B）：提现 / 转余额申请。
+		"DELETE FROM referral_payouts",
 		"DELETE FROM settings",
 		// 工单（阶段 6a）：先删消息再删工单。
 		"DELETE FROM ticket_messages",

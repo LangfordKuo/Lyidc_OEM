@@ -20,6 +20,9 @@ type CouponInput struct {
 	MaxUses    int
 	Status     string
 	Comment    string
+	// OwnerMemberID 是自建券归属邀请人 ID（契约 18.5）：0 = 平台券（管理端创建），
+	// 非 0 = 邀请人自建券（POST /api/v1/referral/coupons 创建，强制 = 调用者）。
+	OwnerMemberID uint64
 }
 
 // CouponTimeUpdate 表示一个可清空的时间字段更新：Set=true 时才生效，
@@ -41,13 +44,16 @@ type CouponUpdate struct {
 	Comment    *string
 }
 
-// CouponFilter 是 GET /admin/coupons 的查询条件（page 从 1 开始）。
+// CouponFilter 是 GET /admin/coupons 与 GET /api/v1/referral/coupons 的查询条件（page 从 1 开始）。
 type CouponFilter struct {
 	Page     int
 	PageSize int
 	Status   string
 	// Keyword 按 code 模糊匹配（列排序规则大小写不敏感）。
 	Keyword string
+	// OwnerMemberID 非 0 时只查该邀请人的自建券（会员端「我创建的券」用）；
+	// 为 0 表示不过滤归属（管理端查全量，含平台券与自建券）。
+	OwnerMemberID uint64
 }
 
 // CreateCoupon 创建优惠码；code 唯一键冲突时返回 ErrCouponCodeTaken（大小写不敏感）。
@@ -59,18 +65,19 @@ func (s *Store) CreateCoupon(ctx context.Context, in CouponInput) (*model.Coupon
 
 	now := time.Now().UTC()
 	coupon := model.Coupon{
-		Code:       in.Code,
-		Type:       in.Type,
-		Value:      model.Money(in.Value),
-		CyclesJSON: in.CyclesJSON,
-		StartsAt:   in.StartsAt,
-		ExpiresAt:  in.ExpiresAt,
-		MaxUses:    in.MaxUses,
-		UsedCount:  0,
-		Status:     in.Status,
-		Comment:    in.Comment,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		Code:          in.Code,
+		Type:          in.Type,
+		Value:         model.Money(in.Value),
+		CyclesJSON:    in.CyclesJSON,
+		StartsAt:      in.StartsAt,
+		ExpiresAt:     in.ExpiresAt,
+		MaxUses:       in.MaxUses,
+		UsedCount:     0,
+		Status:        in.Status,
+		Comment:       in.Comment,
+		OwnerMemberID: in.OwnerMemberID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	if err := db.Create(&coupon).Error; err != nil {
 		return nil, mapDuplicateError(err)
@@ -91,6 +98,9 @@ func (s *Store) ListCoupons(ctx context.Context, filter CouponFilter) ([]model.C
 	}
 	if filter.Keyword != "" {
 		query = query.Where("code LIKE ?", containsKeyword(filter.Keyword))
+	}
+	if filter.OwnerMemberID != 0 {
+		query = query.Where("owner_member_id = ?", filter.OwnerMemberID)
 	}
 
 	var total int64
@@ -116,6 +126,16 @@ func (s *Store) CouponByID(ctx context.Context, id uint64) (*model.Coupon, error
 		return nil, err
 	}
 	return couponBy(db, "id = ?", id)
+}
+
+// CouponByIDForMember 查询**本人自建券**（owner_member_id = memberID）；
+// 他人券与平台券一律 ErrNotFound（对外 404，契约 18.5「只能改自己的券」）。
+func (s *Store) CouponByIDForMember(ctx context.Context, id, memberID uint64) (*model.Coupon, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return couponBy(db, "id = ? AND owner_member_id = ?", id, memberID)
 }
 
 // CouponByCode 按 code 查询优惠码；比较走列的 utf8mb4_general_ci 排序规则，

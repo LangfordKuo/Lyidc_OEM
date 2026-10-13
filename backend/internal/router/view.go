@@ -7,17 +7,22 @@ import (
 )
 
 // memberView 是会员对外视图：绝不包含 password_hash。
+//
+// R10-B 起带 `rebate_percent_override`（会员级返佣特批比例，`string | null`），
+// 供管理端页面显示「已特批 x%」（契约 6.3 / 18.5）。
 type memberView struct {
-	ID          uint64  `json:"id"`
-	Username    string  `json:"username"`
-	Email       string  `json:"email"`
-	Nickname    string  `json:"nickname"`
-	Phone       *string `json:"phone"`
-	Status      string  `json:"status"`
-	Balance     string  `json:"balance"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-	LastLoginAt *string `json:"last_login_at"`
+	ID       uint64  `json:"id"`
+	Username string  `json:"username"`
+	Email    string  `json:"email"`
+	Nickname string  `json:"nickname"`
+	Phone    *string `json:"phone"`
+	Status   string  `json:"status"`
+	Balance  string  `json:"balance"`
+	// RebatePercentOverride 是会员级返佣特批比例（0.00-100.00）；null = 不覆盖（走全局默认）。
+	RebatePercentOverride *string `json:"rebate_percent_override"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
+	LastLoginAt           *string `json:"last_login_at"`
 }
 
 // adminView 是管理员对外视图：绝不包含 password_hash。
@@ -55,18 +60,20 @@ type memberListView struct {
 }
 
 // newMemberView 组装会员视图（时间统一输出 RFC3339 UTC）。
+// rebate_percent_override 原样输出（写入时已校验 0.00-100.00；NULL → null）。
 func newMemberView(member *model.Member) memberView {
 	return memberView{
-		ID:          member.ID,
-		Username:    member.Username,
-		Email:       member.Email,
-		Nickname:    member.Nickname,
-		Phone:       member.Phone,
-		Status:      member.Status,
-		Balance:     string(member.Balance),
-		CreatedAt:   formatTime(member.CreatedAt),
-		UpdatedAt:   formatTime(member.UpdatedAt),
-		LastLoginAt: formatTimePtr(member.LastLoginAt),
+		ID:                    member.ID,
+		Username:              member.Username,
+		Email:                 member.Email,
+		Nickname:              member.Nickname,
+		Phone:                 member.Phone,
+		Status:                member.Status,
+		Balance:               string(member.Balance),
+		RebatePercentOverride: member.RebatePercentOverride,
+		CreatedAt:             formatTime(member.CreatedAt),
+		UpdatedAt:             formatTime(member.UpdatedAt),
+		LastLoginAt:           formatTimePtr(member.LastLoginAt),
 	}
 }
 

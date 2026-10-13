@@ -21,6 +21,10 @@ const (
 )
 
 // 流水关联单据类型取值（ledger.ref_type）。
+//
+// R10-B 起：凡动 **rebate_balance** 的账目一律 type=referral_rebate（金额有符号），
+// 靠 ref_type 区分单据来源（见 docs/api-contract.md 18.1.1）；转换的消费侧入账
+// 用 type=adjust + ref_type=referral_conversion。
 const (
 	// LedgerRefRecharge 关联充值单（ref_id = recharges.id）。
 	LedgerRefRecharge = "recharge"
@@ -28,6 +32,12 @@ const (
 	LedgerRefOrder = "order"
 	// LedgerRefReferralRebate 关联返佣流水（ref_id = referral_rebates.id）。
 	LedgerRefReferralRebate = "referral_rebate"
+	// LedgerRefReferralWithdrawal 关联提现申请（ref_id = referral_payouts.id）：
+	// 冻结时负向、驳回退回时正向。
+	LedgerRefReferralWithdrawal = "referral_withdrawal"
+	// LedgerRefReferralConversion 关联转余额申请（ref_id = referral_payouts.id）：
+	// 返现侧负向（type=referral_rebate）、消费侧正向（type=adjust）。
+	LedgerRefReferralConversion = "referral_conversion"
 )
 
 // IsValidLedgerType 判断流水类型是否在 ledger.type 枚举内。

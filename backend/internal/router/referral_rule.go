@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 )
 
 // errReferralRule 表示邀请返佣规则不成立（对应 40002，契约 18.5）；
@@ -84,4 +86,91 @@ func rebatePercentFromRaw(raw json.RawMessage) (*string, error) {
 		return nil, err
 	}
 	return &value, nil
+}
+
+// memberRebateOverrideFromRaw 解析 PUT /admin/members/:id 的 rebate_percent_override 三态
+// （契约 6.3，R10-B）：
+//   - raw 缺席（len == 0）→ set=false（不改）；
+//   - raw 为 null → set=true, value=nil（清空，回到走全局）；
+//   - raw 为字符串 → set=true, value=&校验后的值（0.00-100.00）；
+//   - 其它类型 → 40001。
+func memberRebateOverrideFromRaw(raw json.RawMessage) (set bool, value *string, err error) {
+	if len(raw) == 0 {
+		return false, nil, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "null" {
+		return true, nil, nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return false, nil, fmt.Errorf("%w: rebate_percent_override 需为百分比字符串或 null", pricing.ErrFormat)
+	}
+	text = strings.TrimSpace(text)
+	normalized, err := validateRebatePercentInput("rebate_percent_override", text)
+	if err != nil {
+		return false, nil, err
+	}
+	formatted := pricing.FormatPercent(normalized)
+	return true, &formatted, nil
+}
+
+// couponCap 是邀请人自建券的折扣百分比上限（契约 18.5，R10-B）。
+//
+//	上限 = min(settings.referral.max_coupon_percent, 邀请人的生效返佣比例)
+//
+// 「邀请人的生效返佣比例」= 会员级 rebate_percent_override 优先，否则全局 default_percent
+// （即 18.2 三级优先级的**前两级**；商品级不参与——券是跨商品通用的）。
+// 任一取值在库里损坏（越界/非法）时按 0 处理（宁可不发券，也不放行倒挂）。
+type couponCap struct {
+	// Cap 是生效上限（百分之 ×100 的整数，0-10000）。
+	Cap int64
+	// EffectivePercent 是邀请人的生效返佣比例（百分之 ×100 的整数）。
+	EffectivePercent int64
+	// MaxCouponPercent 是设置里的全局闸门（百分之 ×100 的整数）。
+	MaxCouponPercent int64
+	// EffectiveSource 是生效比例的来源文案（「会员级特批」/「全局默认」），用于拒绝 message。
+	EffectiveSource string
+}
+
+// describe 把上限写成拒绝 message（含当前上限值与两个来源，契约 18.5）。
+func (c couponCap) describe() string {
+	return fmt.Sprintf("折扣不能超过 %s（上限 = min(设置 %s, 生效比例 %s，来源：%s)）",
+		pricing.FormatPercent(c.Cap),
+		pricing.FormatPercent(c.MaxCouponPercent),
+		pricing.FormatPercent(c.EffectivePercent),
+		c.EffectiveSource)
+}
+
+// resolveCouponCap 计算邀请人自建券的折扣上限（契约 18.5）。
+func resolveCouponCap(ref settings.Referral, member *model.Member) couponCap {
+	maxCoupon := int64(0)
+	if hundredths, err := pricing.ParsePercent(ref.MaxCouponPercent); err == nil {
+		maxCoupon = hundredths
+	}
+
+	effective := int64(0)
+	source := "全局默认"
+	if member != nil && member.RebatePercentOverride != nil {
+		if hundredths, err := pricing.ParsePercent(*member.RebatePercentOverride); err == nil {
+			effective = hundredths
+			source = "会员级特批"
+		}
+	}
+	if source == "全局默认" {
+		if hundredths, err := pricing.ParsePercent(ref.DefaultPercent); err == nil {
+			effective = hundredths
+		}
+	}
+
+	cap := maxCoupon
+	if effective < cap {
+		cap = effective
+	}
+	return couponCap{
+		Cap:              cap,
+		EffectivePercent: effective,
+		MaxCouponPercent: maxCoupon,
+		EffectiveSource:  source,
+	}
 }

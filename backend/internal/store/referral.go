@@ -285,7 +285,8 @@ func grantReferralRebate(tx *gorm.DB, order *model.Order, now time.Time) (*model
 		return nil, err
 	}
 
-	if err := applyRebateBalanceChange(tx, buyer.InviterID, rebateCents, rebate.ID, rebate.Note, now); err != nil {
+	if err := applyRebateBalanceChange(tx, buyer.InviterID, rebateCents,
+		model.LedgerRefReferralRebate, rebate.ID, rebate.Note, now); err != nil {
 		return nil, err
 	}
 	return &rebate, nil
@@ -296,7 +297,10 @@ func grantReferralRebate(tx *gorm.DB, order *model.Order, now time.Time) (*model
 //
 // 与 applyBalanceChange 的差别：rebate_balance **可为负**（已提现后客户退款 → 扣成负），
 // 不做余额不足校验；流水的 balance_before / balance_after 记的是 rebate_balance 的前后值。
-func applyRebateBalanceChange(tx *gorm.DB, memberID uint64, deltaCents int64, refID uint64, note string, now time.Time) error {
+//
+// refType 标识单据来源（契约 18.1.1）：referral_rebate（返佣发放/冲回）/
+// referral_withdrawal（提现冻结/退回）/ referral_conversion（转余额的返现侧）。
+func applyRebateBalanceChange(tx *gorm.DB, memberID uint64, deltaCents int64, refType string, refID uint64, note string, now time.Time) error {
 	var member model.Member
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", memberID).Take(&member).Error; err != nil {
 		return notFoundIfNeeded(err)
@@ -322,7 +326,7 @@ func applyRebateBalanceChange(tx *gorm.DB, memberID uint64, deltaCents int64, re
 		Amount:        model.Money(pricing.FormatAmount(deltaCents)),
 		BalanceBefore: member.RebateBalance,
 		BalanceAfter:  model.Money(after),
-		RefType:       model.LedgerRefReferralRebate,
+		RefType:       refType,
 		RefID:         refID,
 		Note:          note,
 		CreatedAt:     now,
@@ -364,7 +368,8 @@ func rollbackReferralRebateInTx(tx *gorm.DB, orderID uint64, now time.Time) erro
 		return fmt.Errorf("返佣流水 %d 金额数据异常: %w", rebate.ID, err)
 	}
 	if rebateCents > 0 {
-		if err := applyRebateBalanceChange(tx, rebate.InviterID, -rebateCents, rebate.ID,
+		if err := applyRebateBalanceChange(tx, rebate.InviterID, -rebateCents,
+			model.LedgerRefReferralRebate, rebate.ID,
 			"订单 "+rebate.Note+" 冲回", now); err != nil {
 			return err
 		}

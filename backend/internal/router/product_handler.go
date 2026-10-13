@@ -731,11 +731,12 @@ func pricingRawJSON(raw json.RawMessage) (string, error) {
 }
 
 // failRuleError 把「格式/规则」两类业务校验错误映射为错误码：
-// 规则类（定价/优惠码/设置项/财务/工单/邀请返佣规则不成立）→ 40002，其余格式类 → 40001。
+// 规则类（定价/优惠码/设置项/财务/工单/邀请返佣/出账申请规则不成立）→ 40002，其余格式类 → 40001。
 func failRuleError(c *gin.Context, err error) {
 	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) ||
 		errors.Is(err, settings.ErrRule) || errors.Is(err, errFinanceRule) ||
-		errors.Is(err, errTicketRule) || errors.Is(err, errReferralRule) {
+		errors.Is(err, errTicketRule) || errors.Is(err, errReferralRule) ||
+		errors.Is(err, errPayoutRule) {
 		response.Fail(c, response.CodeValidationFailed, err.Error())
 		return
 	}

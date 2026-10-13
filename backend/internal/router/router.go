@@ -173,6 +173,9 @@ func New(opts Options) *gin.Engine {
 	notifications := &notificationHandler{store: st, logger: opts.Logger}
 	// R10-A：邀请返佣（会员端概览/开通/流水/邀请列表，契约 18）。
 	referrals := &referralHandler{store: st, reader: settingsReader, logger: opts.Logger}
+	// R10-B：邀请人自建券 + 提现/转余额（含审核），契约 18.5。
+	referralCoupons := &referralCouponHandler{store: st, reader: settingsReader, logger: opts.Logger}
+	referralPayouts := &referralPayoutHandler{store: st, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
 	{
@@ -254,6 +257,17 @@ func New(opts Options) *gin.Engine {
 			memberAPI.PUT("/referral", referrals.updateReferral)
 			memberAPI.GET("/referral/rebates", referrals.listRebates)
 			memberAPI.GET("/referral/invitees", referrals.listInvitees)
+
+			// 邀请人自建券（R10-B，契约 18.5）：仅本人；折扣上限 = min(设置, 生效返佣比例)。
+			memberAPI.POST("/referral/coupons", referralCoupons.createReferralCoupon)
+			memberAPI.GET("/referral/coupons", referralCoupons.listReferralCoupons)
+			memberAPI.PUT("/referral/coupons/:id", referralCoupons.updateReferralCoupon)
+
+			// 提现 / 转余额（R10-B，契约 18.1.1）：仅本人；负数余额一律拒。
+			memberAPI.POST("/referral/withdrawals", referralPayouts.createWithdrawal)
+			memberAPI.GET("/referral/withdrawals", referralPayouts.listMyWithdrawals)
+			memberAPI.POST("/referral/conversions", referralPayouts.createConversion)
+			memberAPI.GET("/referral/conversions", referralPayouts.listMyConversions)
 		}
 
 		// 管理端：登录开放，其余需要管理员 token；
@@ -266,6 +280,10 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/members", admins.listMembers)
 			adminGroup.PUT("/members/:id/status",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), admins.updateMemberStatus)
+			// 会员更新（R10-B，契约 6.3）：本批只承载会员级返佣特批比例，
+			// 权限沿用 members.status 口径（admin / finance）。
+			adminGroup.PUT("/members/:id",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), admins.updateMember)
 
 			// 上游探活：按当前后台设置只读调用上游验证连通性（未配置时返回 connected=false）。
 			upstreamGroup := adminGroup.Group("/upstream")
@@ -367,6 +385,19 @@ func New(opts Options) *gin.Engine {
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.createCoupon)
 			adminGroup.PUT("/coupons/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), coupons.updateCoupon)
+
+			// 邀请返佣出账申请（R10-B，契约 18.1.1 / 18.5）：
+			// 查看类走财务域口径（admin / finance）；审核与打款**仅 admin**。
+			adminGroup.GET("/referral/withdrawals",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), referralPayouts.listAdminWithdrawals)
+			adminGroup.GET("/referral/conversions",
+				requireAdminRole(model.RoleAdmin, model.RoleFinance), referralPayouts.listAdminConversions)
+			adminGroup.POST("/referral/withdrawals/:id/review",
+				requireAdminRole(model.RoleAdmin), referralPayouts.reviewWithdrawal)
+			adminGroup.POST("/referral/withdrawals/:id/mark-paid",
+				requireAdminRole(model.RoleAdmin), referralPayouts.markWithdrawalPaid)
+			adminGroup.POST("/referral/conversions/:id/review",
+				requireAdminRole(model.RoleAdmin), referralPayouts.reviewConversion)
 
 			// 工单（阶段 6a，契约 16.3）：工单域是**客服域**——admin 与 support 全权
 			// （这是唯一给 support 写权限的域），finance 一律 403（含只读）。

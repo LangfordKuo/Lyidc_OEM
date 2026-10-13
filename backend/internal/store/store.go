@@ -34,6 +34,14 @@ var (
 	// ErrStateConflict 表示记录当前状态不允许该操作（如取消已支付订单）；
 	// 调用方应回读记录状态给出具体提示。
 	ErrStateConflict = errors.New("记录状态不允许该操作")
+	// ErrRebateNegative 表示邀请返现余额为负（契约 18.1.1：负值只禁提现与转换）。
+	ErrRebateNegative = errors.New("邀请返现余额为负")
+	// ErrInsufficientRebate 表示申请金额超过**可用**返现余额
+	// （可用 = rebate_balance − 在途 convert 申请额；在途 withdraw 已冻结不必再减）。
+	// 需要带可用余额明细时用 InsufficientRebateError。
+	ErrInsufficientRebate = errors.New("邀请返现余额不足")
+	// ErrInvalidAmount 表示出账申请金额不合法（≤ 0）。
+	ErrInvalidAmount = errors.New("申请金额必须大于 0")
 	// ErrInviterAlreadyBound 表示买家已绑定邀请人（members.inviter_id 非 0），
 	// 不能再用邀请人自建券完成绑定（契约 18.5：自建券仅限未绑定邀请关系的客户）。
 	ErrInviterAlreadyBound = errors.New("已绑定邀请关系")

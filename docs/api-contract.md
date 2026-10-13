@@ -2,14 +2,15 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v19（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v20（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
 > 阶段 8 管理端订单接口；R5 商品简介：上游 description 拉取落库 + 商品卡配置列表（`description_lines`）；
 > R6 配置控件矩阵 + 数量型取值口径 + 系统二级选择；
 > R7 配置差价联动计价 + 商品两级分类（主分类 / 子分类）；R9-A 商品分类管理；R9-B 商品与分类合并页；
-> **R10-A 邀请返佣：契约 + 迁移 + 绑定与返佣结算核心**）
+> R10-A 邀请返佣：契约 + 迁移 + 绑定与返佣结算核心；
+> **R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理**）
 
 ## 1. 通用约定
 
@@ -412,6 +413,32 @@ curl -s "http://127.0.0.1:8080/api/v1/admin/members?page=1&page_size=20&status=a
 
 行为约定：会员被禁用后，登录返回 `403`（`账号已被禁用`），此前签发的会员 token 访问任何会员接口也返回 `403`；重新启用后恢复。
 
+#### `PUT /api/v1/admin/members/:id`
+
+管理端会员更新接口（R10-B，契约 18.5）。本批只承载**会员级返佣特批比例**；
+后续管理端会员可写字段一律走本接口，不再新增 `/members/:id/xxx` 子路径。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（`aud=admin`），且角色必须是 `admin` 或 `finance`（与 `members.status` 写权限同口径） |
+| 路径参数 | `id`：会员 ID（正整数） |
+| 请求体 | `rebate_percent_override`（**三态**，见下）；本批不接受其它字段 |
+| 成功 | HTTP 200，`data` 为更新后的会员对象 |
+| 错误码 | `40001`（ID 非正整数、请求体为空、`rebate_percent_override` 类型既非字符串也非 `null`、比例格式非法）、`40002`（比例越界，需 `0.00`–`100.00`）、`401`、`403`、`404`（`会员不存在`）、`50001` |
+
+**`rebate_percent_override` 三态**（与 12.1 密钥三态、`PUT /admin/products/:id` 的 `rebate_percent` 三态同一套写法）：
+
+| 取值 | 语义 |
+| --- | --- |
+| 键缺席（不传） | **不改**该字段 |
+| `null` | **清空**（落 `NULL`，回到「不覆盖」，生效比例落到全局默认） |
+| 字符串 | **设值**，`0.00`–`100.00` 两位小数；非法格式 `40001`、越界 `40002` |
+
+设值后立即生效：下一笔支付结算返佣时按「会员级 > 全局默认」取值（三级优先级的第二级，
+见 18.2）；已发放的返佣流水不受影响（`ratio_percent` 是发放时快照）。
+管理端会员视图（`GET /admin/members` 列表与本接口响应）输出 `rebate_percent_override`
+（`string \| null`），供页面显示「已特批 x%」。
+
 ### 6.4 角色权限矩阵
 
 | 接口 | admin | finance | support |
@@ -420,6 +447,7 @@ curl -s "http://127.0.0.1:8080/api/v1/admin/members?page=1&page_size=20&status=a
 | `GET /api/v1/admin/profile` | ✓ | ✓ | ✓ |
 | `GET /api/v1/admin/members` | ✓ | ✓ | ✓ |
 | `PUT /api/v1/admin/members/:id/status` | ✓ | ✓ | ✗（`403`） |
+| `PUT /api/v1/admin/members/:id`（R10-B，会员级特批比例） | ✓ | ✓ | ✗（`403`） |
 
 会员端接口（`/api/v1/members/*`）只接受会员 token；管理员 token 访问返回 `401`。角色守卫挂在路由层（`internal/router`）：`requireAdmin` 负责 token 与账号状态，`requireAdminRole` 负责角色白名单。
 
@@ -1569,6 +1597,8 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 | `used_count` | int | 已使用次数（默认 0）；**阶段 4 起由支付成功触发原子条件自增**（下单不计数、取消不回退，防超用，见 12.5） |
 | `status` | string | `on` 启用 / `off` 停用（默认 `on`）；**不提供 DELETE —— 停用即 `status=off`** |
 | `comment` | string | 备注（管理端可见，≤ 255 字符，可空） |
+| `owner_member_id` | int | **自建券归属邀请人 ID**（R10-A 落列，R10-B 提供建券接口）：`0` = 平台券（任何人可用）；非 `0` = 邀请人自建券（仅限**未绑定**邀请关系的客户使用，绑定规则见 18.5） |
+| `source` | string | **派生字段**（不落库，只在管理端视图输出）：`owner_member_id == 0` → `platform`（平台券）；非 `0` → `member`（邀请人自建券），便于运营区分 |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
 
 ### 11.2 折扣计算与校验语义
@@ -1673,6 +1703,12 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/admin/coupons \
 三态说明：`cycles` / `starts_at` / `expires_at` 传 `null` 表示**清空**——时间清为 `NULL`
 （不限制），`cycles` 恢复为全部周期；不传（键缺席）表示保持原值。`starts_at` / `expires_at`
 的先后关系按**更新后的最终值**校验（未提供的沿用库内现值）。
+
+**自建券的额外约束（R10-B）**：`owner_member_id` 非 `0` 的优惠码是**邀请人自建券**，
+其折扣上限由邀请人的生效返佣比例决定（见 18.5「折扣上限」）。为杜绝「管理员代改大 `value`
+绕过上限」，**管理端 `PUT` 对自建券一律拒绝修改 `value`**（请求体含 `value` 即 `40002`，
+message=`自建券的折扣值不可修改`）；平台券（`owner_member_id = 0`）不受此限。
+`type` 仍创建后不可修改（对平台券与自建券一致）。
 
 ```bash
 # 停用（替代删除）并放宽为全部周期
@@ -2433,6 +2469,11 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/orders \
 | `GET/POST /api/v1/admin/notifications`、`/unread-count`、`/:id/read`、`/read-all`（阶段 6b，个人收件箱） | ✓ | ✓ | ✓ | ✗（`401`） |
 | `GET/PUT /api/v1/admin/settings/referral`（R10-A，邀请返佣设置，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/referral`、`GET /api/v1/referral/rebates`、`GET /api/v1/referral/invitees`（R10-A，仅本人） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST/GET /api/v1/referral/coupons`、`PUT /api/v1/referral/coupons/:id`（R10-B，邀请人自建券，仅本人） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST/GET /api/v1/referral/withdrawals`、`POST/GET /api/v1/referral/conversions`（R10-B，提现与转余额申请，仅本人） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `GET /api/v1/admin/referral/withdrawals`、`GET /api/v1/admin/referral/conversions`（R10-B，查看类，财务域口径） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `POST /api/v1/admin/referral/withdrawals/:id/review`、`/:id/mark-paid`、`POST /api/v1/admin/referral/conversions/:id/review`（R10-B，**仅 admin**） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `PUT /api/v1/admin/members/:id`（R10-B，会员级特批比例，与 `members.status` 同口径） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 
 ### 12.8 错误码汇总（阶段 4 新增场景）
 
@@ -3940,10 +3981,14 @@ status = active
 （mini sink 不校验凭据）；交付类事件（`order_delivered` / `order_failed` / `renew_succeeded`）
 由集成测试覆盖（假上游 + 同步通知），**未做真实开通的真机演练**（本批可选项，避免真机开销）。
 
-## 18. 邀请返佣（R10-A）
+## 18. 邀请返佣（R10-A / R10-B）
 
 邀请返佣把「老带新」的收益固定成一条**钱的口径**：买家下单并支付成功后，按订单原价与一个生效比例
 算出返佣，发到其邀请人的**邀请返现余额**。本节是该口径的唯一权威；公式与比例优先级不得自行改动。
+
+R10-A 落地绑定与返佣结算核心（18.1–18.4 的钱的口径、18.5 的概览/流水/邀请列表与自建券使用规则）；
+R10-B 落地自建券创建与管理、提现/转余额（含审核）、管理端返佣管理（18.1.1 的出账申请表与账务口径、
+18.5 的自建券/出账接口与折扣上限）。
 
 ### 18.1 数据模型（迁移 0015）
 
@@ -3984,6 +4029,87 @@ status = active
 **设置项 `referral`（复用 12.1 设置机制）**：`{"enabled", "default_percent", "max_coupon_percent"}`。
 `enabled` 是返佣**总开关**；`default_percent` 是全局默认比例；`max_coupon_percent` 是邀请人自建券的
 折扣上限口径（**留待 R10-B 建券接口使用**，本批只落字段与校验）。
+
+### 18.1.1 出账申请表 `referral_payouts`（迁移 0016，R10-B）
+
+提现与转余额共用**同一张申请表**，用 `kind` 区分。取舍：两者的字段（申请人 / 金额 /
+状态机 / 审核人 / 审核备注 / 时间戳）与审核动作几乎完全一致，拆两张表会复制一套
+状态机、审核路径与幂等锚点；`kind` 一列足以分流。表名取中性的 `payouts`（出账）
+而非 `withdrawals`，因为 `convert` 是系统内两账户互转、并非提现。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `BIGINT UNSIGNED` | 申请 ID |
+| `kind` | `VARCHAR(16)` | `withdraw` 提现 / `convert` 转余额 |
+| `member_id` | `BIGINT UNSIGNED` | 申请人会员 ID |
+| `amount` | `DECIMAL(14,2)` | 申请金额，**恒 > 0** |
+| `channel` | `VARCHAR(16)` | 到账渠道（仅 `kind=withdraw`）：`wechat` / `alipay`；`kind=convert` 恒为空串 |
+| `account_name` | `VARCHAR(64)` | 收款人姓名（**敏感**：接口回显脱敏、日志与审计一律脱敏）；`kind=convert` 恒为空串 |
+| `account_no` | `VARCHAR(64)` | 收款账号（**敏感**，同上）；`kind=convert` 恒为空串 |
+| `status` | `VARCHAR(16)` | `pending` / `approved` / `rejected` / `paid`（`kind=convert` 只到 `approved` / `rejected`） |
+| `remark` | `VARCHAR(255)` | 申请备注（申请人填） |
+| `review_note` | `VARCHAR(255)` | 审核备注（管理员填） |
+| `reviewed_by` | `BIGINT UNSIGNED` | 审核管理员 ID；`0` = 尚未审核 |
+| `reviewed_at` | `DATETIME NULL` | 审核时间（UTC） |
+| `paid_at` | `DATETIME NULL` | 线下打款时间（UTC，仅 `kind=withdraw` 走到 `paid`） |
+| `created_at` / `updated_at` | `DATETIME` | UTC |
+
+索引：`idx_referral_payouts_member (member_id, kind, status)`（本人列表 + 在途申请额聚合）、
+`idx_referral_payouts_status (status, kind)`（管理端筛选）。
+
+**状态机（两种 kind 共用骨架）**
+
+```
+withdraw:  pending ──approve──▶ approved ──mark-paid──▶ paid
+           pending ──reject───▶ rejected
+
+convert:   pending ──approve──▶ approved
+           pending ──reject───▶ rejected
+```
+
+- `rejected` / `paid` 是**终态**，不可再流转到其它状态（`40002`）；
+- **重复审核 / 重复打款幂等**：对 `approved` 再次 `approve`、对 `rejected` 再次 `reject`、
+  对 `paid` 再次 `mark-paid` 一律 `200` + `already=true`，不重复产生任何资金动作，
+  且**不覆盖**首次的 `reviewed_at` / `paid_at`；
+- `approve` 一个已 `rejected` 或已 `paid` 的申请、`reject` 一个已 `approved` 或已 `paid`
+  的申请、`mark-paid` 一个非 `approved` 的申请，一律 `40002`（含 message 说明当前状态）。
+
+**账务口径（本批定稿，两类不同）**
+
+| kind | 提交时 | 审核通过时 | 驳回时 | 打款时 |
+| --- | --- | --- | --- | --- |
+| `withdraw` | **提交即冻结**：`rebate_balance` 立即扣减 + 写返现侧 ledger（负） | 只改状态（钱已冻结） | **退回冻结额**：`rebate_balance` 加回 + 写返现侧 ledger（正） | 只记 `paid_at` |
+| `convert` | **只登记不动钱**：校验可用余额后建 `pending` 行 | **同一事务**执行换算：`rebate_balance` 减 + `balance` 加 + **两端各一条 ledger** | **不动余额**（提交时就没扣过） | 不适用 |
+
+- **为什么两类口径不同**：提现是「钱要出系统」，冻结口径保证重复申请不会超额、
+  且线下打款前资金已锁定，驳回退回与既有返佣冲回（18.4）是同一套账务模式；
+  转换是「系统内两个账户互转」，钱不离开系统，不必提前冻结，审核通过时一笔事务
+  完成两端变动与两条流水，幂等锚点是 `status: pending→approved` 的**条件更新**
+  （影响行数为 0 即已生效过，直接返回 `already=true`）。
+- **可用返现余额**（两类申请的提交校验共用）：
+
+  ```
+  可用余额 = rebate_balance − Σ(kind=convert 且 status=pending 的 amount)
+  ```
+
+  在途 `withdraw` **不需要**再减——它们在提交时已经从 `rebate_balance` 里扣掉了。
+  校验在**行锁**（`SELECT … FOR UPDATE`）下进行，并发提交不会超额。
+- **两条 ledger 的类型口径**（18.3 的 `referral_rebate` 语义在本批扩写）：
+  - **凡动 `rebate_balance` 的账目**（返佣发放 / 冲回 / 提现冻结 / 提现退回 / 转出）
+    一律 `type=referral_rebate`（金额有符号：正 = 进、负 = 出），
+    `balance_before` / `balance_after` 记的都是 `rebate_balance` 前后值；
+    靠 **`ref_type`** 区分单据来源：`referral_rebate`（返佣流水）/ `referral_withdrawal`（提现申请）/
+    `referral_conversion`（转余额申请）。
+  - **转换的消费侧入账** `type=adjust`（正），`ref_type=referral_conversion`，
+    `balance_before` / `balance_after` 记的是消费余额 `balance` 前后值。
+    取舍：`adjust` 是既有预留的「人工调整」类型，语义即「非充值、非订单支付的余额变动」；
+    用 `recharge`（专指充值入账）或 `order_pay`（专指订单扣款）都会污染那两类的对账口径。
+  - **不新增 `ledger.type` 枚举**：避免 0016 再扩 ENUM 与 `IsValidLedgerType` 双处同步的风险面；
+    会员端 `GET /finance/ledger` 继续过滤掉 `referral_rebate`（动的不是消费余额），
+    因此提现冻结/退回不会出现在会员余额流水里，而转换的 `adjust` 那一条**会出现**（正确）。
+
+**负数口径**：`rebate_balance < 0` 时**禁止**提交提现与转换（`40002` 明确提示），
+其余功能（登录 / 下单 / 充值 / 邀请 / 建券）不受影响。
 
 ### 18.2 公式与比例优先级
 
@@ -4173,30 +4299,270 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 
 管理端商品视图（列表/详情）同步输出 `rebate_percent`（可空）与 `rebate_disabled`。
 
+#### 邀请人自建优惠码（R10-B）
+
+##### 折扣上限（防倒挂，核心风控）
+
+邀请人自建券的**折扣百分比上限**：
+
+```
+上限 = min(settings.referral.max_coupon_percent, 邀请人的生效返佣比例)
+```
+
+- **邀请人的生效返佣比例** = 会员级 `members.rebate_percent_override`（非 `NULL` 且合法时优先），
+  否则全局 `referral.default_percent`。即 18.2 三级优先级的**前两级**——
+  **商品级不参与**：券是跨商品通用的，无法绑定到某个商品的比例上；
+- `max_coupon_percent` 是管理员**再收紧**的全局闸门（缺省 `100.00`，即不额外收紧）；
+- **含义**：返还 20% 的人最多发 8 折券（`value=20`，即折扣 20%）。此时该单
+  `返佣 = max(原价×20% − 券减免, 0) = max(20 − 20, 0) = 0`——返佣恰好归零，
+  **任何情况下返佣不为负**（公式地板是第二道防线，上限是第一道）；
+- **生效比例为 `0.00` 时上限也是 `0.00`**，此时任何自建券都被拒（发券等于白送折扣、
+  没有返佣对冲）。message 明确给出当前上限值；
+- 上限**在创建时校验**；`value` 一经创建**不可修改**（见下），因此不存在「改大绕过上限」的路径。
+  若将来放开改值，必须按同一公式重算校验。
+- **边界**：上限只在**创建时**判定。之后管理员下调 `max_coupon_percent` 或邀请人的特批比例，
+  **已存在的自建券不回收**（会误伤已发出去的获客工具）；运营如需收紧，走停用（`status=off`）。
+
+##### `POST /api/v1/referral/coupons` — 创建自建券
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人） |
+| 前置 | 调用者必须**已开通邀请返现**（`referral_enabled=1`），否则 `40002`「请先开通邀请返现」 |
+| 归属 | `owner_member_id` **强制 = 调用者**（请求体不接受该字段，传了也忽略） |
+
+请求体：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `code` | string | 必填；3-32 位 `[A-Za-z0-9_-]`，唯一且大小写不敏感（同 11.1） |
+| `type` | string | 必填；本批**只允许 `percent`**（见下） |
+| `value` | string | 必填；折扣百分比，`0 < x ≤ 100` 两位小数，且**必须 ≤ 折扣上限** |
+| `cycles` | string[] | 可选，同 11.1（省略 / 空数组 = 全部 6 周期） |
+| `starts_at` / `expires_at` | string \| null | 可选，RFC3339 UTC，同 11.1 |
+| `max_uses` | int | 可选，缺省 `0`（不限），同 11.1 |
+| `comment` | string | 可选，≤ 255 字符，同 11.1 |
+
+**为什么本批只允许 `percent`**：折扣上限要用「比例 ≤ 比例」来保证
+`原价×返佣比例 − 券减免 ≥ 0` 恒成立。`fixed` 是**绝对金额**减免，
+同一张固定额券在 10 元订单上是 100% 折扣、在 1000 元订单上是 1% 折扣，
+**无法用一个比例卡住倒挂**——除非再引入「按订单原价分段的上限」，复杂度远超收益。
+取舍：本批自建券只做 `percent`；平台券（管理端创建）仍支持 `fixed`，不受此限。
+
+成功 `data` = 优惠码对象（结构同 11.3，额外带 `owner_member_id` 与 `source="member"`）。
+
+| code | HTTP | 场景 |
+| --- | --- | --- |
+| `40001` | 400 | `code` 非法、`value` 写法非法、`cycles` 含非法周期、时间非 RFC3339、`comment` 超长 |
+| `40002` | 400 | 未开通邀请返现；`type` 不是 `percent`；`value ≤ 0` 或 `> 100`；**`value` 超过折扣上限**（message 含当前上限值，如「折扣不能超过 20.00（上限 = min(设置 50.00, 生效比例 20.00)）」）；`starts_at` 不早于 `expires_at`；`max_uses` 越界 |
+| `401` | 401 | 未携带/无效会员 token（管理员 token 访问同样 `401`） |
+| `409` | 409 | `code` 已存在（大小写不敏感） |
+| `50001` | 500 | 写入本地库失败 |
+
+##### `GET /api/v1/referral/coupons` — 我创建的券（分页）
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人，只返回 `owner_member_id = 本人` 的券） |
+| 查询参数 | `page` / `page_size`（缺省 `1` / `20`，上限 `100`） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`，**新建在前** |
+
+`items[]` 字段：`id` / `code` / `type` / `value` / `cycles` / `starts_at` / `expires_at` /
+`max_uses` / `used_count` / `status` / `comment` / `created_at` / `updated_at`。
+（含 `code` / `value` / `status` / `used_count` / 有效期，满足运营自查。）
+
+##### `PUT /api/v1/referral/coupons/:id` — 改自己的券
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人） |
+| 可改字段 | **仅 `status`（启停）与 `expires_at`（含三态：`null` 清空 = 永不过期）** |
+| 不可改 | `value` / `code` / `owner_member_id` / `type` —— 请求体里出现这些字段一律 `40001` 明确拒绝（不静默忽略） |
+| 归属 | **只能改自己的券**；他人券（含平台券）一律 `404`「优惠码不存在」 |
+| 成功 | HTTP 200，`data` 为更新后的券对象 |
+
+错误码：`40001`（含不可改字段、`status` 非法、时间非 RFC3339）、`40002`（`expires_at` 早于
+`starts_at`，按更新后最终值校验）、`401`、`404`、`50001`。
+
+> 取舍：`value` 不可改是为了**杜绝绕过折扣上限**（创建时已按当时的上限校验）；
+> `code` 不可改是为了避免「改码挖客」（老客户手上还拿着旧码）；
+> `owner` 不可改是为了避免「把券转给别人」绕开首绑归属。
+
+##### 管理端自建券可见性（R10-B 扩 11.3）
+
+`GET /api/v1/admin/coupons`、`GET /api/v1/admin/coupons/:id` 的每一项输出
+`owner_member_id`（int）与 `source`（`platform` / `member`），供运营区分平台券与自建券。
+管理端 `PUT` 对自建券拒绝修改 `value`（见 11.3）；管理端**不代改**自建券的 `owner` / `type`。
+
+#### 提现申请（R10-B）
+
+##### `POST /api/v1/referral/withdrawals` — 提交提现申请
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人） |
+| 账务 | **提交即冻结**（见 18.1.1）：`rebate_balance` 立即扣减 + 写返现侧 ledger（负） |
+
+请求体：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `amount` | string | 必填；金额 `> 0`、两位小数、≤ 可用返现余额 |
+| `channel` | string | 必填；`wechat` / `alipay` |
+| `account_name` | string | 必填；收款人姓名，1–64 字符（去首尾空白后） |
+| `account_no` | string | 必填；收款账号，1–64 字符 |
+| `remark` | string | 可选；≤ 255 字符 |
+
+校验（按顺序）：
+
+| 条件 | code | message 要点 |
+| --- | --- | --- |
+| 金额写法非法（非十进制 / 超两位小数 / 带负号） | `40001` | 金额格式不正确 |
+| `channel` 不是 `wechat`/`alipay` | `40001` | channel 只能是 wechat 或 alipay |
+| `account_name` / `account_no` 为空或超 64 字符 | `40001` | 收款人姓名/账号不能为空或超长 |
+| `remark` 超 255 字符 | `40001` | |
+| `amount ≤ 0` | `40002` | 金额必须大于 0 |
+| **`rebate_balance < 0`** | `40002` | 邀请返现余额为负，暂不能提现或转余额 |
+| **`amount > 可用余额`** | `40002` | 余额不足（message 含可用余额） |
+
+成功 `data` = 申请对象（账号字段**脱敏**，见下）。
+
+##### `GET /api/v1/referral/withdrawals` — 我的提现申请（分页）
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人） |
+| 查询参数 | `page` / `page_size`；可选 `status`（`pending` / `approved` / `rejected` / `paid`） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`，**新建在前** |
+
+`items[]` 字段：`id` / `kind` / `amount` / `channel` / `account_name` / `account_no` /
+`status` / `remark` / `review_note` / `reviewed_at` / `paid_at` / `created_at` / `updated_at`。
+`account_name` / `account_no` **一律脱敏回显**（见下）。
+
+#### 转余额申请（R10-B）
+
+##### `POST /api/v1/referral/conversions` — 申请把返现余额转为消费余额
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 会员 token（仅本人） |
+| 账务 | **提交时不动钱**；审核通过时才换算（见 18.1.1） |
+
+请求体：`amount`（必填，同上）、`remark`（可选，≤ 255 字符）。
+校验同提现（金额格式 / `> 0` / 负数余额禁止 / `≤ 可用余额`），无需 `channel` 与账号字段。
+
+##### `GET /api/v1/referral/conversions` — 我的转余额申请（分页）
+
+同提现列表口径，只返回 `kind=convert` 的行；`channel` / `account_name` / `account_no`
+恒为空串。
+
+#### 管理端审核与打款（R10-B）
+
+##### `GET /api/v1/admin/referral/withdrawals` / `GET /api/v1/admin/referral/conversions`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，角色 `admin` / `finance`（财务域口径，同 `GET /admin/ledger`） |
+| 查询参数 | `page` / `page_size`、`status`、`member_id`（正整数，省略 = 不过滤）、`kind`（仅 withdrawals 接口，缺省 `withdraw`；传 `all` 两类都查） |
+| 成功 | HTTP 200，`data` = `{items, page, page_size, total}`，**新建在前** |
+
+`items[]` 除申请字段外，额外带 `member` 会员概要（`id` / `username` / `nickname`），
+按当页 `member_id` 批量查出，缺失输出 `null`。账号字段**脱敏回显**（见下）。
+
+##### `POST /api/v1/admin/referral/withdrawals/:id/review`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin`**（`finance` / `support` 一律 `403`） |
+| 请求体 | `action`（必填，`approve` / `reject`）、`review_note`（可选，≤ 255 字符） |
+
+行为按 18.1.1 状态机：`approve` 只改状态；`reject` **退回冻结额**
+（`rebate_balance` 加回 + 写返现侧 ledger 正向）。重复审核幂等（`already=true`）。
+非法流转 `40002`（message 含当前状态）。
+
+##### `POST /api/v1/admin/referral/withdrawals/:id/mark-paid`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin`** |
+| 请求体 | 空体或 `{}`；可选 `review_note`（追加记录线下打款备注） |
+
+仅 `approved` 可标 `paid` 并记 `paid_at`（取服务端当前 UTC 时间）；重复打款幂等
+（`already=true`，**不覆盖**首次 `paid_at`）；非 `approved` 一律 `40002`。
+
+##### `POST /api/v1/admin/referral/conversions/:id/review`
+
+同 withdrawals 的 review，但只有 `approve` / `reject` 两态：
+`approve` 在**同一事务**里执行换算（`rebate_balance` 减 + `balance` 加 + 两端各一条 ledger）；
+`reject` **不动余额**（提交时就没扣过）。重复审核幂等（`already=true`，换算只生效一次）。
+
+#### 敏感数据脱敏口径（R10-B）
+
+`account_name` / `account_no` 是提现收款人信息，遵循仓库既有脱敏范式
+（对齐 SMTP 口令的「只进库、对外一律掩码」口径）：
+
+| 场景 | 行为 |
+| --- | --- |
+| 接口回显（会员端列表 / 管理端列表） | `account_name` → **姓氏保留 + `**`**（如「张三」→「张**」，单字名 → 「**」）；`account_no` → **前 2 后 2，中间 `****`**（不足 6 位只留首尾各 1 位，不足 2 位整体 `****`） |
+| 提交请求回执 | 同上脱敏（**不回显原文**） |
+| 日志（`slog`） | 一律脱敏；禁止打印原文 |
+| 审计 / 备注 | 一律脱敏 |
+
+脱敏只发生在**展示边界**；库内存原文（否则线下打款无法核对收款人）。
+任何错误 message、`review_note` 模板、通知文案都不得包含原文。
+
+#### 管理端会员特批比例（R10-B）
+
+见 6.3 `PUT /api/v1/admin/members/:id`（`rebate_percent_override` 三态）。
+管理端会员视图输出该字段，供页面显示「已特批 x%」。
+
 ### 18.6 角色权限矩阵（邀请返佣部分）
 
 | 接口 | admin | finance | support | 会员 |
 | --- | --- | --- | --- | --- |
 | `GET/PUT /api/v1/admin/settings/referral` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `PUT /api/v1/admin/products/:id`（含返佣字段） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `PUT /api/v1/admin/members/:id`（会员级特批比例，R10-B） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/referral` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `GET /api/v1/referral/rebates` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
 | `GET /api/v1/referral/invitees` | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST/GET /api/v1/referral/coupons`、`PUT /api/v1/referral/coupons/:id`（R10-B） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `POST/GET /api/v1/referral/withdrawals`、`POST/GET /api/v1/referral/conversions`（R10-B） | ✗（`401`） | ✗（`401`） | ✗（`401`） | ✓（仅本人） |
+| `GET /api/v1/admin/referral/withdrawals`、`GET /api/v1/admin/referral/conversions`（R10-B，查看类） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
+| `POST /api/v1/admin/referral/withdrawals/:id/review`、`/:id/mark-paid`（R10-B） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `POST /api/v1/admin/referral/conversions/:id/review`（R10-B） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/ledger?type=referral_rebate`（对账） | ✓ | ✓ | ✗（`403`） | ✗（`401`） |
 
 ### 18.7 边界与本批未做
 
-1. **会员级特批比例（`members.rebate_percent_override`）暂无管理端写接口**——字段、
-   优先级与发放逻辑已落地（测试直写库覆盖三级优先级），管理端设置入口留 **R10-B**。
-2. **邀请人自建券的创建/管理接口**留 **R10-B**（本批只落地 `owner_member_id` 的使用与绑定规则）。
-3. **提现 / 转余额**留 **R10-B**；本批只固定「返现余额可负、负值只禁提现与转余额」的口径。
-4. **前端**留 **R10-C**（本批零前端改动）。
-5. 会员端余额流水（`GET /finance/ledger`）不展示 `referral_rebate`；返佣看 `GET /referral/rebates`。
+1. **会员级特批比例**（`members.rebate_percent_override`）：R10-B 已提供管理端写入口
+   （`PUT /admin/members/:id`，见 6.3）。**边界**：特批比例只影响**之后**发放的返佣
+   （`ratio_percent` 是发放时快照）；下调或清空不回收已发放金额。
+2. **邀请人自建券**（R10-B）：
+   - 只允许 `type=percent`（`fixed` 无法用比例卡倒挂，见「折扣上限」取舍）；
+   - `value` / `code` / `owner` 创建后不可改；
+   - 折扣上限只在**创建时**判定，事后收紧设置不回收既有券（运营走停用）；
+   - 自建券**不可叠加**其它券（订单只用一张券，既有口径），也不参与平台券的任何叠加活动；
+   - 管理端**不代改**自建券的 `value`（同一上限约束）。
+3. **提现 / 转余额**（R10-B）：
+   - **线下打款**：`mark-paid` 只是记账标记，系统**不对接**任何支付渠道出款；
+   - 提现**无最低金额 / 每日次数 / 手续费**限制（本批不做，留运营后续定）；
+   - 提现**无自动超时**：`pending` 申请不会自动失效，需管理员人工处理；
+   - 转换**即时到账**（审核通过即入消费余额，无交付等待）；
+   - **负数余额**只禁提现与转换（本批已落地），不影响登录/下单/充值/邀请/建券。
+4. **前端**留 **R10-C**（本批零前端改动）：会员端返佣中心（自建券管理、提现、转余额、
+   申请记录）与管理端返佣管理页（提现/转换审核、会员特批比例、自建券查看）。
+5. 会员端余额流水（`GET /finance/ledger`）不展示 `referral_rebate`（返佣发放/冲回/提现冻结/退回）；
+   返佣看 `GET /referral/rebates`；转换的消费侧 `adjust` 那一条**会**出现在余额流水里（正确）。
+6. **退款 / 已支付取消**仍无接口（R10-A 边界不变）；一旦出现「钱退回买家」路径，
+   按 18.4 同一钩子冲回返佣，并同步冲回已冻结的提现（若该笔返佣已被提现）——
+   该联动**本批未做**，当前依赖 `rebate_balance` 可负的口径兜底。
 
 ## 19. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-13 | v20 | R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理——**① 折扣上限（18.5，核心风控，口径写死）**——`上限 = min(settings.referral.max_coupon_percent, 邀请人的生效返佣比例)`，其中「生效返佣比例」= 会员级 `rebate_percent_override` 优先、否则全局 `default_percent`（即 18.2 三级的**前两级**，**商品级不参与**——券跨商品通用，绑不到商品比例）；含义是「返还 20% 的人最多发 8 折券」，此时 `返佣 = max(原价×20% − 券减免, 0) = 0` 恰好归零，叠加公式地板保证**任何情况下返佣不为负**；生效比例为 `0.00` 时上限也是 `0.00`，任何自建券被拒（message 含当前上限值与两个来源）；上限**只在创建时判定**，事后收紧设置不回收既有券（运营走停用）。**② 自建券接口（18.5）**——`POST /api/v1/referral/coupons`（前置：`referral_enabled=1` 否则 `40002`；`owner_member_id` 强制 = 调用者；**`type` 本批只允许 `percent`**，`fixed` 是绝对金额减免、无法用一个比例卡住倒挂，故不做；`code`/`cycles`/`starts_at`/`expires_at`/`max_uses`/`comment` 沿用 11.1 校验口径）、`GET /api/v1/referral/coupons`（我创建的券分页）、`PUT /api/v1/referral/coupons/:id`（**只能改自己的券**，他人券与平台券一律 `404`；**仅允许改 `status` 与 `expires_at`**，`value`/`code`/`owner`/`type` 出现在请求体即 `40001` 明确拒绝不静默忽略——杜绝绕过上限与挖客）；管理端 `GET /admin/coupons` 视图补 `owner_member_id` 与派生 `source`（`platform`/`member`）区分平台券与自建券，管理端 `PUT` **拒绝改自建券的 `value`**（`40002`「自建券的折扣值不可修改」）。**③ 迁移 0016（up/down 成对 + go:embed，不改 0001–0015）**——新表 `referral_payouts`（**提现与转余额共用一张申请表，`kind` 区分 `withdraw`/`convert`**；取舍：字段与审核动作几乎一致，拆两表会复制状态机与幂等锚点；表名取中性 `payouts` 因 convert 不是提现），字段 `id`/`kind`/`member_id`/`amount`/`channel`(`wechat`/`alipay`)/`account_name`/`account_no`(**敏感**)/`status`(`pending`/`approved`/`rejected`/`paid`)/`remark`/`review_note`/`reviewed_by`/`reviewed_at`/`paid_at`/`created_at`/`updated_at` + 两个索引；**不新增 `ledger.type` 枚举**（避免 0016 再扩 ENUM 与 `IsValidLedgerType` 双处同步）。**④ 状态机与幂等（18.1.1）**——`withdraw: pending→approved→paid`、`pending→rejected`；`convert: pending→approved|rejected`；`rejected`/`paid` 为终态不可再流转（`40002`）；**重复审核/重复打款幂等**（对 `approved` 再 approve、对 `rejected` 再 reject、对 `paid` 再 mark-paid 一律 `200+already=true`，不重复产生资金动作、**不覆盖**首次 `reviewed_at`/`paid_at`）；非法流转 `40002`。**⑤ 账务口径定稿（18.1.1，两类不同）**——**提现「提交即冻结」**：提交时 `rebate_balance` 立即扣减 + 写返现侧 ledger（负），approve 只改状态，**reject 退回冻结额**（加回 + 正向 ledger），mark-paid 只记 `paid_at`；取舍是「钱要出系统」，冻结保证重复申请不超额、线下打款前资金已锁定，与既有返佣冲回同一套账务模式。**转换「审核通过时才换算」**：提交**只登记不动钱**，approve 在**同一事务**里 `rebate_balance` 减 + `balance` 加 + **两端各一条 ledger**（返现侧 `referral_rebate` 负向、消费侧 `adjust` 正向），幂等锚点是 `status: pending→approved` 的条件更新；**reject 不动余额**（提交时就没扣过）；取舍是「钱不离开系统」，不必提前冻结。**可用余额公式**（两类共用，行锁下校验）：`可用 = rebate_balance − Σ(kind=convert 且 status=pending 的 amount)`，在途 withdraw 不必再减（已冻结）。**⑥ ledger 口径扩写（18.3）**——凡动 `rebate_balance` 的账目（发放/冲回/提现冻结/退回/转出）一律 `type=referral_rebate`（有符号），靠 `ref_type` 区分（`referral_rebate`/`referral_withdrawal`/`referral_conversion`）；转换的消费侧用 **`adjust`**（正，`ref_type=referral_conversion`）——既有预留的「人工调整」类型，语义即非充值非订单支付的余额变动，用 `recharge`/`order_pay` 会污染那两类对账口径；会员端余额流水继续过滤 `referral_rebate`（故提现冻结/退回不出现），转换的 `adjust` 那条**会出现**（正确）。**⑦ 负数口径（18.1.1）**——`rebate_balance < 0` 时**禁止**提现与转换（`40002` 明确提示），登录/下单/充值/邀请/建券不受影响。**⑧ 敏感数据脱敏（18.5）**——`account_name`/`account_no` 对齐 SMTP 口令「只进库、对外一律掩码」口径：接口回显 `account_name` 姓氏保留 + `**`、`account_no` 前 2 后 2 中间 `****`（不足 6 位留首尾各 1、不足 2 位整体 `****`）；提交回执同脱敏不回显原文；日志/审计/备注一律脱敏；库内存原文供线下打款核对。**⑨ 会员级特批比例写入口（6.3，补 18.7 第 1 条）**——新增 `PUT /api/v1/admin/members/:id`（本批只承载 `rebate_percent_override`，**三态**：缺省不改 / `null` 清空 / 字符串设值 `0.00`–`100.00` 两位小数，非法 `40001` 越界 `40002`；权限沿用 `members.status` 口径 admin/finance）；管理端会员视图输出 `rebate_percent_override` 供页面显示「已特批 x%」；设值后下一笔支付即生效，已发放流水不受影响（快照）。**⑩ 提现/转换接口（18.5）**——会员端 `POST/GET /api/v1/referral/withdrawals`、`POST/GET /api/v1/referral/conversions`（仅本人，校验金额格式/`>0`/负数余额/可用余额，账号字段 1–64 字符非空）；管理端 `GET /api/v1/admin/referral/withdrawals`、`GET /api/v1/admin/referral/conversions`（筛选 `status`/`member_id`，分页，带会员概要，**admin/finance**）、`POST /api/v1/admin/referral/withdrawals/:id/review`（approve/reject + `review_note`）、`POST .../mark-paid`（线下已打款 → `paid` + `paid_at`）、`POST /api/v1/admin/referral/conversions/:id/review`——**审核与打款仅 admin**，查看 admin/finance（财务域口径）。**⑪ 同步**：6.4 矩阵补 `PUT /admin/members/:id`；11.1 补 `owner_member_id`/`source`；11.3 补自建券 `value` 不可代改；12.7 矩阵补 7 行；18.6 矩阵补 6 行；18.7 边界重写（特批比例影响范围、自建券只 percent/不可改值/上限只在创建时、提现线下打款无自动超时、退款联动未做）。**测试**：`go test ./...` 全量绿（改前 411 个 `func Test`）；新增覆盖——自建券：未开通返现者建券被拒、`percent` 超上限被拒（「上限 = min(设置, 生效比例)」两种来源各一例）、建券成功后 `owner_member_id` 正确、`type=fixed` 被拒、`value`/`code` 不可改、他人券 404；自建券使用规则回归（未绑定→首绑、已绑定→拒绝、自用→拒绝、平台券不受限）；提现：余额不足/为负/金额非法被拒、提交→审核通过→标记打款全链、驳回退回（断言 `rebate_balance` 加回 + 正向 ledger）、重复审核/重复打款幂等（`already=true` 且不覆盖 `paid_at`）；转换：审核通过才换算（两端余额与两条 ledger 一致）、驳回不动余额、重复审核只生效一次、负数余额禁止；管理端会员特批比例：三态（不改/null/设值）与非法值拒绝、特批后发放比例随之变化 |
 | 2026-10-13 | v19 | R10-A 邀请返佣（一）：契约 + 迁移 + 绑定与返佣结算核心——**新增第 18 节「邀请返佣」**（数据模型 / 公式与比例优先级 / 参与与不参与 / 发放幂等与回滚 / 接口 / 角色矩阵 / 边界），变更记录移至第 19 节。**① 钱的口径（18.2，不得改动）**——`返佣 = max(订单原价 × 生效比例 − 本单优惠券减免, 0)`，**下取整到分**、结果恒 ≥ 0（公式自带地板，永远不会负返佣）；「订单原价」= `orders.amount`（基础价 + Σ 配置差价，不含券减免），「本单优惠券减免」= `orders.discount_amount`；四个验证例子入契约与测试（原价 100、比例 20% → 返 20；用券实付 90（减 10）→ 返 10；20% 比例下 8 折券（减 20）→ 返 **0**；9 折券 → 返 10）。**② 生效比例三级优先（18.2）**——商品级 `products.rebate_percent` > 会员级 `members.rebate_percent_override`（邀请人本人特批）> 全局默认 `referral.default_percent`，取第一个非空命中；`products.rebate_disabled=1` **压过一切**（该商品完全不返佣）；比例 `0.00`–`100.00` 两位小数，非法值一律拒绝。**③ 返现余额独立且可负（18.3）**——发放目标是**邀请返现余额** `members.rebate_balance`（**不是**消费余额 `balance`），两个账户完全独立；**可为负**（已提现后客户退款 → 扣成负），负值时只禁止提现与转余额，不影响登录/下单/充值；`ledger.type` 扩枚举 `referral_rebate`（正=发放、负=冲回），该类型流水的 `balance_before`/`after` 记的是 `rebate_balance` 前后值，会员端余额流水过滤掉本类型（动的不是消费余额）、管理端可按类型对账。**④ 参与与不参与（18.3）**——**返**：新购 `new` 与续费 `renew`，**含用充值余额支付**（余额支付与渠道回调两条入账路径都返）；**不返**：**充值**（`recharges` 入账路径绝不挂返佣）、未绑定邀请人（`inviter_id=0`）、商品禁用返佣、总开关关闭、公式结果为 0（券减免吃满比例时不发放也不写流水）。**⑤ 发放与幂等（18.4）**——**支付成功即发**且与入账**同事务**，挂在 `store.PayOrderWithBalance`（余额）与 `store.CompleteOrderPayment`（渠道回调）两处入账口，**不挂在交付**；`referral_rebates.order_id` **唯一约束**为发放幂等锚点，重复回调由 `model.IsOrderSettled` 闸门挡住（不重复入账/不重复发放），唯一约束是第二道防线。**⑥ 回滚（18.4）**——订单取消（`status=cancelled`）回滚该笔返佣：写负向 `ledger(referral_rebate)` + `rebate_balance` 冲回 + `referral_rebates.status` 置 `rolled_back`，**再次回滚不重复**；当前取消接口只允许 `pending`（从未发放过返佣），故钩子在现有取消路径上是**防御性**的（`CancelOrder` 已改为取消成功后同事务调用同一钩子），一旦出现「已支付取消/退款」路径复用即可；系统当前无退款接口，若后续出现其他「钱退回买家」路径按同一钩子接入。**⑦ 首绑不改（18.4）**——`members.inviter_id` 一旦非 `0` 永久生效，绑定只发生在注册带邀请码、或下单用邀请人自建券且尚未绑定两处。**⑧ 迁移 0015**（up/down 成对 + go:embed，不改 0001–0014）——`members` 加 `inviter_id`/`invite_code`（唯一键，惰性生成）/`referral_enabled`/`rebate_balance`/`rebate_percent_override`；`coupons` 加 `owner_member_id`（0=平台券 / 非 0=邀请人自建券）；`products` 加 `rebate_percent`/`rebate_disabled`；新表 `referral_rebates`（`order_id` 唯一 + inviter/buyer 索引）；`ledger.type` **MODIFY 扩枚举** `referral_rebate`（down 先删该类型流水再收窄枚举，保证回滚干净）。**⑨ 接口（18.5）**——`POST /auth/register` 扩**可选** `invite_code`（按 `members.invite_code` 精确匹配解析，非法/不存在/**自邀**（同用户名或同邮箱）一律 `40002` 明确报错、不静默忽略，解析成功写 `inviter_id`）；`GET/PUT /api/v1/referral`（概览 / 开通关闭，**首次开通惰性生成唯一邀请码**：8 位 base32 去 `0/O/1/I`、`crypto/rand` + 唯一冲突换码重试 5 次、已生成则复用不换码；概览含 `invite_link`（域名取站点设置）/`rebate_balance`/`effective_percent`（总开关关闭时恒 `0.00`）/已邀请人数/累计返佣）；`GET /api/v1/referral/rebates`（返佣流水分页）、`GET /api/v1/referral/invitees`（被邀请人分页 + 消费/贡献返佣统计）；`GET/PUT /api/v1/admin/settings/referral`（总开关 + 全局默认比例 + 自建券折扣上限，**仅 admin**，复用 12.1 设置机制，改完下一笔支付即生效）；`PUT /admin/products/:id` 扩 `rebate_percent`（三态：缺省不改/`null` 清空/字符串设值）与 `rebate_disabled`，管理端商品视图同步输出两字段。**⑩ 邀请人自建券绑定规则（18.5，本批只落地使用规则，建券接口留 R10-B）**——买家用 `owner_member_id` 非 `0` 的券：未绑定 → **下单同事务首绑**到 `owner_member_id`；已绑定 → **拒绝用券** `40002`「该优惠码仅限未绑定邀请关系的客户使用」且**不改绑**（首绑不改）；邀请人用自己自建券 → 拒绝（否则自邀）；平台券（owner=0）任何人可用、不触发绑定。**⑪ 同步**：12.1 设置键补 `referral`、12.7 与 10.5 矩阵同步（`/api/v1/referral*` 仅本人、`/admin/settings/referral` 仅 admin、`PUT /admin/products/:id` 含返佣字段）、6.2 注册请求体补 `invite_code`。**测试**：`go test ./...` 全量绿（411 个 `func Test`，此前 393）；新增纯计算四例逐一断言 + 下取整/地板/边界、三级优先级与 `rebate_disabled` 压过一切、新购/续费/余额支付都返而**充值不返**、重复回调只发一次、回滚冲回 + 状态翻转 + 重复回滚不重复、`CancelOrder` 回滚钩子接线、注册邀请码合法绑定/非法/空/自邀拒绝、自建券绑定与首绑不改、概览与流水/邀请列表、管理端设置与 finance 403、会员端余额流水不含返佣而管理端可按类型对账 |
 | 2026-10-13 | v18 | R9-A 管理端分类界面：**① 商品视图补分类字段（10.4，本批唯一后端读路径改动）**——`GET /admin/products` 与 `GET /admin/products/:id` 的列表项新增 `category_id`（所属**子分类** ID，`0`=未归类）/ `category_name` / `category_parent`（所属主分类 `{id,name}`，形状对齐会员端 `group.parent`）；三键**始终存在**（未归类输出 `0` / `""` / `{id:0,name:""}`，不省略键），与 `group_id`/`group_name` 并列下发、互不替代，未归类**不回退**组名（会员端 `group` 的组名兜底不适用于管理端）；**② 管理端页面（10.4 新增小节）**——`/admin/categories` 分类管理页（两级树 + 商品计数；改名 / 改排序 / 子分类改挂主分类，写操作**仅 admin**，`finance`/`support` 只读视图）与 `/admin/products` 的「分类」列 + 「改分类」弹窗（目标为**子分类**或「未归类」`0`，提交 `category_id`，成功提示「已改挂，后续导入不再覆盖该商品分类」，即 `category_source=manual` 语义）+ 按分类筛选（`GET /admin/products` 新增查询参数 `category_id`，`0` = 只看未归类，非 0 必须是存在的子分类，否则 `404 分类不存在`）；除该过滤参数外**不新增端点**，界面只消费 10.4 既有接口；**③ 权限点定稿**——分类管理页写操作走新权限点 `categories.write`（**仅 admin**，与商品写 `products.write`（admin/finance）不是同一个权限点），商品改挂分类沿用 `products.write`；10.5 / 12.7 矩阵已含 `GET /admin/categories`（三角色只读）与 `PUT /admin/categories/:id`（仅 admin），本批核对一致、无改动；**④ 前端**：新增 `AdminCategories` 页（沿用 `ProductGroupsPanel` 的改名/改排序弹窗范式与校验口径：名称去首尾空格 1-128 字、sort `-999999`~`999999`）、侧栏「分类」入口（「商品」之后）、`adminRoles.ts` 增补 `AdminPage` 键 `categories` 与权限点 `categories.write`；`UpdateProductInput` 扩 `category_id`；**测试**：后端商品视图分类字段 + 按分类过滤（含 `0` 未归类、`40001`/`404` 负例）用例，前端分类管理页（树渲染/改名/改排序/改挂/无变化不发请求）与权限（`finance`/`support` 只读、禁用 + 原因文案、不发无权限请求）、商品分类列 / 改挂请求体 / 分类筛选请求参数用例 |
 | 2026-10-13 | v18 | R9-B 管理端「商品」与「分类」合并为一页（**页面结构合并，接口无变化、契约版本不变**）：侧栏「商品」「分类」两项合并为唯一入口「商品与分类」（`/admin/products`，page 键沿用 `products`），原 `/admin/categories` 分类管理页并入该页的「分类」页签（查询参数 `?tab=categories`，默认打开「商品」页签；**旧地址 `/admin/categories` 重定向**到 `/admin/products?tab=categories`，收藏 / 外链 / 文档不断链）；两个分区的写权限闸门各自保持——商品写 `products.write` / `products.import` / `groups.write`（admin/finance）与分类写 `categories.write`（**仅 admin**）按分区隐藏/禁用并给出 `permissionHint` 原因，不发越权请求；10.4「管理端页面」小节按新结构改写，**全部接口定义、10.5 / 12.7 矩阵与错误码无任何改动** |

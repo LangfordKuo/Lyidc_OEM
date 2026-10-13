@@ -21,6 +21,8 @@ import (
 const (
 	msgCouponMissing       = "优惠码不存在"
 	msgCouponStatusInvalid = "status 只能是 on 或 off"
+	// msgCouponSelfOwnedValueImmutable 是管理端对自建券改 value 的拒绝文案（契约 18.5）。
+	msgCouponSelfOwnedValueImmutable = "自建券的折扣值不可修改"
 )
 
 // couponHandler 处理优惠码接口：管理端 CRUD（阶段 3b）+ 公开校验接口。
@@ -32,20 +34,71 @@ type couponHandler struct {
 
 // couponView 是优惠码对外视图。value 为定点小数字符串（percent 时是百分比）；
 // cycles 为空数组表示全部 6 周期；starts_at / expires_at 为 null 表示不限制。
+//
+// R10-B 起带自建券归属：owner_member_id（0 = 平台券 / 非 0 = 邀请人自建券）
+// 与派生字段 source（platform / member），供运营区分平台券与自建券（契约 11.1 / 18.5）。
 type couponView struct {
-	ID        uint64   `json:"id"`
-	Code      string   `json:"code"`
-	Type      string   `json:"type"`
-	Value     string   `json:"value"`
-	Cycles    []string `json:"cycles"`
-	StartsAt  *string  `json:"starts_at"`
-	ExpiresAt *string  `json:"expires_at"`
-	MaxUses   int      `json:"max_uses"`
-	UsedCount int      `json:"used_count"`
-	Status    string   `json:"status"`
-	Comment   string   `json:"comment"`
-	CreatedAt string   `json:"created_at"`
-	UpdatedAt string   `json:"updated_at"`
+	ID            uint64   `json:"id"`
+	Code          string   `json:"code"`
+	Type          string   `json:"type"`
+	Value         string   `json:"value"`
+	Cycles        []string `json:"cycles"`
+	StartsAt      *string  `json:"starts_at"`
+	ExpiresAt     *string  `json:"expires_at"`
+	MaxUses       int      `json:"max_uses"`
+	UsedCount     int      `json:"used_count"`
+	Status        string   `json:"status"`
+	Comment       string   `json:"comment"`
+	OwnerMemberID uint64   `json:"owner_member_id"`
+	Source        string   `json:"source"`
+	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     string   `json:"updated_at"`
+}
+
+// couponSource 是优惠码来源派生值（不落库）。
+const (
+	couponSourcePlatform = "platform"
+	couponSourceMember   = "member"
+)
+
+// newCouponView 组装优惠码对外视图（管理端与会员端自建券共用）。
+func newCouponView(coupon *model.Coupon) couponView {
+	cycles, err := parseCouponCycles(coupon.CyclesJSON)
+	if err != nil {
+		cycles = nil
+	}
+	if cycles == nil {
+		cycles = []string{}
+	}
+	source := couponSourcePlatform
+	if coupon.OwnerMemberID != 0 {
+		source = couponSourceMember
+	}
+	return couponView{
+		ID:            coupon.ID,
+		Code:          coupon.Code,
+		Type:          coupon.Type,
+		Value:         formatCouponValue(coupon.Value),
+		Cycles:        cycles,
+		StartsAt:      formatTimePtr(coupon.StartsAt),
+		ExpiresAt:     formatTimePtr(coupon.ExpiresAt),
+		MaxUses:       coupon.MaxUses,
+		UsedCount:     coupon.UsedCount,
+		Status:        coupon.Status,
+		Comment:       coupon.Comment,
+		OwnerMemberID: coupon.OwnerMemberID,
+		Source:        source,
+		CreatedAt:     formatTime(coupon.CreatedAt),
+		UpdatedAt:     formatTime(coupon.UpdatedAt),
+	}
+}
+
+// couponView 组装优惠码视图（与 newCouponView 同一实现，保留方法形态给既有调用点）。
+func (h *couponHandler) couponView(coupon *model.Coupon) couponView {
+	if _, err := parseCouponCycles(coupon.CyclesJSON); err != nil {
+		h.logger.Warn("优惠码适用周期解析失败，按全部周期输出", "error", err, "coupon_id", coupon.ID)
+	}
+	return newCouponView(coupon)
 }
 
 // couponListView 是管理端优惠码分页列表。
@@ -291,6 +344,13 @@ func (h *couponHandler) updateCoupon(c *gin.Context) {
 		return
 	}
 
+	// 自建券（owner_member_id 非 0）的折扣上限由邀请人的生效返佣比例决定（契约 18.5）。
+	// 为杜绝「管理员代改大 value 绕过上限」，一律拒绝修改 value（平台券不受此限）。
+	if req.Value != nil && current.OwnerMemberID != 0 {
+		response.Fail(c, response.CodeValidationFailed, msgCouponSelfOwnedValueImmutable)
+		return
+	}
+
 	update := store.CouponUpdate{}
 	if req.Code != nil {
 		code := strings.TrimSpace(*req.Code)
@@ -460,33 +520,6 @@ func (h *couponHandler) validateCoupon(c *gin.Context) {
 		DiscountAmount: discount,
 		FinalAmount:    final,
 	})
-}
-
-// couponView 组装优惠码视图（cycles 解析异常时按空数组输出并告警）。
-func (h *couponHandler) couponView(coupon *model.Coupon) couponView {
-	cycles, err := parseCouponCycles(coupon.CyclesJSON)
-	if err != nil {
-		h.logger.Warn("优惠码适用周期解析失败，按全部周期输出", "error", err, "coupon_id", coupon.ID)
-		cycles = nil
-	}
-	if cycles == nil {
-		cycles = []string{}
-	}
-	return couponView{
-		ID:        coupon.ID,
-		Code:      coupon.Code,
-		Type:      coupon.Type,
-		Value:     formatCouponValue(coupon.Value),
-		Cycles:    cycles,
-		StartsAt:  formatTimePtr(coupon.StartsAt),
-		ExpiresAt: formatTimePtr(coupon.ExpiresAt),
-		MaxUses:   coupon.MaxUses,
-		UsedCount: coupon.UsedCount,
-		Status:    coupon.Status,
-		Comment:   coupon.Comment,
-		CreatedAt: formatTime(coupon.CreatedAt),
-		UpdatedAt: formatTime(coupon.UpdatedAt),
-	}
 }
 
 // updateCyclesJSON 处理更新请求里的 cycles 字段：null 表示恢复为全部周期（"[]"），
