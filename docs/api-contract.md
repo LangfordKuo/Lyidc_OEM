@@ -2,7 +2,7 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v22（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v23（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
@@ -12,7 +12,8 @@
 > R10-A 邀请返佣：契约 + 迁移 + 绑定与返佣结算核心；
 > R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理；
 > R11 数量型档位区间下放（`tiers`）+ 商品详情页展示调整；
-> **R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射（迁移 0017）**）
+> **R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射（迁移 0017）**；
+> **R13-A 系统版本与更新检查：版本号构建期注入 + GitHub Releases 检查更新 + 管理端「系统更新」（第 19 节；无迁移）**）
 
 ## 1. 通用约定
 
@@ -1986,7 +1987,7 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节；**阶段 6b 新增 `email.smtp`（邮件通道）与 `notifications`（通知开关与到期提醒天数），见第 17 节**；**R10-A 新增 `referral`（邀请返佣：总开关 + 全局默认比例 + 自建券折扣上限），见第 18 节** |
+| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节；**阶段 6b 新增 `email.smtp`（邮件通道）与 `notifications`（通知开关与到期提醒天数），见第 17 节**；**R10-A 新增 `referral`（邀请返佣：总开关 + 全局默认比例 + 自建券折扣上限），见第 18 节**；**R13-A 新增 `updates.github`（更新源：仓库与可选 GitHub Token）与 `updates.check`（更新检查缓存，非用户设置），见第 19 节** |
 | `value` | text | 设置值（JSON 文本），结构与键一一对应 |
 | `updated_by` | int \| null | 最后修改的管理员 ID（审计用；NULL = 没有接口写入记录） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -4720,10 +4721,177 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
    按 18.4 同一钩子冲回返佣，并同步冲回已冻结的提现（若该笔返佣已被提现）——
    该联动**本批未做**，当前依赖 `rebate_balance` 可负的口径兜底。
 
-## 19. 变更记录
+## 19. 系统版本与更新检查（R13-A）
+
+> 本节只做「检测 + 展示」：版本号可查、检查 GitHub 最新正式版、管理端展示与红点提示。**不实现任何下载、替换或重启动作**（一键升级见 19.8，待 R13-B）。本批**无数据库迁移**。
+
+### 19.1 版本号约定（构建期注入）
+
+1. **变量**：`backend/internal/buildinfo` 导出 `Version`、`Commit`、`BuiltAt` 三个字符串变量，缺省 `dev` / `unknown` / `unknown`。本地 `go build` 不注入也能编译运行，此时即为开发构建。
+2. **注入方式**：`go build -ldflags "-X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Version=<版本>"`（`Commit` / `BuiltAt` 同理）。
+   - `scripts/package.sh --version <版本>`：注入三个变量并打包，产物名仍为 `lyidc-oem-<版本>-<goos>-<goarch>.tar.gz|.zip`；版本号缺 `v` 前缀时补上（`1.2.3` → `v1.2.3`）；未指定版本时为 `dev-<提交号>`（本地打包不冒充正式版）；
+   - `.github/workflows/release.yml`：把已解析的 `${VERSION}`（tag 名，如 `v0.10.0`）同时传给打包脚本与后端镜像构建（镜像构建参数 `VERSION` / `COMMIT` / `BUILT_AT`）；
+   - `Dockerfile.backend`：`ARG VERSION=dev`，编译时注入，发布镜像与压缩包版本一致；
+   - `.github/workflows/ci.yml`：只做 gofmt / vet / test 与前端构建，**不产出发布产物，因此不注入**（见 19.10）。
+3. **格式**：统一 `vMAJOR.MINOR.PATCH[-预发布]`，与 tag 一致（如 `v1.0.0`）；比较时忽略 `v` 前缀。`dev` 与 `dev-*`（如 `dev-a1b2c3d`）均视为**开发构建**。
+4. **运行时读取**：`cmd/server` 与 `cmd/migrate` 启动日志输出版本；两者均支持 `-version`（打印版本、提交与构建时间后退出，不读配置、不连库）。管理端经 19.3 接口读取当前版本，**前端不写死版本号**。
+
+### 19.2 语义化比较规则
+
+1. **解析**：`vMAJOR.MINOR.PATCH[-预发布][+构建元数据]`，三段必须是非负整数，构建元数据忽略；不符合时 `compare=unknown`。
+2. **开发构建**（当前版本为 `dev` / `dev-*`）：`compare=dev_build`、`has_update=false`，**不与最新版比较、不报「有新版本」**。
+3. **预发布**：GitHub `releases/latest` 本身不返回预发布与草稿，因此预发布**不会被提示为「有新版本」**；即便最新版本仍带预发布后缀（仓库侧异常），同样 `has_update=false`。当前运行的是预发布时按 semver 比较（同号正式版高于其预发布，`1.1.0 > 1.1.0-rc1`），预发布标识符按 semver 2.0.0 规则比较（数字段按数值、非数字段按字典序、数字段低于非数字段、段数少者低）。
+4. **结论**：`has_update = compare==ok && 最新版为正式版 && 最新版 > 当前版`。数字段按数值比较（`v0.10.0 > v0.9.0`）。
+
+### 19.3 检查更新接口
+
+| 接口 | 语义 |
+| --- | --- |
+| `GET /api/v1/admin/updates/check` | **实时检查**：强制访问 GitHub，成功或失败都写入缓存（19.4），返回同形状数据 |
+| `GET /api/v1/admin/updates` | **读缓存**：只读本地缓存，**不发出网请求**；从未检查过时 `status=not_checked` |
+
+鉴权：管理员 token，仅 `admin`（19.6）。两接口成功均为 HTTP 200，`data` 形状相同：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "current_version": "v0.9.0",
+    "commit": "a1b2c3d",
+    "built_at": "2026-10-14T08:00:00Z",
+    "latest_version": "v0.10.0",
+    "has_update": true,
+    "compare": "ok",
+    "status": "ok",
+    "message": "",
+    "source": "github",
+    "repo": "LangfordKuo/Lyidc_OEM",
+    "release_name": "v0.10.0",
+    "published_at": "2026-10-10T12:00:00Z",
+    "notes": "Release 说明原文（Markdown 源文本，前端按纯文本展示）",
+    "notes_truncated": false,
+    "html_url": "https://github.com/LangfordKuo/Lyidc_OEM/releases/tag/v0.10.0",
+    "platform": "linux-amd64",
+    "assets": [
+      {"name": "lyidc-oem-v0.10.0-linux-amd64.tar.gz", "size": 12345678, "download_url": "https://github.com/…", "platform_match": true}
+    ],
+    "checked_at": "2026-10-14T10:00:00Z"
+  }
+}
+```
+
+字段语义：
+
+| 字段 | 说明 |
+| --- | --- |
+| `current_version` | 当前运行版本（构建注入值；开发构建为 `dev`） |
+| `commit` / `built_at` | 构建注入的提交与构建时间；未注入为 `unknown` |
+| `latest_version` | 最近一次**成功**获取的最新正式版 tag；从未成功为 `""` |
+| `has_update` | 见 19.2；只有真正比当前新的正式版才为 `true` |
+| `compare` | `ok`（已比较）/ `dev_build`（开发构建）/ `unknown`（无法比较：版本不可解析或尚无最新版） |
+| `status` | 最近一次**尝试**的结果（取值见下表） |
+| `message` | 面向管理员的说明：`status` 为失败态时为失败原因；否则 `compare` 为 `dev_build` / `unknown` 时为说明；其余为 `""` |
+| `source` / `repo` | 数据来源（当前恒为 `github`）与检查的仓库（19.5） |
+| `release_name` / `published_at` / `notes` / `notes_truncated` / `html_url` | 最新正式版的名称、发布时间（RFC3339 UTC）、说明原文、是否截断（超过 16 KiB 时截断）、Release 页链接 |
+| `platform` | **服务器**运行平台（`GOOS-GOARCH`，如 `linux-amd64`） |
+| `assets[]` | 产物列表：`name` / `size` / `download_url` / `platform_match`。`platform_match=true` 当且仅当名称以 `-<platform>.tar.gz` 或 `-<platform>.zip` 结尾（`.sha256` 校验文件不标记） |
+| `checked_at` | 最近一次**成功**检查的时间；从未成功为 `""` |
+
+`status` 取值：
+
+| status | HTTP | 场景 | message 口径（示例） |
+| --- | --- | --- | --- |
+| `ok` | 200 | 成功获取最新正式版 | `""` |
+| `not_checked` | 200 | 从未尝试过检查（仅读缓存接口可出现） | `尚未检查更新` |
+| `no_release` | 200 | 仓库暂无正式 Release（GitHub `404`） | `仓库 <repo> 暂无正式发布版本` |
+| `rate_limited` | 200 | GitHub `403`（限流）或 `429` | `GitHub 访问次数已达上限，请稍后重试；可在更新源设置中配置 GitHub Token 提高额度` |
+| `unauthorized` | 200 | GitHub `401`（Token 无效或已过期） | `GitHub Token 无效或已过期，请在更新源设置中更新` |
+| `timeout` | 200 | 请求超时（8 秒，19.4） | `连接 GitHub 超时，请稍后重试` |
+| `unreachable` | 200 | 网络不可达或 GitHub `5xx` | `无法连接 GitHub 或其服务暂不可用，请稍后重试` |
+| `bad_response` | 200 | 响应非法 JSON、超过 1 MiB，或其他非预期状态码 | `GitHub 返回的数据无法解析` |
+
+**失败不走 HTTP 错误码**：GitHub 侧任何失败都返回 `code=0` 的成功包装并带 `status` / `message`，前端据此展示「失败态 + 可重试」，不炸页面。HTTP 错误码只用于鉴权（`401` / `403`）与本地库故障（`500` / `50001`）。
+
+### 19.4 缓存、定时刷新与出网约束
+
+1. **缓存**：settings 键 `updates.check`（JSON），结构如下。`checked_at` 是最近一次**成功**获取的时间，`status` / `message` 是最近一次**尝试**的结果。**失败尝试只改写 `status` / `message`，保留上一次成功的 `release`**：一次限流不会让红点误灭，也不会误亮。
+   ```json
+   {"repo": "LangfordKuo/Lyidc_OEM", "release": {"tag_name": "v0.10.0", "name": "v0.10.0", "published_at": "2026-10-10T12:00:00Z", "notes": "…", "notes_truncated": false, "html_url": "…", "assets": [{"name": "…", "size": 1, "download_url": "…"}]}, "checked_at": "2026-10-14T10:00:00Z", "status": "ok", "message": ""}
+   ```
+   `repo` 记录所属仓库：读取时若与当前设置的仓库不一致，视为从未检查（修改仓库后旧结果不会被读到，见 19.5）。`release` 为 `null` 表示从未成功获取过。读写均为「读时生效」，无内存缓存窗口。
+2. **定时刷新**（生产装配 `cmd/server` 开启，与到期扫描同一装配方式）：进程启动后延迟 **60 秒**，若缓存缺失或 `checked_at` 距今超过 **6 小时**则检查一次；之后每 **6 小时**检查一次。失败只写服务日志（记录 URL 与 HTTP 状态码，**绝不记录 Token**）并把 `status` / `message` 写入缓存，**不重试、不弹窗**。
+3. **出网约束**：`GET https://api.github.com/repos/{owner}/{repo}/releases/latest`；请求头 `Accept: application/vnd.github+json`、`X-GitHub-Api-Version: 2022-11-28`、`User-Agent: lyidc-oem/<版本>`；配置了 Token 时加 `Authorization: Bearer <token>`。超时 **8 秒**（`http.Client.Timeout`；调用方上下文的截止时间同样生效）；响应体上限 **1 MiB**；`notes` 超过 **16 KiB** 时按 UTF-8 字符边界截断并置 `notes_truncated=true`。
+4. **并发**：同一进程内检查互斥，定时与手动并发时排队执行，不会同时出网两次。「检查更新」按钮由前端 loading 禁用防连点，后端不设额外冷却。
+
+### 19.5 更新源设置
+
+1. **设置键** `updates.github`（JSON）：`{"repo": "LangfordKuo/Lyidc_OEM", "github_token": "…"}`。`github_token` 为可选，只存 settings 表与进程内存，**任何接口与日志都不回显明文**（掩码口径同 12.1，`MaskSecret`）；缺省 `repo` 为 `LangfordKuo/Lyidc_OEM`。
+2. `GET /api/v1/admin/settings/updates`（仅 `admin`）→ `data`：
+   ```json
+   {"repo": "LangfordKuo/Lyidc_OEM", "github_token_configured": false, "github_token_masked": "", "updated_by": null, "updated_at": null}
+   ```
+3. `PUT /api/v1/admin/settings/updates`（仅 `admin`）：请求体 `repo` / `github_token` **均可选但至少提供一个**。
+   - `repo`：必须是 `owner/name`（`owner` 为字母数字与连字符，`name` 为字母数字与 `._-`），不合法即 `40001`；
+   - `github_token`：三态语义同 12.1 `key`——**缺席不变 / 非空串替换 / 空串清空**；非空时长度 ≤ 255 且不含空白与控制字符，否则 `40001`。
+   - 成功 HTTP 200，`data` 为更新后的视图。**修改 `repo` 时同一请求内清空 `updates.check` 缓存**（旧仓库的结果不得冒充新仓库）。
+4. **生效**：下一次检查（手动或定时）即使用新仓库与新 Token，无需重启。
+
+| code | HTTP | 场景 |
+| --- | --- | --- |
+| `40001` | 400 | 未提供任何字段；`repo` 格式不合法；`github_token` 形状不合法 |
+| `403` | 403 | 角色不是 `admin` |
+| `500` / `50001` | 500 | 值损坏 / 库操作失败 |
+
+### 19.6 角色权限矩阵（系统更新部分）
+
+| 接口 | admin | finance | support | 会员 |
+| --- | --- | --- | --- | --- |
+| `GET /api/v1/admin/updates`（读缓存） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET /api/v1/admin/updates/check`（实时检查） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET/PUT /api/v1/admin/settings/updates` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+
+理由：版本与更新源属于系统级信息；实时检查会消耗 GitHub 配额，与设置类接口同口径仅 `admin`（finance 不纳入，已登记于此）。
+
+### 19.7 管理端界面（R13-A）
+
+1. 设置页（仅 `admin` 可进，沿用既有闸门）新增卡片「**系统更新**」：
+   - 当前版本（读 `GET /admin/updates`），附构建 `commit` 与构建时间；
+   - 「检查更新」按钮（loading 时禁用）→ `GET /admin/updates/check`；
+   - 结果区：有新版本时醒目展示版本号、发布时间、Release 说明、产物下载链接（`platform_match` 的产物高亮并标注「本服务器平台」）与 Release 页链接；已是最新显示「已是最新（上次检查：…）」；开发构建显示「开发构建，无法比较版本」；失败态显示 `message` 与「重试」按钮，并保留上一次成功结果（若有）；
+   - Release 说明按**纯文本**展示（保留换行、不渲染 HTML 与 Markdown，防注入）；
+   - 更新源表单（仓库 + GitHub Token，三态输入，沿用 `SecretInput`）。
+   - 高亮取舍：按**服务器**运行平台高亮（而非浏览器所在平台），因为升级（R13-B）针对的是服务器进程。
+2. **红点**：只由 `has_update` 决定——`has_update=true` 时，在侧栏「设置」项与「系统更新」卡片标题显示红点。无更新、从未成功获取、缓存读取失败时**不显示**（失败不误报）。注意：最近一次**检查失败**但保留了上次成功结论（19.4）时，`has_update` 仍为真，红点继续显示，并在卡片内同时给出失败原因。红点数据来自 `GET /admin/updates`（缓存），**读取红点不触发出网**。
+3. 非 `admin` 角色不发起任何更新相关请求（与 19.6 一致）。
+
+### 19.8 预留：一键升级（待 R13-B，本批不实现）
+
+- 预留接口位置：`POST /api/v1/admin/updates/apply`（**待 R13-B**）。本批**不注册路由、不实现**下载、校验、替换与重启。
+- R13-B 应复用本节的 `latest_version`、`assets[].platform_match` 与 `assets[].download_url`，并新增产物校验（`.sha256`）与失败回滚策略。
+- 本批 `buildinfo` 包与 `-version` 即为 R13-B 的版本基线。
+
+### 19.9 边界与本批未做
+
+1. **不下载、不替换、不重启**（R13-B）。
+2. **预发布不提示为新版本**（19.2）；仓库若只有预发布，表现为 `no_release`（`releases/latest` 不返回预发布）。
+3. 只访问 `releases/latest`，不遍历历史版本，也不解析 CHANGELOG。
+4. 未鉴权 GitHub 限额约 60 次/小时/IP，超限表现为 `rate_limited`；配置 Token 可提高额度，Token 不参与任何其他用途。
+5. 定时刷新只在 `cmd/server` 生产装配启用；`cmd/migrate` 不启动后台任务。
+6. Release 说明不渲染 Markdown，前端不新增依赖。
+
+### 19.10 构建与发布联动（同步改动清单）
+
+- `scripts/package.sh`：`--version` 注入三个 buildinfo 变量（既有参数与产物命名不变）。
+- `.github/workflows/release.yml`：`${VERSION}` 传给打包与后端镜像构建；`scripts/check_release_workflow.py` 增补版本注入的结构断言。
+- `Dockerfile.backend`：`ARG VERSION=dev` 注入 ldflags。
+- `.github/workflows/ci.yml`：只做 gofmt / vet / test 与前端构建，**不产出发布产物，不注入**；如后续 CI 产出制品，注入 `dev-<sha7>`。
+
+## 20. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-14 | v23 | R13-A 系统版本与更新检查（**新增第 19 节；变更记录顺延为第 20 节；本批无迁移**）：**① 版本号构建期注入（19.1）**——`buildinfo` 包导出 `Version` / `Commit` / `BuiltAt`，缺省 `dev` / `unknown`；`package.sh`、`release.yml`、`Dockerfile.backend` 同步注入，`cmd/server` 与 `cmd/migrate` 支持 `-version`；**② 语义化比较（19.2）**——预发布不提示为新版，开发构建 `compare=dev_build`；**③ 检查更新接口（19.3）**——`GET /api/v1/admin/updates/check`（实时）与 `GET /api/v1/admin/updates`（读缓存）同一形状，GitHub 侧失败走成功包装 + `status` / `message`，不走 HTTP 错误码；**④ 缓存与定时刷新（19.4）**——settings 键 `updates.check`，失败保留上次成功结果，启动后 60 秒补检、之后每 6 小时一次，失败只记日志（不记 Token）；**⑤ 更新源设置（19.5）**——`GET/PUT /api/v1/admin/settings/updates`，仓库缺省 `LangfordKuo/Lyidc_OEM`，GitHub Token 三态与掩码，修改仓库同请求清空缓存；**⑥ 权限（19.6）**——三个接口仅 `admin`；**⑦ 管理端（19.7）**——设置页「系统更新」卡片、侧栏「设置」与卡片标题红点（仅 `has_update=true`），说明纯文本展示，产物按服务器平台高亮；**⑧ 预留（19.8）**——`POST /api/v1/admin/updates/apply` 待 R13-B，本批未注册。 |
 | 2026-10-13 | v22 | R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射——**① 导入请求体（10.4，本批唯一既有接口形状变化，向后兼容）**：`POST /admin/products/import` 新增**可选**请求体 `{ "upstream_group_ids": [1,3,5] }`——省略请求体 / `{}` / `[]` / `null` = **全量导入**（与 R11 前完全一致，既有调用与测试不受影响）；传非空数组时**只抓取这些上游分组的商品**，`product_groups` 的 upsert 也只处理选中的分组；**非法值走统一错误码**：非数组 / 含 `0` 或负数 → `40001`，含不在本次上游目录中的分组 → `40002`（`上游分组不存在：…`，**不静默导入 0 个商品还报成功**）；响应**增量**补两个可选字段 `selected_groups`（选中的上游分组 ID，升序去重，全量时不出现）与 `map_fallback_group_ids`（映射目标失效而回落派生的分组，无则不出现），其余 `created/updated/unchanged/groups/failed/failed_pids` 不变；商品 `sort` 仍按上游目录顺序写入（选子集时沿用其原位置，排序稳定）。**② 迁移 0017（up/down 成对 + go:embed，不改 0001–0016）**——新表 `product_group_category_maps`：`id` / `upstream_group_id`（**UNIQUE**，对应 `product_groups.upstream_group_id`）/ `category_id`（**必须指向子分类**，即 `parent_id IS NOT NULL`）/ `created_at` / `updated_at`，**不建外键**（与既有表风格一致），附 `roundtrip_test.go` 的 up→down→up 往返断言。**③ 归类优先级定稿（10.1，本批核心语义）**——每导入一个商品依次判定：**manual（管理员手工改挂）一律不覆盖**（R7 规则不变，最高优先）→ **命中「上游分组 → 子分类」映射则归到该子分类，写入 `category_source=derived`**（取舍：映射是**导入规则的一部分**，改映射后重新导入会刷新这些商品的归属；只有管理端改分类才写 `manual`，两者语义不混淆）→ 无映射则走 R7 的 `category.Derive` 自动派生（行为不变）。**④ 映射目标失效的降级（10.1）**——映射指向的分类被删除、或（被外部改坏）指向了主分类时，导入**不报错**，仅对该分组回落自动派生，并在响应 `map_fallback_group_ids` 与导入日志中体现（不 500、不静默）；映射只作用于导入写入路径，与读时兜底 `EnsureProductCategories`（只补 `category_id=0`）无关；删除映射**不就地回退**，需重新导入该分组才回落（避免与 manual 手工归属混淆）。**⑤ 管理端映射接口（10.4 新增小节）**——`GET /admin/product-group-maps`（列表，含 `upstream_group_id` / `upstream_group_name` / `category_id` / `category_name` / `category_parent_name`，按 `upstream_group_id` 升序，几十条**不分页**；只返回已建立的映射，未映射分组由前端与 `GET /admin/product-groups` 对照展示；目标分类已被删除时两个名字字段为空串）、`PUT /admin/product-group-maps/:upstream_group_id`（upsert `{category_id}`；校验分类存在且**必须是子分类**，否则 `40002`；上游分组尚未导入本地亦 `40002`）、`DELETE /admin/product-group-maps/:upstream_group_id`（不存在 `404`）。**⑥ 上游分组清单复用既有端点**——**不新增** `GET /admin/upstream-groups`：`GET /api/v1/admin/product-groups`（10.4 既有，已含 `upstream_group_id` / `name` / `products{total,on,off}`）即所需的只读分组清单，导入弹窗与映射区块均以它为数据源。**⑦ 权限（10.5 矩阵同步）**——查看类（`GET /admin/product-group-maps`）三角色均可读；写操作（`PUT` / `DELETE`）沿用 `categories.write`（**仅 admin**，与分类写同一闸门），`finance` / `support` 一律 `403`，前端写入口按同一矩阵禁用并给原因、不发越权请求。**⑧ 前端**——「从上游导入商品」由二次确认改为**弹窗**：分组多选（默认全选；全选/无分组时省略 `upstream_group_ids`，部分选择时提交选中 ID，一个都不选时禁用确认并提示原因），结果区沿用既有计数展示；分类页签新增「上游分组映射」区块（表格 + 只列**已有子分类**的两级下拉 + 新增/修改/删除，不做弹窗内联新建分类）。**测试**：`go test ./...` 全量绿，新增覆盖——按分组筛选（只选 1 个 / 选 2 个 / 全选省略 = 全量）、非法值 `40001`（非数组 / 含 0 / 含负数）与 `40002`（分组不在上游目录）、映射命中后商品归到映射子分类且 `category_source=derived`、改映射后重导刷新、删除映射后重导回落派生、映射目标被删/被改成主分类时降级 + 响应体现、`manual` 商品不被映射覆盖、映射 CRUD（非法分类 / 主分类 / 分组不存在 / 重复 upsert / 删除不存在）与角色矩阵（三角色读、写仅 admin）；迁移往返 0017 up→down→up。 |
 
 | 2026-10-13 | v21 | R11 数量型档位区间下放 + 商品详情页展示调整——**① 数量型多档位价格联动修复（10.2.1 / 10.3 第 6 条，本批唯一接口形状变化）**：根因是 R7 的「档位并集归一化」把每档 `qty_minimum`/`qty_maximum` 统一改写成并集（商品 2 数据盘 `[30-30 @0.00]` + `[31-256 @0.50]` 两档都变成 `30~256`），前端按「qty 落在哪个档位区间」挑档位时永远命中第一档（免费档），加量不加价。**修法（方案 A，向后兼容）**：`values[].qty_minimum`/`qty_maximum` **语义不变、继续是并集**（只用于数量控件 min/max 与默认值，旧客户端行为不变），数量型配置项**新增 `options[].tiers[]`**（`{value_id, qty_min, qty_max, pricings}`，按 `qty_min` 升序、与 `values[]` 同源同 hidden 过滤），`qty_min`/`qty_max` 是**该档真实区间**、`pricings` 是该档单位差价；**挑档位与算 `billable` 一律以 `tiers` 为唯一依据**（`billable = qty − 低一档 qty_max`），选项型不下发 `tiers`。后端 `pricing.Quote`/`quantityLine` 本就按 `TierFor(qty)` + `tierFloor` 正确计费，本批不改计费口径，只把真实档位区间补回接口。**算例（前后端同口径，入测试）**：商品 2 数据盘 qty=30 → 差价 `0.00`；qty=31 → `0.50`；qty=50 → `(50−30)×0.50 = 10.00`；商品 1 单档 `[0-256 @0.50]` 回归 qty=0 → `0.00`、qty=50 → `25.00`。**② 纯前端展示调整（接口不变）**：商品详情页删除「配置速览」（`description_lines` 清单）与「价格一览」（六周期表格），接口仍下发 `description_lines`（列表页商品卡仍在用）；计费周期选择器**直接不渲染不可售周期**（价格 `null`），不再置灰，全部不可售时出空态并禁用下单。 |

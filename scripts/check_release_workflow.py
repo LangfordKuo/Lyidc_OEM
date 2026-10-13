@@ -375,6 +375,12 @@ def check_workflow(report: Report, wf):
     report.check(bool(up), "上传三平台发布包 artifact", str((up.get("with") or {}).get("name", "")))
     bp_text = steps_text(bp)
     report.check("scripts/package.sh" in bp_text, "调用共用打包脚本 scripts/package.sh")
+    report.check('--version "${VERSION}"' in bp_text, "打包脚本接收已解析版本号 --version \"${VERSION}\"")
+    # R13-A（契约 19.10）：打包脚本把版本注入后端二进制（buildinfo），而不是只写进文件名。
+    with open(os.path.join(ROOT, "scripts", "package.sh"), "r", encoding="utf-8") as fh:
+        package_text = fh.read()
+    report.check("$buildinfo_pkg.Version=" in package_text and '-ldflags "$ldflags"' in package_text,
+                 "打包脚本经 -ldflags 注入 buildinfo 版本")
 
     print("\n[D] release（仅 tag 且非 dry_run）")
     rel = job(wf, "release")
@@ -404,6 +410,12 @@ def check_workflow(report: Report, wf):
              if isinstance(s, dict) and "docker/build-push-action" in str(s.get("uses", ""))]
     report.check(any("Dockerfile.backend" in f for f in files), "构建后端镜像", str(files))
     report.check(any("Dockerfile.frontend" in f for f in files), "构建前端镜像", str(files))
+    # R13-A（契约 19.10）：后端镜像与压缩包同口径注入版本号，「系统更新」看到的版本一致。
+    backend_build = next((s for s in (dk.get("steps") or []) if isinstance(s, dict)
+                          and "Dockerfile.backend" in str((s.get("with") or {}).get("file", ""))), {})
+    backend_args = str((backend_build.get("with") or {}).get("build-args", ""))
+    report.check("VERSION=${{ env.VERSION }}" in backend_args, "后端镜像注入版本号（build-args VERSION）", backend_args)
+    report.check('echo "VERSION=' in dk_text, "docker job 解析版本号并写入 GITHUB_ENV")
     # 平台矩阵既可以直接写在 build 步骤里，也可以放在 workflow 级 env（本仓库用 env.PLATFORMS）。
     platforms = " ".join(
         [str((s.get("with") or {}).get("platforms", "")) for s in (dk.get("steps") or [])
@@ -578,6 +590,10 @@ def main() -> int:
     check_shell_files(report)
     check_static_files(report)
     check_dockerfile(report, DOCKERFILE_BACKEND, "alpine", "Dockerfile.backend")
+    with open(DOCKERFILE_BACKEND, "r", encoding="utf-8") as fh:
+        backend_dockerfile = fh.read()
+    report.check("ARG VERSION=dev" in backend_dockerfile and "buildinfo.Version=${VERSION}" in backend_dockerfile,
+                 "Dockerfile.backend 注入版本号（ARG VERSION + buildinfo.Version）")
     check_dockerfile(report, DOCKERFILE_FRONTEND, "nginx", "Dockerfile.frontend")
     check_compose(report, compose or {})
 

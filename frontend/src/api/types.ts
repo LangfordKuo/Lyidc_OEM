@@ -1101,3 +1101,72 @@ export interface UpdateMemberInput {
   /** 键缺席 = 不改；null = 清空；字符串 = 设值（0.00-100.00）。 */
   rebate_percent_override?: string | null
 }
+
+// —— 系统版本与更新检查（契约 19.3 / 19.5，R13-A；全部仅 admin 角色） ——
+
+/** 检查结果状态（契约 19.3）：ok 为成功；not_checked 为从未尝试；其余为失败态，message 为失败原因。 */
+export type UpdateStatusCode =
+  | 'ok'
+  | 'not_checked'
+  | 'no_release'
+  | 'rate_limited'
+  | 'unauthorized'
+  | 'timeout'
+  | 'unreachable'
+  | 'bad_response'
+
+/** 版本比较结论（契约 19.2）：ok 已比较；dev_build 开发构建；unknown 无法比较。 */
+export type UpdateCompare = 'ok' | 'dev_build' | 'unknown'
+
+/** Release 产物（契约 19.3）：platform_match 当且仅当名称匹配服务器运行平台（.sha256 不标记）。 */
+export interface UpdateAsset {
+  name: string
+  size: number
+  download_url: string
+  platform_match: boolean
+}
+
+/**
+ * GET /api/v1/admin/updates 与 GET /api/v1/admin/updates/check 的共同数据形状（契约 19.3）。
+ * 失败尝试只改写 status / message，latest_version 等字段保留上一次成功的结果（19.4）。
+ */
+export interface UpdateStatus {
+  current_version: string
+  /** 构建注入的提交与构建时间；未注入为 unknown。 */
+  commit: string
+  built_at: string
+  latest_version: string
+  has_update: boolean
+  compare: UpdateCompare
+  status: UpdateStatusCode
+  message: string
+  source: string
+  repo: string
+  release_name: string
+  /** RFC3339 UTC；无正式版时为空串。 */
+  published_at: string
+  /** Release 说明的 Markdown 源文本，前端必须按纯文本展示。 */
+  notes: string
+  notes_truncated: boolean
+  html_url: string
+  /** 服务器运行平台（GOOS-GOARCH，如 linux-amd64）。 */
+  platform: string
+  assets: UpdateAsset[]
+  /** 最近一次成功检查的时间；从未成功为空串。 */
+  checked_at: string
+}
+
+/** GET/PUT /api/v1/admin/settings/updates —— 更新源设置（契约 19.5，仅 admin）。 */
+export interface UpdatesSettings {
+  repo: string
+  github_token_configured: boolean
+  github_token_masked: string
+  updated_by: number | null
+  updated_at: string | null
+}
+
+export interface UpdateUpdatesSettingsInput {
+  repo?: string
+  /** 三态同上：省略 = 不变、给值 = 替换、空串 = 清空。 */
+  github_token?: string
+}

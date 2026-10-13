@@ -28,6 +28,7 @@ import type {
   MemberCoupon,
   Ticket,
   TicketMessage,
+  UpdateStatus,
 } from '@/api/types'
 import type { CyclePrices } from '@/lib/cycles'
 
@@ -593,6 +594,34 @@ export function makeReferralPayout(overrides: Partial<ReferralPayout> = {}): Ref
     paid_at: null,
     created_at: '2026-10-09T03:00:00Z',
     updated_at: '2026-10-09T03:00:00Z',
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 系统更新（契约 19.3）：默认为「已是最新」态（检查成功、无更新、有上一次成功时间）。
+// ---------------------------------------------------------------------------
+
+export function makeUpdateStatus(overrides: Partial<UpdateStatus> = {}): UpdateStatus {
+  return {
+    current_version: 'v0.9.0',
+    commit: 'a1b2c3d',
+    built_at: '2026-10-14T08:00:00Z',
+    latest_version: 'v0.9.0',
+    has_update: false,
+    compare: 'ok',
+    status: 'ok',
+    message: '',
+    source: 'github',
+    repo: 'LangfordKuo/Lyidc_OEM',
+    release_name: 'v0.9.0',
+    published_at: '2026-09-30T12:00:00Z',
+    notes: '',
+    notes_truncated: false,
+    html_url: 'https://github.com/LangfordKuo/Lyidc_OEM/releases/tag/v0.9.0',
+    platform: 'linux-amd64',
+    assets: [],
+    checked_at: '2026-10-14T10:00:00Z',
     ...overrides,
   }
 }

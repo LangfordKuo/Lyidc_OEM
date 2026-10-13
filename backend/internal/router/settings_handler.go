@@ -12,6 +12,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
 )
 
 // settingsHandler 处理后台管理设置接口（仅 admin 角色，含读取）。
@@ -623,6 +624,107 @@ func upstreamSettingsViewOf(value settings.Upstream, meta settings.Meta) upstrea
 		APIKeyMasked:     settings.MaskSecret(value.APIKey),
 		TimeoutSeconds:   value.TimeoutSecondsOr(),
 		UpdatedBy:        meta.UpdatedBy,
+	}
+	if meta.UpdatedAt != nil {
+		formatted := formatTime(*meta.UpdatedAt)
+		view.UpdatedAt = &formatted
+	}
+	return view
+}
+
+// updatesSettingsView 是 updates.github 设置的对外视图（Token 只输出配置标志与掩码，契约 19.5）。
+type updatesSettingsView struct {
+	Repo                  string  `json:"repo"`
+	GitHubTokenConfigured bool    `json:"github_token_configured"`
+	GitHubTokenMasked     string  `json:"github_token_masked"`
+	UpdatedBy             *uint64 `json:"updated_by"`
+	UpdatedAt             *string `json:"updated_at"`
+}
+
+// updatesSettingsUpdateRequest 是 PUT /admin/settings/updates 请求体：字段均可选但至少一个。
+// github_token 三态：省略（键缺席或 null）=保持不变、给新值=替换、空串=清空。
+type updatesSettingsUpdateRequest struct {
+	Repo        *string `json:"repo"`
+	GitHubToken *string `json:"github_token"`
+}
+
+// provided 判断请求是否至少提供了一个字段。
+func (r updatesSettingsUpdateRequest) provided() bool {
+	return r.Repo != nil || r.GitHubToken != nil
+}
+
+// getUpdatesSettings 处理 GET /api/v1/admin/settings/updates。
+func (h *settingsHandler) getUpdatesSettings(c *gin.Context) {
+	state, err := h.reader.Updates(c.Request.Context())
+	if err != nil {
+		h.failSettings(c, err)
+		return
+	}
+	response.Success(c, updatesSettingsViewOf(state.Value, state.Meta))
+}
+
+// updateUpdatesSettings 处理 PUT /api/v1/admin/settings/updates：局部更新并立即生效
+// （下一次检查即使用新仓库与新 Token）。修改仓库时同一请求内清空检查缓存（契约 19.5），
+// 旧仓库的结果不得冒充新仓库。
+func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
+	admin, ok := adminFromContext(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized, msgInvalidCredential)
+		return
+	}
+
+	var req updatesSettingsUpdateRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if !req.provided() {
+		response.Fail(c, response.CodeInvalidParam, "至少提供一个字段：repo / github_token")
+		return
+	}
+
+	ctx := c.Request.Context()
+	current, err := h.reader.Updates(ctx)
+	if err != nil {
+		h.failSettings(c, err)
+		return
+	}
+	merged, err := current.Value.Apply(settings.UpdatesUpdate{
+		Repo:        req.Repo,
+		GitHubToken: req.GitHubToken,
+	})
+	if err != nil {
+		failRuleError(c, err)
+		return
+	}
+
+	encoded, err := merged.Encode()
+	if err != nil {
+		failInternal(c, h.logger, err)
+		return
+	}
+	setting, err := h.store.UpsertSetting(ctx, settings.KeyUpdates, encoded, admin.ID)
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+	if merged.Repo != current.Value.Repo {
+		if err := h.store.DeleteSetting(ctx, updates.KeyCheck); err != nil {
+			failDB(c, h.logger, err)
+			return
+		}
+	}
+	h.logger.Info("后台设置已更新", "key", settings.KeyUpdates, "admin_id", admin.ID,
+		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil)
+	response.Success(c, updatesSettingsViewOf(merged, settingMeta(setting)))
+}
+
+// updatesSettingsViewOf 组装更新源设置视图（Token 只输出配置标志与掩码）。
+func updatesSettingsViewOf(value settings.Updates, meta settings.Meta) updatesSettingsView {
+	view := updatesSettingsView{
+		Repo:                  value.Repo,
+		GitHubTokenConfigured: value.GitHubToken != "",
+		GitHubTokenMasked:     settings.MaskSecret(value.GitHubToken),
+		UpdatedBy:             meta.UpdatedBy,
 	}
 	if meta.UpdatedAt != nil {
 		formatted := formatTime(*meta.UpdatedAt)

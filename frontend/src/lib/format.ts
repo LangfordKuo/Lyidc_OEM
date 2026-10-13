@@ -112,3 +112,25 @@ export function decodeDescription(value: string | null | undefined): string {
     .filter((line) => line.length > 0)
     .join('\n')
 }
+
+const FILE_SIZE_UNITS = ['KB', 'MB', 'GB', 'TB'] as const
+
+/**
+ * 文件体积的可读写法（1 KB = 1024 B，与常见下载列表口径一致）：不足 1 KB 按字节整数展示，
+ * 否则逐级换算并保留一位小数；按一位小数的展示值判断是否进位（1023.96 KB 显示为 1.0 MB，而非 1024.0 KB）。
+ */
+export function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '—'
+  }
+  if (bytes < 1024) {
+    return `${Math.floor(bytes)} B`
+  }
+  let value = bytes / 1024
+  let unit = 0
+  while (Number(value.toFixed(1)) >= 1024 && unit < FILE_SIZE_UNITS.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(1)} ${FILE_SIZE_UNITS[unit]}`
+}

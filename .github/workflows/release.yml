@@ -200,11 +200,30 @@ jobs:
             org.opencontainers.image.title=Lyidc_OEM backend
             org.opencontainers.image.description=岭云互联 IDC 财务系统后端（Go + Gin + GORM）
 
+      # 与 build-packages 同口径解析版本号（tag 用 tag 名，其余用 dev-<sha7>），
+      # 注入镜像内的后端二进制，使镜像与压缩包的「系统更新」版本一致（契约 19.10）。
+      - name: 解析版本号
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="dev-${GITHUB_SHA:0:7}"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "COMMIT=${GITHUB_SHA:0:7}" >> "$GITHUB_ENV"
+          echo "BUILT_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+          echo "镜像版本：${version}"
+
       - name: 构建后端镜像
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.backend
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            BUILT_AT=${{ env.BUILT_AT }}
           platforms: ${{ env.PLATFORMS }}
           push: ${{ env.DRY_RUN == 'false' }}
           tags: ${{ steps.meta-backend.outputs.tags }}

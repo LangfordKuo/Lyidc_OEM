@@ -1,15 +1,18 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
-import { makeAdminAccount } from '@/test/fixtures'
+import { resetAdminUpdateStatus } from '@/hooks/useAdminUpdateStatus'
+import { makeAdminAccount, makeUpdateStatus } from '@/test/fixtures'
 import {
+  fail,
   installFetchMock,
   ok,
   renderApp,
   requestBody,
   seedAdminProfile,
   seedAdminToken,
+  type MockResponse,
 } from '@/test/harness'
 
 // 管理后台「设置」页：密钥脱敏展示与三态提交、上游探活、角色矩阵（仅 admin）。
@@ -69,7 +72,59 @@ const REFERRAL = {
   updated_at: '2026-10-08T06:28:00Z',
 }
 
-function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin') {
+const UPDATES_SETTINGS = {
+  repo: 'LangfordKuo/Lyidc_OEM',
+  github_token_configured: true,
+  github_token_masked: 'ghp_****abcd',
+  updated_by: 1,
+  updated_at: '2026-10-08T06:30:00Z',
+}
+
+const RELEASE_ASSETS = [
+  {
+    name: 'lyidc-oem-v0.10.0-linux-amd64.tar.gz',
+    size: 12345678,
+    download_url: 'https://github.com/LangfordKuo/Lyidc_OEM/releases/download/v0.10.0/lyidc-oem-v0.10.0-linux-amd64.tar.gz',
+    platform_match: true,
+  },
+  {
+    name: 'lyidc-oem-v0.10.0-linux-amd64.tar.gz.sha256',
+    size: 96,
+    download_url: 'https://github.com/LangfordKuo/Lyidc_OEM/releases/download/v0.10.0/lyidc-oem-v0.10.0-linux-amd64.tar.gz.sha256',
+    platform_match: false,
+  },
+  {
+    name: 'lyidc-oem-v0.10.0-windows-amd64.zip',
+    size: 13000000,
+    download_url: 'https://github.com/LangfordKuo/Lyidc_OEM/releases/download/v0.10.0/lyidc-oem-v0.10.0-windows-amd64.zip',
+    platform_match: false,
+  },
+]
+
+/** 有新版本的检查结果（服务器平台 linux-amd64，与 platform_match 口径一致）。 */
+const NEWER_RELEASE = {
+  has_update: true,
+  latest_version: 'v0.10.0',
+  release_name: 'v0.10.0',
+  published_at: '2026-10-10T12:00:00Z',
+  notes: '修复导入分组的映射问题\n新增上游分组选择',
+  notes_truncated: false,
+  html_url: 'https://github.com/LangfordKuo/Lyidc_OEM/releases/tag/v0.10.0',
+  assets: RELEASE_ASSETS,
+}
+
+const RATE_LIMIT_MESSAGE =
+  'GitHub 访问次数已达上限，请稍后重试；可在更新源设置中配置 GitHub Token 提高额度'
+
+/** 系统更新接口的可替换响应（缺省：缓存为「已是最新」、实时检查成功）。 */
+interface UpdatesMock {
+  cache?: () => MockResponse
+  check?: () => MockResponse | Promise<MockResponse>
+}
+
+function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin', updates: UpdatesMock = {}) {
+  // 服务端保存的更新源仓库：PUT 生效，之后的 GET 回读新值（与后端一致）。
+  let repoOnServer = UPDATES_SETTINGS.repo
   return installFetchMock((url, init) => {
     const path = url.pathname
     if (path === '/api/v1/admin/profile') {
@@ -105,18 +160,34 @@ function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin') {
     if (path === '/api/v1/admin/settings/referral') {
       return init.method === 'PUT' ? ok(REFERRAL) : ok(REFERRAL)
     }
+    if (path === '/api/v1/admin/updates') {
+      return updates.cache ? updates.cache() : ok(makeUpdateStatus())
+    }
+    if (path === '/api/v1/admin/updates/check') {
+      return updates.check ? updates.check() : ok(makeUpdateStatus())
+    }
+    if (path === '/api/v1/admin/settings/updates') {
+      if (init.method === 'PUT') {
+        repoOnServer = requestBody<{ repo?: string }>(init)?.repo ?? repoOnServer
+      }
+      return ok({ ...UPDATES_SETTINGS, repo: repoOnServer })
+    }
     return undefined
   })
 }
 
-async function renderSettings(role: 'admin' | 'finance' | 'support' = 'admin') {
-  const fetchMock = mockSettings(role)
+async function renderSettings(
+  role: 'admin' | 'finance' | 'support' = 'admin',
+  updates: UpdatesMock = {},
+) {
+  const fetchMock = mockSettings(role, updates)
   seedAdminToken()
   seedAdminProfile({ role, username: role })
   renderApp(['/admin/settings'])
   if (role === 'admin') {
     await screen.findByRole('heading', { name: '设置' })
     await screen.findByText('易支付（payment.epay）')
+    await screen.findByLabelText('GitHub 仓库（owner/name）')
   } else {
     await screen.findByText('无权访问后台设置')
   }
@@ -284,6 +355,343 @@ describe('管理后台 · 全站设置', () => {
         fetchMock.mock.calls.some(([input]) => String(input).includes('/admin/settings')),
       ).toBe(false)
       unmount()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 系统更新（R13-A，契约 19）：版本展示、检查与失败态、红点、纯文本说明、产物高亮、权限与更新源表单。
+// ---------------------------------------------------------------------------
+
+/** 让出一个宏任务，等待布局的缓存读取等异步请求落定（用于断言「不出现」类结论）。 */
+function settle() {
+  return act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/** 按路径后缀统计接口调用（方法不限）。 */
+function callsTo(fetchMock: ReturnType<typeof installFetchMock>, path: string) {
+  return fetchMock.mock.calls.filter(([input]) => String(input).endsWith(path))
+}
+
+/** 最近一次 PUT /admin/settings/updates 的请求体（用于断言三态提交）。 */
+function lastUpdatesPut(fetchMock: ReturnType<typeof installFetchMock>) {
+  const call = fetchMock.mock.calls
+    .filter(
+      ([input, init]) => String(input).includes('/admin/settings/updates') && init?.method === 'PUT',
+    )
+    .at(-1)
+  return requestBody(call?.[1] as RequestInit)
+}
+
+/** 红点位置（契约 19.7）：侧栏「设置」项与「系统更新」卡片标题，两处同一判定。 */
+function expectSettingsDot(visible: boolean) {
+  const sidebar = screen.getByRole('navigation', { name: '管理后台导航' })
+  const settingsLink = within(sidebar).getByRole('link', { name: /设置/ })
+  const cardTitleRow = screen.getByText('系统更新').parentElement as HTMLElement
+  if (visible) {
+    expect(within(settingsLink).getByTestId('update-dot')).toBeInTheDocument()
+    expect(within(cardTitleRow).getByTestId('update-dot')).toBeInTheDocument()
+  } else {
+    expect(within(settingsLink).queryByTestId('update-dot')).not.toBeInTheDocument()
+    expect(within(cardTitleRow).queryByTestId('update-dot')).not.toBeInTheDocument()
+  }
+}
+
+describe('管理后台 · 系统更新（R13-A，契约 19）', () => {
+  beforeEach(() => {
+    // 红点数据源是模块级 store：每个用例开始前清空，避免上一个用例的更新状态串入。
+    resetAdminUpdateStatus()
+  })
+
+  it('最新版本态：显示当前版本与构建信息，结论为已是最新，无红点', async () => {
+    await renderSettings()
+    await waitFor(() =>
+      expect(screen.getByTestId('update-current-version')).toHaveTextContent('v0.9.0'),
+    )
+    expect(screen.getByText(/构建 commit a1b2c3d/)).toBeInTheDocument()
+    expect(await screen.findByText(/已是最新版本 v0\.9\.0（上次检查：/)).toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('开发构建：显示「开发构建，无法比较版本」与说明，不报有新版本', async () => {
+    await renderSettings('admin', {
+      cache: () =>
+        ok(
+          makeUpdateStatus({
+            current_version: 'dev',
+            commit: 'unknown',
+            built_at: 'unknown',
+            latest_version: '',
+            checked_at: '',
+            compare: 'dev_build',
+            message: '开发构建不与最新版本比较',
+          }),
+        ),
+    })
+    expect(await screen.findByText('开发构建，无法比较版本')).toBeInTheDocument()
+    expect(screen.getByText('开发构建不与最新版本比较')).toBeInTheDocument()
+    expect(screen.getByTestId('update-current-version')).toHaveTextContent('dev')
+    expect(screen.queryByText(/发现新版本/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/已是最新版本/)).not.toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('有新版本：醒目展示版本、发布时间、说明与产物，仅本服务器平台的产物高亮标注', async () => {
+    await renderSettings('admin', { cache: () => ok(makeUpdateStatus(NEWER_RELEASE)) })
+    expect(await screen.findByText('发现新版本 v0.10.0')).toBeInTheDocument()
+    expect(screen.getByText(/发布时间：/)).toBeInTheDocument()
+    expect(screen.getByTestId('update-notes')).toHaveTextContent('修复导入分组的映射问题')
+    expectSettingsDot(true)
+
+    const rows = screen.getAllByTestId('update-asset')
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toHaveTextContent('本服务器平台')
+    expect(rows[0]).toHaveTextContent('11.8 MB')
+    expect(rows[1]).not.toHaveTextContent('本服务器平台')
+    expect(rows[2]).not.toHaveTextContent('本服务器平台')
+    expect(screen.getAllByText('本服务器平台')).toHaveLength(1)
+    expect(within(rows[0]).getByRole('link', { name: /下载/ })).toHaveAttribute(
+      'href',
+      RELEASE_ASSETS[0].download_url,
+    )
+    expect(screen.getByRole('link', { name: /查看 Release 页/ })).toHaveAttribute(
+      'href',
+      NEWER_RELEASE.html_url,
+    )
+  })
+
+  it('Release 说明按纯文本展示：HTML 与 Markdown 不渲染成元素，截断时给出提示', async () => {
+    const notes =
+      '<img src=x onerror="window.__pwned=1">\n<a href="https://evil.example">链接</a>\n**粗体** 与 [标题](#x)'
+    await renderSettings('admin', {
+      cache: () => ok(makeUpdateStatus({ ...NEWER_RELEASE, notes, notes_truncated: true })),
+    })
+    const body = await screen.findByTestId('update-notes')
+    expect(body).toHaveTextContent('<img src=x onerror="window.__pwned=1">')
+    expect(body).toHaveTextContent('**粗体** 与 [标题](#x)')
+    expect(body.querySelector('img')).toBeNull()
+    expect(body.querySelector('a')).toBeNull()
+    expect(body.querySelector('strong')).toBeNull()
+    expect('__pwned' in window).toBe(false)
+    expect(screen.getByText(/说明已截断/)).toBeInTheDocument()
+  })
+
+  it('尚未检查：提示点击「检查更新」，不显示红点', async () => {
+    await renderSettings('admin', {
+      cache: () =>
+        ok(
+          makeUpdateStatus({
+            status: 'not_checked',
+            compare: 'unknown',
+            latest_version: '',
+            checked_at: '',
+          }),
+        ),
+    })
+    expect(
+      await screen.findByText('尚未检查更新，点击「检查更新」获取最新版本'),
+    ).toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('失败态（限流）：展示 message 与「重试」；没有上一次成功结果时不显示「上次成功结果」', async () => {
+    await renderSettings('admin', {
+      cache: () =>
+        ok(
+          makeUpdateStatus({
+            status: 'rate_limited',
+            compare: 'unknown',
+            latest_version: '',
+            checked_at: '',
+            message: RATE_LIMIT_MESSAGE,
+          }),
+        ),
+    })
+    expect(await screen.findByText(RATE_LIMIT_MESSAGE)).toBeInTheDocument()
+    expect(screen.getByTestId('update-failure')).toHaveTextContent('访问受限')
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
+    expect(screen.queryByText(/上次成功结果/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/发现新版本|已是最新版本/)).not.toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('失败态（不可达）：保留上一次成功结果，页面不崩溃且检查按钮仍可用', async () => {
+    const message = '无法连接 GitHub 或其服务暂不可用，请稍后重试'
+    await renderSettings('admin', {
+      cache: () =>
+        ok(makeUpdateStatus({ status: 'unreachable', message, checked_at: '2026-10-14T10:00:00Z' })),
+    })
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByText(/上次成功结果：v0\.9\.0（/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled()
+    expect(screen.queryByText(/已是最新版本/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '检查更新' })).toBeEnabled()
+  })
+
+  it('失败态的「重试」再次调用实时检查接口，成功后失败提示消失', async () => {
+    const fetchMock = await renderSettings('admin', {
+      cache: () =>
+        ok(
+          makeUpdateStatus({
+            status: 'timeout',
+            compare: 'unknown',
+            message: '连接 GitHub 超时，请稍后重试',
+          }),
+        ),
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '重试' }))
+    expect(await screen.findByText(/已是最新版本/)).toBeInTheDocument()
+    expect(screen.queryByTestId('update-failure')).not.toBeInTheDocument()
+    expect(callsTo(fetchMock, '/admin/updates/check')).toHaveLength(1)
+  })
+
+  it('检查更新：请求中按钮 loading 且禁用，返回后按结果渲染并同步红点', async () => {
+    let finishCheck!: (value: MockResponse) => void
+    const pendingCheck = new Promise<MockResponse>((resolve) => {
+      finishCheck = resolve
+    })
+    const fetchMock = await renderSettings('admin', { check: () => pendingCheck })
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: '检查更新' }))
+    expect(await screen.findByRole('button', { name: '检查中…' })).toBeDisabled()
+    const checkCalls = callsTo(fetchMock, '/admin/updates/check')
+    expect(checkCalls).toHaveLength(1)
+    expect(checkCalls[0][1]?.method).toBe('GET')
+
+    finishCheck(ok(makeUpdateStatus(NEWER_RELEASE)))
+    expect(await screen.findByText('发现新版本 v0.10.0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '检查更新' })).toBeEnabled()
+    expectSettingsDot(true)
+  })
+
+  it('红点：仅 has_update=true 时在侧栏「设置」与卡片标题出现', async () => {
+    await renderSettings('admin', { cache: () => ok(makeUpdateStatus(NEWER_RELEASE)) })
+    await screen.findByText('发现新版本 v0.10.0')
+    expectSettingsDot(true)
+  })
+
+  it('红点：已是最新（has_update=false）时不出现', async () => {
+    await renderSettings('admin')
+    expect(await screen.findByText(/已是最新版本/)).toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('红点：从未检查时不出现', async () => {
+    await renderSettings('admin', {
+      cache: () =>
+        ok(makeUpdateStatus({ status: 'not_checked', compare: 'unknown', latest_version: '' })),
+    })
+    expect(await screen.findByText(/尚未检查更新/)).toBeInTheDocument()
+    expectSettingsDot(false)
+  })
+
+  it('红点：读取失败（缓存接口 500）时不出现，且不误报', async () => {
+    await renderSettings('admin', { cache: () => fail(50001, '库操作失败', 500) })
+    expect(
+      await screen.findByText('暂无版本信息，点击「检查更新」获取最新版本'),
+    ).toBeInTheDocument()
+    await settle()
+    expectSettingsDot(false)
+  })
+
+  it('修改仓库：后端清空检查缓存，红点与旧结果同步消失', async () => {
+    let cached = makeUpdateStatus(NEWER_RELEASE)
+    const fetchMock = await renderSettings('admin', { cache: () => ok(cached) })
+    await screen.findByText('发现新版本 v0.10.0')
+    expectSettingsDot(true)
+
+    // 后端在 PUT 同一请求内清空 updates.check 缓存：之后读取到的是 not_checked。
+    cached = makeUpdateStatus({
+      status: 'not_checked',
+      compare: 'unknown',
+      has_update: false,
+      latest_version: '',
+      checked_at: '',
+    })
+    const user = userEvent.setup()
+    const repoInput = await screen.findByLabelText('GitHub 仓库（owner/name）')
+    await user.clear(repoInput)
+    await user.type(repoInput, 'octo-org/Lyidc_OEM')
+    await user.click(screen.getByRole('button', { name: '保存更新源设置' }))
+
+    expect(
+      await screen.findByText('尚未检查更新，点击「检查更新」获取最新版本'),
+    ).toBeInTheDocument()
+    expectSettingsDot(false)
+    expect(lastUpdatesPut(fetchMock)).toEqual({ repo: 'octo-org/Lyidc_OEM' })
+  })
+
+  it('更新源：只改仓库时只提交 repo，Token 保持不变时不带 github_token', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+    const repoInput = await screen.findByLabelText('GitHub 仓库（owner/name）')
+    await user.clear(repoInput)
+    await user.type(repoInput, 'octo-org/Lyidc_OEM')
+    await user.click(screen.getByRole('button', { name: '保存更新源设置' }))
+    await waitFor(() => expect(lastUpdatesPut(fetchMock)).toEqual({ repo: 'octo-org/Lyidc_OEM' }))
+  })
+
+  it('更新源：Token 只显示掩码、不回填明文；清空提交空串，替换提交新值', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+    expect(screen.getByTestId('updates_github_token-status')).toHaveTextContent(
+      '已配置（ghp_****abcd）',
+    )
+    expect(screen.getByLabelText('GitHub Token')).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: '清空GitHub Token' }))
+    await user.click(screen.getByRole('button', { name: '保存更新源设置' }))
+    await waitFor(() => expect(lastUpdatesPut(fetchMock)).toEqual({ github_token: '' }))
+
+    await user.type(screen.getByLabelText('GitHub Token'), 'ghp_brandNewToken1')
+    await user.click(screen.getByRole('button', { name: '保存更新源设置' }))
+    await waitFor(() =>
+      expect(lastUpdatesPut(fetchMock)).toEqual({ github_token: 'ghp_brandNewToken1' }),
+    )
+  })
+
+  it('更新源：仓库与 Token 都未变化时保存禁用；仓库格式不合法时禁用并给出提示', async () => {
+    await renderSettings()
+    const user = userEvent.setup()
+    expect(screen.getByRole('button', { name: '保存更新源设置' })).toBeDisabled()
+
+    const repoInput = screen.getByLabelText('GitHub 仓库（owner/name）')
+    await user.clear(repoInput)
+    await user.type(repoInput, 'not a repo')
+    expect(screen.getByText(/仓库格式应为 owner\/name/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存更新源设置' })).toBeDisabled()
+  })
+
+  it('只有 admin 读取更新缓存：finance / support 在后台任何页面都不发起更新相关请求', async () => {
+    // 对照组：admin 进入后台布局时读取一次缓存（红点数据源）。
+    const adminMock = mockSettings('admin')
+    seedAdminToken()
+    seedAdminProfile({ role: 'admin', username: 'admin' })
+    const adminView = renderApp(['/admin'])
+    await screen.findByRole('navigation', { name: '管理后台导航' })
+    await waitFor(() => expect(callsTo(adminMock, '/admin/updates').length).toBeGreaterThanOrEqual(1))
+    adminView.unmount()
+
+    for (const role of ['finance', 'support'] as const) {
+      for (const path of ['/admin', '/admin/settings']) {
+        const fetchMock = mockSettings(role)
+        seedAdminToken()
+        seedAdminProfile({ role, username: role })
+        const view = renderApp([path])
+        await screen.findByRole('navigation', { name: '管理后台导航' })
+        await settle()
+        const updateCalls = fetchMock.mock.calls.filter(
+          ([input]) =>
+            String(input).includes('/admin/updates') ||
+            String(input).includes('/admin/settings/updates'),
+        )
+        expect(updateCalls).toHaveLength(0)
+        view.unmount()
+      }
     }
   })
 })

@@ -9,7 +9,9 @@ import type {
   UpdateEpaySettingsInput,
   UpdateNotificationSettingsInput,
   UpdateReferralSettingsInput,
+  UpdateUpdatesSettingsInput,
   UpdateUpstreamSettingsInput,
+  UpdatesSettings,
   UpstreamHealth,
   UpstreamSettings,
 } from './types'
@@ -97,4 +99,22 @@ export function updateReferralSettings(
   input: UpdateReferralSettingsInput,
 ): Promise<ReferralSettings> {
   return http.put<ReferralSettings>('/admin/settings/referral', input, { auth: 'admin' })
+}
+
+/**
+ * GET /api/v1/admin/settings/updates —— 更新源设置（仓库 + GitHub Token 掩码，契约 19.5，R13-A）。
+ * Token 只回显配置标志与掩码，永不回显明文。
+ */
+export function fetchUpdatesSettings(): Promise<UpdatesSettings> {
+  return http.get<UpdatesSettings>('/admin/settings/updates', { auth: 'admin' })
+}
+
+/**
+ * PUT /api/v1/admin/settings/updates —— 局部更新（repo / github_token 至少一个，token 三态同上）。
+ * 修改 repo 时后端同请求清空更新检查缓存，调用方需据此刷新红点。
+ */
+export function updateUpdatesSettings(
+  input: UpdateUpdatesSettingsInput,
+): Promise<UpdatesSettings> {
+  return http.put<UpdatesSettings>('/admin/settings/updates', input, { auth: 'admin' })
 }

@@ -14,6 +14,7 @@ import {
 
 import { adminNavItems, paths } from '@/app/paths'
 import { useAdminAuth } from '@/auth/adminAuthContext'
+import UpdateDot from '@/components/admin/UpdateDot'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,7 +27,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { resetAdminUnreadCount, useAdminUnreadCountEffect } from '@/hooks/useAdminUnreadCount'
-import { ADMIN_ROLE_LABELS, ADMIN_ROLE_DESCRIPTIONS, canAccessAdminPage } from '@/lib/adminRoles'
+import { resetAdminUpdateStatus, useAdminUpdateStatusEffect } from '@/hooks/useAdminUpdateStatus'
+import {
+  ADMIN_ROLE_LABELS,
+  ADMIN_ROLE_DESCRIPTIONS,
+  canAccessAdminPage,
+  hasPermission,
+} from '@/lib/adminRoles'
 import { SITE_NAME } from '@/lib/site'
 import { cn } from '@/lib/utils'
 
@@ -72,6 +79,8 @@ export default function AdminLayout() {
   const { admin, role, logout } = useAdminAuth()
   const navigate = useNavigate()
   const unread = useAdminUnreadCountEffect(true)
+  // 系统更新红点（契约 19.7）：仅 admin（settings.access）读取更新缓存，其他角色不发任何更新相关请求（19.6）。
+  const { hasUpdate } = useAdminUpdateStatusEffect(hasPermission(role, 'settings.access'))
 
   const navItems = adminNavItems.filter((item) => canAccessAdminPage(role, item.page))
   const displayName = admin?.nickname || admin?.username || '管理员'
@@ -80,6 +89,8 @@ export default function AdminLayout() {
     logout()
     // 清空未读徽章，避免下一位登录者看到上一位管理员的未读数。
     resetAdminUnreadCount()
+    // 同理清空系统更新红点状态，避免下一位登录者沿用上一位的更新结果。
+    resetAdminUpdateStatus()
     navigate(paths.adminLogin, { replace: true })
   }
 
@@ -163,6 +174,9 @@ export default function AdminLayout() {
                   <Icon className="size-4.5" aria-hidden />
                   {item.label}
                   {item.to === paths.adminNotifications ? <UnreadBadge count={unread} /> : null}
+                  {item.to === paths.adminSettings && hasUpdate ? (
+                    <UpdateDot className="ml-auto" />
+                  ) : null}
                 </NavLink>
               )
             })}
@@ -190,6 +204,7 @@ export default function AdminLayout() {
               >
                 {item.label}
                 {item.to === paths.adminNotifications ? <UnreadBadge count={unread} /> : null}
+                {item.to === paths.adminSettings && hasUpdate ? <UpdateDot /> : null}
               </NavLink>
             ))}
           </nav>

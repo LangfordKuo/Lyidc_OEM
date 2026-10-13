@@ -18,7 +18,7 @@
 #
 # 用法：
 #   scripts/package.sh [选项]
-#     -v, --version VER    版本号（缺省：git describe --tags --always，兜底 dev）
+#     -v, --version VER    版本号（缺省：dev-<提交号>，非 git 目录为 dev；发布流水线传入 tag）
 #     -p, --platforms LIST 平台列表，空格分隔（缺省 "linux/amd64 linux/arm64 windows/amd64"）
 #     -d, --dist DIR       前端构建产物目录（缺省 frontend/dist，须先 npm run build）
 #     -o, --outdir DIR     归档输出目录（缺省 build/packages）
@@ -88,12 +88,15 @@ outdir=$(abs_path "$outdir")
 source_dir=$(abs_path "$source_dir")
 
 if [ -z "$version" ]; then
-  if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1; then
-    version=$(git -C "$repo_root" describe --tags --always --dirty 2>/dev/null || echo dev)
-  else
-    version="dev"
-  fi
+  # 本地未指定版本：用 dev-<提交号>（与 CI 的开发版本同形，契约 19.1）。不用 git describe：
+  # 它会得到 v0.10.0-15-g…，被语义化比较当成 v0.10.0 的预发布，误报「有新版本」。非 git 目录为 dev。
+  short_sha=$(git -C "$(native_path "$repo_root")" rev-parse --short HEAD 2>/dev/null || true)
+  if [ -n "$short_sha" ]; then version="dev-$short_sha"; else version="dev"; fi
 fi
+# 版本号统一带 v 前缀（与 tag 一致，契约 19.1）：1.2.3 记为 v1.2.3；v 开头、dev 与提交号保持原样。
+case "$version" in
+  [0-9]*.[0-9]*.[0-9]*) version="v$version" ;;
+esac
 # 版本号进归档文件名：只保留安全字符，避免路径穿越与空格。
 safe_version=$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\}/-/g; s/-$//')
 [ -n "$safe_version" ] || safe_version="dev"
@@ -102,6 +105,14 @@ safe_version=$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\
 [ -d "$dist_dir" ] || die "前端构建产物目录不存在：$dist_dir（请先在 frontend/ 执行 npm run build，或用 -d 指定）"
 [ -f "$dist_dir/index.html" ] || die "前端产物不完整：$dist_dir/index.html 不存在（请重新 npm run build）"
 command -v go >/dev/null 2>&1 || die "未找到 go 命令（后端交叉编译需要 Go 工具链）"
+
+# 版本信息注入（契约 19.1）：三个 buildinfo 变量随 -ldflags 写入二进制，运行时只读取、不写死版本号。
+# 模块路径从 go.mod 读取，避免与仓库改名脱节；提交号取不到（如非 git 目录）时记为 unknown。
+module_path=$(awk '/^module /{print $2; exit}' "$source_dir/go.mod")
+build_commit=$(git -C "$(native_path "$repo_root")" rev-parse --short HEAD 2>/dev/null || echo unknown)
+built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+buildinfo_pkg="$module_path/internal/buildinfo"
+ldflags="-s -w -X $buildinfo_pkg.Version=$version -X $buildinfo_pkg.Commit=$build_commit -X $buildinfo_pkg.BuiltAt=$built_at"
 
 mkdir -p "$outdir"
 stage_root="$outdir/.stage"
@@ -207,9 +218,9 @@ for platform in $platforms; do
   (
     cd "$source_dir"
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-      go build -trimpath -ldflags "-s -w" -o "$(native_path "$stage/$bin_name")" ./cmd/server
+      go build -trimpath -ldflags "$ldflags" -o "$(native_path "$stage/$bin_name")" ./cmd/server
     CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-      go build -trimpath -ldflags "-s -w" -o "$(native_path "$stage/$migrate_name")" ./cmd/migrate
+      go build -trimpath -ldflags "$ldflags" -o "$(native_path "$stage/$migrate_name")" ./cmd/migrate
   )
   # 静默失败比编译失败更难查：产物必须存在且非空（Windows 上路径格式写错时 go 会「成功」但什么都不产出）。
   [ -s "$stage/$bin_name" ] || die "构建产物缺失或为空：$stage/$bin_name（Windows 下请确认路径已转为原生格式）"
@@ -225,8 +236,9 @@ for platform in $platforms; do
   cp "$repo_root/deploy/.env.example" "$stage/deploy/.env.example"
   cat > "$stage/VERSION" <<EOF
 version: ${version}
+commit: ${build_commit}
 platform: ${goos}/${goarch}
-built_at: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+built_at: ${built_at}
 EOF
   chmod 0755 "$stage/$bin_name" "$stage/$migrate_name" 2>/dev/null || true
 

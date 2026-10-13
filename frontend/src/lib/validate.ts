@@ -277,3 +277,21 @@ export function validateRebatePercent(value: string): string {
   }
   return ''
 }
+
+// ---------------------------------------------------------------------------
+// 系统更新：更新源仓库（契约 19.5）。口径与后端一致：owner/name，owner 为字母数字与连字符，name 为字母数字与 ._-。
+// ---------------------------------------------------------------------------
+
+export const UPDATES_REPO_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
+
+/** 更新源仓库：契约 19.5 —— 必填（空值同样提示），形如 owner/name；合法性最终以后端 40001 为准。 */
+export function validateUpdatesRepo(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return '请输入仓库，格式为 owner/name'
+  }
+  if (!UPDATES_REPO_PATTERN.test(trimmed)) {
+    return '仓库格式应为 owner/name（owner 为字母数字与连字符，name 为字母数字与 . _ -）'
+  }
+  return ''
+}

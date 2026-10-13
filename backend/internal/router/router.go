@@ -20,6 +20,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/scheduler"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
@@ -83,6 +84,13 @@ type Options struct {
 	// 启动延迟 DefaultInitialDelay 后首次扫描，之后每 DefaultInterval 扫描一次。
 	// 生产装配（cmd/server）传 true；集成测试默认 false（扫描逻辑由 scheduler.Scanner 单元/集成测试覆盖）。
 	EnableDueScan bool
+	// EnableUpdateCheck 为 true 时启动「检查更新」后台定时刷新（R13-A，契约 19.4）：
+	// 启动后延迟 DefaultInitialDelay 检查一次，之后每 DefaultInterval 检查一次，失败只记日志。
+	// 生产装配（cmd/server）传 true；测试默认 false，检查接口仍可用（测试直接触发）。
+	EnableUpdateCheck bool
+	// UpdateFetcher 是检查更新访问 GitHub 的能力（R13-A）；nil 时使用默认 GitHub 客户端。
+	// 测试注入假实现，避免真实出网。
+	UpdateFetcher updates.Fetcher
 	// Notifier 是通知能力（阶段 6b）；nil 时构造默认实现（事件入口异步、按后台设置发信）。
 	// 注入的实现同时被「交付/扫描（经 Options.Delivery 与调度器）」与「工单/设置页」使用；
 	// 测试注入 Async=false 的 notify.Service 即可同步断言通知结果。
@@ -147,6 +155,21 @@ func New(opts Options) *gin.Engine {
 		opts.Logger.Info("到期暂停扫描已启动",
 			"initial_delay", scheduler.DefaultInitialDelay, "interval", scheduler.DefaultInterval)
 	}
+
+	// R13-A：系统版本与更新检查（契约 19）。检查服务始终构造（管理端接口可用）；
+	// 后台定时刷新只在生产装配开启（EnableUpdateCheck），与到期扫描同一套装配方式。
+	updateChecker := updates.NewService(updates.Options{
+		Store:    st,
+		Settings: settingsReader,
+		Fetcher:  opts.UpdateFetcher,
+		Logger:   opts.Logger,
+	})
+	if opts.EnableUpdateCheck {
+		updateChecker.Start()
+		opts.Logger.Info("检查更新后台任务已启动",
+			"initial_delay", updates.DefaultInitialDelay, "interval", updates.DefaultInterval)
+	}
+	updatesAdmin := &updatesHandler{service: updateChecker, logger: opts.Logger}
 
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
@@ -324,7 +347,19 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getReferralSettings)
 				settingsGroup.PUT("/referral",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateReferralSettings)
+				// 系统更新源（R13-A，契约 19.5）：仓库与可选 GitHub Token，同样仅 admin。
+				settingsGroup.GET("/updates",
+					requireAdminRole(model.RoleAdmin), adminSettings.getUpdatesSettings)
+				settingsGroup.PUT("/updates",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateUpdatesSettings)
 			}
+
+			// 系统版本与更新检查（R13-A，契约 19.3）：仅 admin（19.6）。读缓存不出网；检查更新强制出网。
+			// 预留（R13-B，本批不注册）：POST /admin/updates/apply（一键升级，契约 19.8）。
+			adminGroup.GET("/updates",
+				requireAdminRole(model.RoleAdmin), updatesAdmin.getCachedUpdate)
+			adminGroup.GET("/updates/check",
+				requireAdminRole(model.RoleAdmin), updatesAdmin.checkUpdate)
 
 			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。
 			adminGroup.GET("/recharges",

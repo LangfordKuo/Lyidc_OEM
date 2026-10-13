@@ -5,6 +5,7 @@
 //	go run ./cmd/migrate up            应用全部未执行的迁移
 //	go run ./cmd/migrate down [n]      回滚 n 步（缺省 1 步）
 //	go run ./cmd/migrate version       打印当前迁移版本
+//	go run ./cmd/migrate -version      打印程序版本后退出（不读取配置、不连接数据库）
 package main
 
 import (
@@ -22,6 +23,7 @@ import (
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/migrations"
 )
@@ -30,8 +32,14 @@ const pingTimeout = 15 * time.Second
 
 func main() {
 	configPath := flag.String("config", "", "配置文件路径（缺省时按 ./config.yaml、./backend/config.yaml 顺序查找）")
+	showVersion := flag.Bool("version", false, "打印程序版本后退出（不读取配置、不连接数据库）")
 	flag.Usage = usage
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("lyidc-oem migrate", buildinfo.Summary())
+		return
+	}
 
 	if err := run(*configPath, flag.Args()); err != nil {
 		fmt.Fprintf(os.Stderr, "迁移失败: %v\n", err)
@@ -159,10 +167,11 @@ func multiStatementDSN(dsn string) (string, error) {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `用法: go run ./cmd/migrate [-config 配置文件] <子命令>
+      go run ./cmd/migrate -version
 
 子命令:
   up            应用全部未执行的迁移
   down [n]      回滚 n 步（缺省 1 步）
-  version       打印当前迁移版本
+  version       打印当前迁移版本（数据库结构版本，不是程序版本）
 `)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/install"
@@ -39,7 +40,13 @@ const (
 
 func main() {
 	configPath := flag.String("config", "", "配置文件路径（缺省时按 ./config.yaml、./backend/config.yaml 顺序查找）")
+	showVersion := flag.Bool("version", false, "打印版本信息后退出（不读取配置、不连接数据库）")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("lyidc-oem server", buildinfo.Summary())
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -49,6 +56,7 @@ func main() {
 
 	logger := newLogger(cfg.Log)
 	slog.SetDefault(logger)
+	logger.Info("版本信息", "version", buildinfo.Version, "commit", buildinfo.Commit, "built_at", buildinfo.BuiltAt)
 
 	if cfg.SourcePath == "" {
 		logger.Warn("未找到配置文件，使用缺省配置（将进入安装向导模式）", "searched", config.DefaultSearchPaths)
@@ -75,6 +83,8 @@ func main() {
 				JWT:    jwt,
 				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
 				EnableDueScan: true,
+				// R13-A：生产开启「检查更新」后台定时刷新（契约 19.4）。
+				EnableUpdateCheck: true,
 			})
 		},
 	})

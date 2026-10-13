@@ -34,6 +34,7 @@ docker compose up -d
   管理端暂停恢复同步、续费下单与自动续费、到期暂停扫描、操作审计
 - **运营**：站内通知 + 邮件（SMTP）、到期提醒、工单、后台设置（支付/上游/邮件等全部进库，改完即生效）
 - **部署**：浏览器安装向导、容器化交付（GHCR 双镜像）、Release 三平台包
+- **版本与更新**：构建期注入版本号（`-version` 可查）；管理端「系统更新」检查 GitHub 最新正式版，有新版本时红点提示（一键升级待后续批次）
 
 ## 目录结构
 
@@ -42,7 +43,8 @@ backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/ba
   cmd/server/            HTTP 服务入口（含安装向导模式）
   cmd/migrate/           迁移命令（up / down n / version）
   internal/              config / db / install / auth / model / store / router / upstream /
-                         payment / pricing / delivery / scheduler / notify / email / settings
+                         payment / pricing / delivery / scheduler / notify / email / settings /
+                         buildinfo（构建期版本注入）/ updates（检查更新）
   migrations/            编号 SQL 迁移（go:embed 内嵌进二进制）
 frontend/                React 前端（src/api、src/app、src/pages、src/components…）
 deploy/                  compose 编排 + .env 示例 + 镜像内的 nginx/入口脚本模板

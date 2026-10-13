@@ -42,6 +42,9 @@ git push origin v1.0.0
 > `latest` 由 `type=raw,value=latest,enable=<ref 是 v* tag>` 显式给出——分支构建**不会**动 `latest`，
 > 避免把正式版覆盖成开发提交。
 
+- 版本号注入（契约 19.1）：tag 名（如 `v1.2.3`）经 `scripts/package.sh --version` 与镜像构建参数写入后端二进制，
+  `lyidc-server -version` 可查；管理端「系统更新」据此与 GitHub 最新正式版比较。**预发布 tag 不会被「检查更新」提示为新版本**（契约 19.2）。
+
 ## 三、手动演练（workflow_dispatch）
 
 Actions → Release → Run workflow，`dry_run` 默认 **true**：
@@ -55,7 +58,8 @@ Actions → Release → Run workflow，`dry_run` 默认 **true**：
 2. Release 页面：三个平台的 `tar.gz`/`zip` 与 `.sha256` 齐全，更新说明已自动生成。
 3. GHCR 两个包存在，且 tag 与预期一致（`latest`、`vX.Y.Z`、`X.Y`、`sha-xxxxxxx`）。
 4. 新增版本若有**新迁移**，在 docs/deploy.md「升级」里确认升级步骤已写明（`lyidc-migrate up`）。
-5. 匿名可拉取性（安装部署的默认前提，只需在首次发版或改包可见性后检查）：
+5. 「系统更新」可见：用上一个正式版的部署进入管理端「设置 → 系统更新」点「检查更新」，应显示本版本号、发布时间与产物（服务器平台的产物会高亮）。开发构建显示「开发构建，无法比较版本」属正常。
+6. 匿名可拉取性（安装部署的默认前提，只需在首次发版或改包可见性后检查）：
 
 ```bash
 OWNER=langfordkuo          # 全小写
