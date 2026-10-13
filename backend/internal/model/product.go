@@ -88,20 +88,24 @@ type Product struct {
 	// CategoryID 是 R7 所属子分类（product_categories.id，parent_id 非空的行）；0 = 尚未归类。
 	CategoryID uint64 `gorm:"column:category_id"`
 	// CategorySource 标记归属来源（derived / manual）；manual 时导入不覆盖（契约 10.1）。
-	CategorySource     string    `gorm:"column:category_source"`
-	Name               string    `gorm:"column:name"`
-	Description        string    `gorm:"column:description"`
-	Type               string    `gorm:"column:type"`
-	Module             string    `gorm:"column:module"`
-	ConfigJSON         string    `gorm:"column:config_json"`
-	UpstreamPricesJSON string    `gorm:"column:upstream_prices_json"`
-	PricingJSON        string    `gorm:"column:pricing_json"`
-	StockQty           int       `gorm:"column:stock_qty"`
-	OntrialMax         int       `gorm:"column:ontrial_max"`
-	Status             string    `gorm:"column:status"`
-	Sort               int       `gorm:"column:sort"`
-	CreatedAt          time.Time `gorm:"column:created_at"`
-	UpdatedAt          time.Time `gorm:"column:updated_at"`
+	CategorySource     string `gorm:"column:category_source"`
+	Name               string `gorm:"column:name"`
+	Description        string `gorm:"column:description"`
+	Type               string `gorm:"column:type"`
+	Module             string `gorm:"column:module"`
+	ConfigJSON         string `gorm:"column:config_json"`
+	UpstreamPricesJSON string `gorm:"column:upstream_prices_json"`
+	PricingJSON        string `gorm:"column:pricing_json"`
+	StockQty           int    `gorm:"column:stock_qty"`
+	OntrialMax         int    `gorm:"column:ontrial_max"`
+	Status             string `gorm:"column:status"`
+	Sort               int    `gorm:"column:sort"`
+	// RebatePercent 是商品级返佣比例（0.00-100.00，优先级最高，契约 18.2）；nil = 不覆盖。
+	RebatePercent *string `gorm:"column:rebate_percent"`
+	// RebateDisabled 为 true 时该商品完全不返佣（压过一切比例）。
+	RebateDisabled bool      `gorm:"column:rebate_disabled"`
+	CreatedAt      time.Time `gorm:"column:created_at"`
+	UpdatedAt      time.Time `gorm:"column:updated_at"`
 }
 
 // TableName 返回商品表名。

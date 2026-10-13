@@ -70,6 +70,11 @@ type ProductUpdate struct {
 	Sort        *int
 	// CategoryID 改挂子分类（R7，契约 10.4）：设置后 category_source 置 manual，导入不再覆盖。
 	CategoryID *uint64
+	// RebatePercent 商品级返佣比例（R10-A，契约 18.2）：nil 表示不修改；
+	// 指向空串表示清空（落 NULL = 不覆盖，落到会员级/全局默认）；指向值表示设为该比例。
+	RebatePercent *string
+	// RebateDisabled 禁用返佣（R10-A）：非 nil 时写入。
+	RebateDisabled *bool
 }
 
 // ProductGroupUpdate 描述 PUT /admin/product-groups/:id 的可选字段：nil 表示不修改。
@@ -398,7 +403,7 @@ func (s *Store) ProductByID(ctx context.Context, id uint64) (*model.Product, err
 	return productBy(db, "id = ?", id)
 }
 
-// UpdateProduct 更新商品的本地字段（定价/状态/排序）并返回最新记录。
+// UpdateProduct 更新商品的本地字段（定价/状态/排序/分类/返佣）并返回最新记录。
 func (s *Store) UpdateProduct(ctx context.Context, id uint64, upd ProductUpdate) (*model.Product, error) {
 	db, err := s.session(ctx)
 	if err != nil {
@@ -422,6 +427,17 @@ func (s *Store) UpdateProduct(ctx context.Context, id uint64, upd ProductUpdate)
 		// R7 改挂子分类：标记为 manual，后续导入不再自动派生覆盖（契约 10.1 / 10.4）。
 		columns["category_id"] = *upd.CategoryID
 		columns["category_source"] = model.CategorySourceManual
+	}
+	if upd.RebatePercent != nil {
+		// R10-A：空串 = 清空（落 NULL = 不覆盖，落到会员级/全局默认）。
+		if *upd.RebatePercent == "" {
+			columns["rebate_percent"] = nil
+		} else {
+			columns["rebate_percent"] = *upd.RebatePercent
+		}
+	}
+	if upd.RebateDisabled != nil {
+		columns["rebate_disabled"] = *upd.RebateDisabled
 	}
 	if err := db.Model(&model.Product{}).Where("id = ?", id).Updates(columns).Error; err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -45,6 +46,10 @@ type OrderInput struct {
 	Type string
 	// InstanceID 是续费单对应的实例（renew 单必填；new 单为 nil）。
 	InstanceID *uint64
+	// BindInviterID 非 0 时，创建订单的同事务内把买家首绑到该邀请人
+	// （用于邀请人自建券，契约 18.5）。买家已绑定邀请人时返回 ErrInviterAlreadyBound、
+	// 订单不落库——自建券只允许未绑定邀请关系的客户使用。
+	BindInviterID uint64
 }
 
 // OrderFilter 是订单分页查询条件（page 从 1 开始）。
@@ -79,6 +84,9 @@ type OrderPaymentResult struct {
 }
 
 // CreateOrder 创建 pending 订单；trade_no 冲突时返回 ErrTradeNoTaken（调用方换号重试）。
+//
+// in.BindInviterID 非 0 时（邀请人自建券，契约 18.5）在同一事务内完成邀请人首绑；
+// 买家已绑定邀请人时返回 ErrInviterAlreadyBound，订单不落库。
 func (s *Store) CreateOrder(ctx context.Context, in OrderInput) (*model.Order, error) {
 	db, err := s.session(ctx)
 	if err != nil {
@@ -111,8 +119,24 @@ func (s *Store) CreateOrder(ctx context.Context, in OrderInput) (*model.Order, e
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	if err := db.Create(&order).Error; err != nil {
-		return nil, mapDuplicateError(err)
+
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if in.BindInviterID != 0 {
+			bound, err := BindInviterTx(tx, in.MemberID, in.BindInviterID)
+			if err != nil {
+				return err
+			}
+			if !bound {
+				return ErrInviterAlreadyBound
+			}
+		}
+		if err := tx.Create(&order).Error; err != nil {
+			return mapDuplicateError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return &order, nil
 }
@@ -183,6 +207,10 @@ func (s *Store) ListOrders(ctx context.Context, filter OrderFilter) ([]model.Ord
 
 // CancelOrder 取消本人 pending 订单（条件 UPDATE 保证并发下只有一个请求生效）。
 // 状态不允许取消时返回最新记录 + ErrStateConflict；订单不存在或非本人返回 ErrNotFound。
+//
+// 取消成功后同事务回滚该笔返佣（契约 18.4）：当前只有 pending 可取消、pending 从未发放返佣，
+// 因此这条钩子在现有取消路径上是防御性的——一旦未来出现「已支付订单取消/退款」路径，
+// 复用同一钩子即可保证返佣被冲回；回滚本身幂等（再次回滚不重复）。
 func (s *Store) CancelOrder(ctx context.Context, id, memberID uint64) (*model.Order, error) {
 	db, err := s.session(ctx)
 	if err != nil {
@@ -190,19 +218,30 @@ func (s *Store) CancelOrder(ctx context.Context, id, memberID uint64) (*model.Or
 	}
 
 	now := time.Now().UTC()
-	result := db.Model(&model.Order{}).
-		Where("id = ? AND member_id = ? AND status = ?", id, memberID, model.OrderStatusPending).
-		Updates(map[string]any{"status": model.OrderStatusCancelled, "updated_at": now})
-	if result.Error != nil {
-		return nil, result.Error
-	}
+	var order *model.Order
+	err = db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.Order{}).
+			Where("id = ? AND member_id = ? AND status = ?", id, memberID, model.OrderStatusPending).
+			Updates(map[string]any{"status": model.OrderStatusCancelled, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
 
-	order, err := orderBy(db, "id = ? AND member_id = ?", id, memberID)
+		latest, err := orderBy(tx, "id = ? AND member_id = ?", id, memberID)
+		if err != nil {
+			return err
+		}
+		order = latest
+		if result.RowsAffected == 0 {
+			return ErrStateConflict
+		}
+		return rollbackReferralRebateInTx(tx, id, now)
+	})
 	if err != nil {
+		if errors.Is(err, ErrStateConflict) && order != nil {
+			return order, ErrStateConflict
+		}
 		return nil, err
-	}
-	if result.RowsAffected == 0 {
-		return order, ErrStateConflict
 	}
 	return order, nil
 }
@@ -255,6 +294,11 @@ func (s *Store) PayOrderWithBalance(ctx context.Context, orderID, memberID uint6
 
 		notCounted, err := incrementCouponUsage(tx, order.CouponID)
 		if err != nil {
+			return err
+		}
+		// 邀请返佣：与入账同事务发放（契约 18.4）。发放条件与幂等见 grantReferralRebate；
+		// 未绑定/禁用/关闸/为 0 都不发放，也绝不阻断入账。
+		if _, err := grantReferralRebate(tx, order, now); err != nil {
 			return err
 		}
 		// 阶段 5 交付触发点：订单转 paid 后在此发起上游开通/交付；本批不做。
@@ -317,6 +361,10 @@ func (s *Store) CompleteOrderPayment(ctx context.Context, in OrderPaymentInput) 
 
 		notCounted, err := incrementCouponUsage(tx, order.CouponID)
 		if err != nil {
+			return err
+		}
+		// 邀请返佣：与入账同事务发放（契约 18.4）。发放条件与幂等见 grantReferralRebate。
+		if _, err := grantReferralRebate(tx, order, paidAt); err != nil {
 			return err
 		}
 		// 阶段 5 交付触发点：订单转 paid 后在此发起上游开通/交付；本批不做。

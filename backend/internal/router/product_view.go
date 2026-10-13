@@ -120,8 +120,12 @@ type adminProductView struct {
 	CategoryID     uint64               `json:"category_id"`
 	CategoryName   string               `json:"category_name"`
 	CategoryParent adminCategoryRefView `json:"category_parent"`
-	CreatedAt      string               `json:"created_at"`
-	UpdatedAt      string               `json:"updated_at"`
+	// R10-A 返佣（契约 18.2）：rebate_percent 为商品级比例（null = 不覆盖）；
+	// rebate_disabled 为 true 时该商品完全不返佣（压过一切比例）。
+	RebatePercent  *string `json:"rebate_percent"`
+	RebateDisabled bool    `json:"rebate_disabled"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 
 // adminProductDetailView 是管理端商品详情（列表项 + 描述 + 可配置项 + 上游价格原文）。
@@ -282,6 +286,8 @@ func newAdminProductView(product *model.Product, group *model.ProductGroup, cate
 		CategoryID:      category.ID,
 		CategoryName:    category.Name,
 		CategoryParent:  category.Parent,
+		RebatePercent:   product.RebatePercent,
+		RebateDisabled:  product.RebateDisabled,
 		CreatedAt:       formatTime(product.CreatedAt),
 		UpdatedAt:       formatTime(product.UpdatedAt),
 	}

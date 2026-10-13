@@ -34,6 +34,9 @@ var (
 	// ErrStateConflict 表示记录当前状态不允许该操作（如取消已支付订单）；
 	// 调用方应回读记录状态给出具体提示。
 	ErrStateConflict = errors.New("记录状态不允许该操作")
+	// ErrInviterAlreadyBound 表示买家已绑定邀请人（members.inviter_id 非 0），
+	// 不能再用邀请人自建券完成绑定（契约 18.5：自建券仅限未绑定邀请关系的客户）。
+	ErrInviterAlreadyBound = errors.New("已绑定邀请关系")
 	// ErrNoFieldsToUpdate 表示更新请求里没有任何可写字段（调用方一般已前置校验为 40001）。
 	ErrNoFieldsToUpdate = errors.New("没有提供任何可更新字段")
 )
@@ -41,15 +44,17 @@ var (
 // mysqlDuplicateEntry 是 MySQL 唯一键冲突错误码。
 const mysqlDuplicateEntry = 1062
 
-// 唯一索引名（见 backend/migrations/0002、0003、0005、0006）。
+// 唯一索引名（见 backend/migrations/0002、0003、0005、0006、0015）。
 const (
-	indexMembersUsername  = "uk_members_username"
-	indexMembersEmail     = "uk_members_email"
-	indexAdminsUsername   = "uk_admins_username"
-	indexCouponsCode      = "uk_coupons_code"
-	indexOrdersTradeNo    = "uk_orders_trade_no"
-	indexRechargesTradeNo = "uk_recharges_trade_no"
-	indexTicketsTradeNo   = "uk_tickets_trade_no"
+	indexMembersUsername      = "uk_members_username"
+	indexMembersEmail         = "uk_members_email"
+	indexMembersInviteCode    = "uk_members_invite_code"
+	indexAdminsUsername       = "uk_admins_username"
+	indexCouponsCode          = "uk_coupons_code"
+	indexOrdersTradeNo        = "uk_orders_trade_no"
+	indexRechargesTradeNo     = "uk_recharges_trade_no"
+	indexTicketsTradeNo       = "uk_tickets_trade_no"
+	indexReferralRebatesOrder = "uk_referral_rebates_order"
 )
 
 // Store 是阶段 1 的数据访问入口。
@@ -79,6 +84,8 @@ func mapDuplicateError(err error) error {
 		return ErrUsernameTaken
 	case strings.Contains(mysqlErr.Message, indexMembersEmail):
 		return ErrEmailTaken
+	case strings.Contains(mysqlErr.Message, indexMembersInviteCode):
+		return ErrDuplicate
 	case strings.Contains(mysqlErr.Message, indexAdminsUsername):
 		return ErrUsernameTaken
 	case strings.Contains(mysqlErr.Message, indexCouponsCode):
@@ -87,6 +94,8 @@ func mapDuplicateError(err error) error {
 		strings.Contains(mysqlErr.Message, indexRechargesTradeNo),
 		strings.Contains(mysqlErr.Message, indexTicketsTradeNo):
 		return ErrTradeNoTaken
+	case strings.Contains(mysqlErr.Message, indexReferralRebatesOrder):
+		return ErrDuplicate
 	default:
 		return fmt.Errorf("%w: %s", ErrDuplicate, mysqlErr.Message)
 	}

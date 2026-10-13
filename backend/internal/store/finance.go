@@ -34,8 +34,11 @@ type LedgerFilter struct {
 	// MemberID 为 0 表示不按会员过滤（管理端传 0 时不加条件）。
 	MemberID uint64
 	Type     string
-	Page     int
-	PageSize int
+	// ExcludeType 排除某种流水类型（会员端「余额流水」用它滤掉 referral_rebate：
+	// 那类流水动的是邀请返现余额 rebate_balance，不是消费余额 balance，契约 18.3）。
+	ExcludeType string
+	Page        int
+	PageSize    int
 }
 
 // RechargePaymentInput 是渠道回调触发的充值入账参数。
@@ -136,6 +139,9 @@ func (s *Store) ListLedger(ctx context.Context, filter LedgerFilter) ([]model.Le
 	}
 	if filter.Type != "" {
 		query = query.Where("type = ?", filter.Type)
+	}
+	if filter.ExcludeType != "" {
+		query = query.Where("type <> ?", filter.ExcludeType)
 	}
 
 	var total int64

@@ -147,6 +147,8 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM orders",
 		"DELETE FROM recharges",
 		"DELETE FROM ledger",
+		// 邀请返佣（R10-A）：返佣流水与设置。
+		"DELETE FROM referral_rebates",
 		"DELETE FROM settings",
 		// 工单（阶段 6a）：先删消息再删工单。
 		"DELETE FROM ticket_messages",
@@ -165,6 +167,7 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"ALTER TABLE orders AUTO_INCREMENT = 1",
 		"ALTER TABLE recharges AUTO_INCREMENT = 1",
 		"ALTER TABLE ledger AUTO_INCREMENT = 1",
+		"ALTER TABLE referral_rebates AUTO_INCREMENT = 1",
 		"ALTER TABLE ticket_messages AUTO_INCREMENT = 1",
 		"ALTER TABLE tickets AUTO_INCREMENT = 1",
 		"ALTER TABLE notifications AUTO_INCREMENT = 1",

@@ -171,6 +171,8 @@ func New(opts Options) *gin.Engine {
 	tickets := &ticketHandler{store: st, notify: notifier, logger: opts.Logger}
 	// 阶段 6b：站内通知收件箱（会员端与管理端同构）。
 	notifications := &notificationHandler{store: st, logger: opts.Logger}
+	// R10-A：邀请返佣（会员端概览/开通/流水/邀请列表，契约 18）。
+	referrals := &referralHandler{store: st, reader: settingsReader, logger: opts.Logger}
 
 	apiV1 := engine.Group("/api/v1")
 	{
@@ -246,6 +248,12 @@ func New(opts Options) *gin.Engine {
 			memberAPI.GET("/notifications/unread-count", notifications.myUnreadCount)
 			memberAPI.POST("/notifications/:id/read", notifications.readMyNotification)
 			memberAPI.POST("/notifications/read-all", notifications.readAllMyNotifications)
+
+			// 邀请返佣（R10-A，契约 18.5）：仅本人数据；开通时惰性生成邀请码。
+			memberAPI.GET("/referral", referrals.getReferral)
+			memberAPI.PUT("/referral", referrals.updateReferral)
+			memberAPI.GET("/referral/rebates", referrals.listRebates)
+			memberAPI.GET("/referral/invitees", referrals.listInvitees)
 		}
 
 		// 管理端：登录开放，其余需要管理员 token；
@@ -291,6 +299,12 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getNotificationSettings)
 				settingsGroup.PUT("/notifications",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateNotificationSettings)
+
+				// 邀请返佣设置（R10-A，契约 18.6）：同样**仅 admin**。
+				settingsGroup.GET("/referral",
+					requireAdminRole(model.RoleAdmin), adminSettings.getReferralSettings)
+				settingsGroup.PUT("/referral",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateReferralSettings)
 			}
 
 			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。

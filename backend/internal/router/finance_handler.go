@@ -250,6 +250,9 @@ func (h *financeHandler) listLedger(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// 会员端「余额流水」只看消费余额（members.balance）的变动；
+	// referral_rebate 动的是邀请返现余额（rebate_balance），走 /referral/rebates（契约 18.3）。
+	filter.ExcludeType = model.LedgerTypeReferralRebate
 
 	items, total, err := h.store.ListLedger(c.Request.Context(), filter)
 	if err != nil {
@@ -309,7 +312,8 @@ func ledgerFilter(c *gin.Context, memberID uint64) (store.LedgerFilter, bool) {
 	}
 	kind := strings.TrimSpace(c.Query("type"))
 	if kind != "" && !model.IsValidLedgerType(kind) {
-		response.Fail(c, response.CodeInvalidParam, "type 只能是 recharge / order_pay / refund / adjust")
+		response.Fail(c, response.CodeInvalidParam,
+			"type 只能是 recharge / order_pay / referral_rebate / refund / adjust")
 		return store.LedgerFilter{}, false
 	}
 	return store.LedgerFilter{MemberID: memberID, Type: kind, Page: page, PageSize: pageSize}, true

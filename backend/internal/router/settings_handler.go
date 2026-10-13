@@ -450,6 +450,103 @@ func (h *settingsHandler) updateNotificationSettings(c *gin.Context) {
 	response.Success(c, notificationSettingsViewOf(merged, settingMeta(setting)))
 }
 
+// referralSettingsView 是 referral 设置对外视图（契约 18.6）。
+type referralSettingsView struct {
+	Enabled          bool    `json:"enabled"`
+	DefaultPercent   string  `json:"default_percent"`
+	MaxCouponPercent string  `json:"max_coupon_percent"`
+	UpdatedBy        *uint64 `json:"updated_by"`
+	UpdatedAt        *string `json:"updated_at"`
+}
+
+// referralSettingsUpdateRequest 是 PUT /admin/settings/referral 请求体：字段均可选但至少一个。
+type referralSettingsUpdateRequest struct {
+	Enabled          *bool   `json:"enabled"`
+	DefaultPercent   *string `json:"default_percent"`
+	MaxCouponPercent *string `json:"max_coupon_percent"`
+}
+
+// provided 判断请求是否至少提供了一个字段。
+func (r referralSettingsUpdateRequest) provided() bool {
+	return r.Enabled != nil || r.DefaultPercent != nil || r.MaxCouponPercent != nil
+}
+
+// getReferralSettings 处理 GET /api/v1/admin/settings/referral。
+func (h *settingsHandler) getReferralSettings(c *gin.Context) {
+	state, err := h.reader.Referral(c.Request.Context())
+	if err != nil {
+		h.failSettings(c, err)
+		return
+	}
+	response.Success(c, referralSettingsViewOf(state.Value, state.Meta))
+}
+
+// updateReferralSettings 处理 PUT /api/v1/admin/settings/referral：局部更新并立即生效
+// （返佣结算每次入账都重读本设置，改完下一笔支付即用新比例）。
+func (h *settingsHandler) updateReferralSettings(c *gin.Context) {
+	admin, ok := adminFromContext(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized, msgInvalidCredential)
+		return
+	}
+
+	var req referralSettingsUpdateRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if !req.provided() {
+		response.Fail(c, response.CodeInvalidParam,
+			"至少提供一个字段：enabled / default_percent / max_coupon_percent")
+		return
+	}
+
+	ctx := c.Request.Context()
+	current, err := h.reader.Referral(ctx)
+	if err != nil {
+		h.failSettings(c, err)
+		return
+	}
+	merged, err := current.Value.Apply(settings.ReferralUpdate{
+		Enabled:          req.Enabled,
+		DefaultPercent:   req.DefaultPercent,
+		MaxCouponPercent: req.MaxCouponPercent,
+	})
+	if err != nil {
+		failRuleError(c, err)
+		return
+	}
+
+	encoded, err := merged.Encode()
+	if err != nil {
+		failInternal(c, h.logger, err)
+		return
+	}
+	setting, err := h.store.UpsertSetting(ctx, settings.KeyReferral, encoded, admin.ID)
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+	h.logger.Info("后台设置已更新", "key", settings.KeyReferral, "admin_id", admin.ID,
+		"enabled", merged.Enabled, "default_percent", merged.DefaultPercent,
+		"max_coupon_percent", merged.MaxCouponPercent)
+	response.Success(c, referralSettingsViewOf(merged, settingMeta(setting)))
+}
+
+// referralSettingsViewOf 组装邀请返佣设置视图。
+func referralSettingsViewOf(value settings.Referral, meta settings.Meta) referralSettingsView {
+	view := referralSettingsView{
+		Enabled:          value.Enabled,
+		DefaultPercent:   value.DefaultPercent,
+		MaxCouponPercent: value.MaxCouponPercent,
+		UpdatedBy:        meta.UpdatedBy,
+	}
+	if meta.UpdatedAt != nil {
+		formatted := formatTime(*meta.UpdatedAt)
+		view.UpdatedAt = &formatted
+	}
+	return view
+}
+
 // emailSMTPViewOf 组装 SMTP 设置视图（口令只输出配置标志与掩码）。
 func emailSMTPViewOf(value settings.SMTP, meta settings.Meta) emailSMTPView {
 	view := emailSMTPView{

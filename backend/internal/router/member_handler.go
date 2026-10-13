@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ type registerRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// InviteCode 是邀请码（可选，契约 18.5）：nil 或缺省表示不走邀请注册；
+	// 提供了值就必须解析成功（非法/不存在/自邀一律 40002，不静默忽略）。
+	InviteCode *string `json:"invite_code"`
 }
 
 // loginRequest 是 POST /auth/login 请求体。
@@ -48,6 +52,10 @@ type changePasswordRequest struct {
 }
 
 // register 处理 POST /api/v1/auth/register：注册会员并返回会员信息。
+//
+// 邀请码（契约 18.5）：提供 invite_code 时按 members.invite_code 精确匹配解析邀请人，
+// 非法/不存在/自邀一律 40002 明确报错（不静默忽略）；解析成功则写入 inviter_id。
+// **首绑不改**：注册时绑定的邀请人永久生效，后续任何路径都不改绑。
 func (h *memberHandler) register(c *gin.Context) {
 	var req registerRequest
 	if !bindJSON(c, &req) {
@@ -69,6 +77,30 @@ func (h *memberHandler) register(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
+	var inviterID uint64
+	if req.InviteCode != nil {
+		code := strings.TrimSpace(*req.InviteCode)
+		if err := validateInviteCodeShape(code); err != nil {
+			failRuleError(c, err)
+			return
+		}
+		inviter, err := h.store.MemberByInviteCode(ctx, code)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			response.Fail(c, response.CodeValidationFailed, "邀请码不存在或已失效")
+			return
+		case err != nil:
+			failDB(c, h.logger, err)
+			return
+		}
+		if referralSelfInvite(inviter, username, email) {
+			failRuleError(c, fmt.Errorf("%w: 不能使用自己的邀请码", errReferralRule))
+			return
+		}
+		inviterID = inviter.ID
+	}
+
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		failInternal(c, h.logger, err)
@@ -76,14 +108,16 @@ func (h *memberHandler) register(c *gin.Context) {
 	}
 
 	member := &model.Member{
-		Username:     username,
-		Email:        email,
-		PasswordHash: hash,
-		Nickname:     username,
-		Status:       model.StatusActive,
-		Balance:      model.ZeroMoney,
+		Username:      username,
+		Email:         email,
+		PasswordHash:  hash,
+		Nickname:      username,
+		Status:        model.StatusActive,
+		Balance:       model.ZeroMoney,
+		InviterID:     inviterID,
+		RebateBalance: model.ZeroMoney,
 	}
-	if err := h.store.CreateMember(c.Request.Context(), member); err != nil {
+	if err := h.store.CreateMember(ctx, member); err != nil {
 		switch {
 		case errors.Is(err, store.ErrUsernameTaken):
 			response.Fail(c, response.CodeConflict, "用户名已被占用")

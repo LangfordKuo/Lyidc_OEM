@@ -68,6 +68,11 @@ type updateProductRequest struct {
 	// CategoryID 改挂子分类（R7，契约 10.4）：必须是子分类 id，0 表示取消归类。
 	// 设置后 category_source 置 manual，后续导入不再自动派生覆盖。
 	CategoryID *uint64 `json:"category_id"`
+	// RebatePercent 商品级返佣比例（R10-A，契约 18.2）：与 pricing_json 同款三态——
+	// 缺省不改、null 清空（落 NULL = 不覆盖）、字符串设值（0.00-100.00）。
+	RebatePercent json.RawMessage `json:"rebate_percent"`
+	// RebateDisabled 禁用返佣（R10-A）：非缺省时写入。
+	RebateDisabled *bool `json:"rebate_disabled"`
 }
 
 // updateProductGroupRequest 是 PUT /admin/product-groups/:id 请求体。
@@ -201,8 +206,10 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if len(req.PricingJSON) == 0 && req.Status == nil && req.Sort == nil && req.CategoryID == nil {
-		response.Fail(c, response.CodeInvalidParam, "至少提供一个字段：pricing_json / status / sort / category_id")
+	if len(req.PricingJSON) == 0 && req.Status == nil && req.Sort == nil && req.CategoryID == nil &&
+		len(req.RebatePercent) == 0 && req.RebateDisabled == nil {
+		response.Fail(c, response.CodeInvalidParam,
+			"至少提供一个字段：pricing_json / status / sort / category_id / rebate_percent / rebate_disabled")
 		return
 	}
 
@@ -250,6 +257,18 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 			}
 		}
 		update.CategoryID = req.CategoryID
+	}
+	if len(req.RebatePercent) > 0 {
+		// 三态：null 清空（落 NULL）、字符串设值（0.00-100.00）。
+		value, err := rebatePercentFromRaw(req.RebatePercent)
+		if err != nil {
+			failRuleError(c, err)
+			return
+		}
+		update.RebatePercent = value
+	}
+	if req.RebateDisabled != nil {
+		update.RebateDisabled = req.RebateDisabled
 	}
 
 	ctx := c.Request.Context()
@@ -712,11 +731,11 @@ func pricingRawJSON(raw json.RawMessage) (string, error) {
 }
 
 // failRuleError 把「格式/规则」两类业务校验错误映射为错误码：
-// 规则类（定价/优惠码/设置项/财务规则不成立）→ 40002，其余格式类 → 40001。
+// 规则类（定价/优惠码/设置项/财务/工单/邀请返佣规则不成立）→ 40002，其余格式类 → 40001。
 func failRuleError(c *gin.Context, err error) {
 	if errors.Is(err, pricing.ErrRule) || errors.Is(err, errCouponRule) ||
 		errors.Is(err, settings.ErrRule) || errors.Is(err, errFinanceRule) ||
-		errors.Is(err, errTicketRule) {
+		errors.Is(err, errTicketRule) || errors.Is(err, errReferralRule) {
 		response.Fail(c, response.CodeValidationFailed, err.Error())
 		return
 	}

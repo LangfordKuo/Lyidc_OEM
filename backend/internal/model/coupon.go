@@ -32,8 +32,12 @@ type Coupon struct {
 	UsedCount  int        `gorm:"column:used_count"`
 	Status     string     `gorm:"column:status"`
 	Comment    string     `gorm:"column:comment"`
-	CreatedAt  time.Time  `gorm:"column:created_at"`
-	UpdatedAt  time.Time  `gorm:"column:updated_at"`
+	// OwnerMemberID 是自建券归属邀请人 ID（契约 18.5）：0 = 平台券；
+	// 非 0 = 邀请人自建券，仅限**未绑定**邀请关系的客户使用（未绑定 → 下单时绑定 owner，
+	// 已绑定 → 拒绝用券 40002）。建券接口在 R10-B。
+	OwnerMemberID uint64    `gorm:"column:owner_member_id"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 // TableName 返回优惠码表名。

@@ -227,6 +227,7 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 	discount := pricing.FormatAmount(0)
 	final := amount
 	var coupon *model.Coupon
+	var bindInviterID uint64
 	if code := strings.TrimSpace(req.CouponCode); code != "" {
 		coupon, err = h.store.CouponByCode(ctx, code)
 		switch {
@@ -247,6 +248,26 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 			failRuleError(c, err)
 			return
 		}
+
+		// 邀请人自建券（owner_member_id 非 0，契约 18.5）：只允许**未绑定**邀请关系的客户使用。
+		// 未绑定 → 下单时首绑到该券归属邀请人（与订单同事务）；已绑定 → 拒绝用券（40002）。
+		// 邀请人自己用自己的自建券也拒绝（否则会自邀）。
+		if coupon.OwnerMemberID != 0 {
+			if coupon.OwnerMemberID == member.ID {
+				failRuleError(c, fmt.Errorf("%w: 不能使用自己创建的优惠码", errReferralRule))
+				return
+			}
+			buyer, err := h.store.MemberByID(ctx, member.ID)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return
+			}
+			if buyer.InviterID != 0 {
+				failRuleError(c, fmt.Errorf("%w: 该优惠码仅限未绑定邀请关系的客户使用", errReferralRule))
+				return
+			}
+			bindInviterID = coupon.OwnerMemberID
+		}
 	}
 
 	input := store.OrderInput{
@@ -261,6 +282,7 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 		FinalAmount:        final,
 		PriceBreakdownJSON: breakdownJSON,
 		CouponCode:         strings.TrimSpace(req.CouponCode),
+		BindInviterID:      bindInviterID,
 	}
 	if coupon != nil {
 		input.CouponID = &coupon.ID
@@ -272,6 +294,11 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 		return h.store.CreateOrder(ctx, input)
 	})
 	if err != nil {
+		// 并发窗口内买家已被别的单绑定：按「已绑定 → 拒绝该券」回 40002。
+		if errors.Is(err, store.ErrInviterAlreadyBound) {
+			failRuleError(c, fmt.Errorf("%w: 该优惠码仅限未绑定邀请关系的客户使用", errReferralRule))
+			return
+		}
 		failDB(c, h.logger, err)
 		return
 	}
