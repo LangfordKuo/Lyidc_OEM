@@ -1,30 +1,31 @@
 import { useState, type FormEvent } from 'react'
-import { AlertCircleIcon, CheckCircle2Icon, LoaderCircleIcon } from 'lucide-react'
+import { AlertCircleIcon } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { listAdminCategories } from '@/api/adminCategories'
 import {
-  importAdminProducts,
   listAdminProductGroups,
   listAdminProducts,
   updateAdminProduct,
 } from '@/api/adminProducts'
 import { errorMessage } from '@/api/client'
-import type { AdminProduct, ProductImportResult } from '@/api/types'
+import type { AdminProduct } from '@/api/types'
 import { useAdminAuth } from '@/auth/adminAuthContext'
 import AdminTable, { type AdminColumn } from '@/components/admin/AdminTable'
 import CategoriesPanel from '@/components/admin/CategoriesPanel'
 import FilterSelect, { AdminFilterBar } from '@/components/admin/FilterSelect'
 import ProductCategoryDialog from '@/components/admin/ProductCategoryDialog'
+import ProductGroupMapsPanel from '@/components/admin/ProductGroupMapsPanel'
 import ProductGroupsPanel from '@/components/admin/ProductGroupsPanel'
+import ProductImportDialog from '@/components/admin/ProductImportDialog'
 import ProductPricingDialog from '@/components/admin/ProductPricingDialog'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import Pager from '@/components/common/Pager'
 import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageState'
 import StatusBadge from '@/components/common/StatusBadge'
 import StatusFilter from '@/components/common/StatusFilter'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -95,9 +96,6 @@ export default function AdminProducts() {
   const [refreshKey, setRefreshKey] = useState(0)
 
   const [importOpen, setImportOpen] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<ProductImportResult | null>(null)
-  const [importError, setImportError] = useState('')
 
   const [pricingTarget, setPricingTarget] = useState<AdminProduct | null>(null)
   const [statusTarget, setStatusTarget] = useState<AdminProduct | null>(null)
@@ -119,11 +117,8 @@ export default function AdminProducts() {
     [page, groupId, categoryId, status, keyword, refreshKey],
     activeTab === 'products',
   )
-  const groupsState = useAsync(
-    () => listAdminProductGroups(),
-    [refreshKey],
-    activeTab === 'products',
-  )
+  // 分组列表两个页签都要用（商品页签做筛选/分组面板，分类页签做「上游分组映射」区块），故常开。
+  const groupsState = useAsync(() => listAdminProductGroups(), [refreshKey])
   // 改分类弹窗的选项来源（契约 10.4）：两级分类树，商品只挂子分类。
   const categoriesState = useAsync(() => listAdminCategories(), [refreshKey])
 
@@ -166,27 +161,6 @@ export default function AdminProducts() {
     setPage(1)
   }
 
-  /** 上游导入：一次只读拉取上游目录 + 逐个商品详情，耗时可能数十秒，用二次确认起步。 */
-  const handleImport = async () => {
-    // 确认后立即收起弹窗，由顶部按钮的「正在导入…」禁用态防重复提交。
-    setImportOpen(false)
-    setImporting(true)
-    setImportError('')
-    setImportResult(null)
-    try {
-      const result = await importAdminProducts()
-      setImportResult(result)
-      setPage(1)
-      refresh()
-      toast.success('商品导入完成')
-    } catch (err) {
-      // 上游未配置 / 目录拉取失败等（500）原样展示后端 message。
-      setImportError(errorMessage(err, '导入商品失败，请稍后重试'))
-    } finally {
-      setImporting(false)
-    }
-  }
-
   /** 上下架：二次确认后提交 status（上架可能触发后端 409 校验）。 */
   const handleStatusConfirm = async () => {
     if (!statusTarget) {
@@ -206,8 +180,6 @@ export default function AdminProducts() {
       setStatusPending(false)
     }
   }
-
-  const failedPids = importResult?.failed_pids?.slice(0, 20) ?? []
 
   const columns: AdminColumn<AdminProduct>[] = [
     {
@@ -332,69 +304,14 @@ export default function AdminProducts() {
           </Button>
           <Button
             size="sm"
-            disabled={!canImport || importing}
+            disabled={!canImport}
             title={canImport ? undefined : permissionHint('products.import')}
             onClick={() => setImportOpen(true)}
           >
-            {importing ? (
-              <>
-                <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
-                正在导入…
-              </>
-            ) : (
-              '从上游导入商品'
-            )}
+            从上游导入商品
           </Button>
         </div>
       </header>
-
-      {importing ? (
-        <Alert>
-          <LoaderCircleIcon className="animate-spin" aria-hidden />
-          <AlertDescription>
-            正在从上游导入商品（只读调用上游目录与商品详情，可能耗时数十秒），请勿关闭页面…
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {importError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon aria-hidden />
-          <AlertTitle>导入失败</AlertTitle>
-          <AlertDescription>{importError}</AlertDescription>
-          <Button size="sm" variant="outline" onClick={() => setImportError('')}>
-            关闭
-          </Button>
-        </Alert>
-      ) : null}
-
-      {importResult ? (
-        <Alert
-          className={
-            importResult.failed > 0
-              ? 'border-warning/40 bg-warning/5'
-              : 'border-success/40 bg-success/5'
-          }
-        >
-          <CheckCircle2Icon className="text-success" aria-hidden />
-          <AlertTitle>上游导入完成</AlertTitle>
-          <AlertDescription>
-            新建 {importResult.created} 个、更新 {importResult.updated} 个、无变化{' '}
-            {importResult.unchanged} 个、分组 {importResult.groups} 个。
-            {importResult.failed > 0
-              ? ` 另有 ${importResult.failed} 个商品详情抓取失败，已跳过（不影响其余商品）。`
-              : ''}
-          </AlertDescription>
-          {failedPids.length > 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              跳过的商品 ID（最多展示 20 个）：{failedPids.join('、')}
-            </p>
-          ) : null}
-          <Button size="sm" variant="outline" onClick={() => setImportResult(null)}>
-            关闭
-          </Button>
-        </Alert>
-      ) : null}
 
       <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList aria-label="商品与分类页签">
@@ -543,6 +460,11 @@ export default function AdminProducts() {
             canWrite={canWriteCategories}
             onChanged={refresh}
           />
+          <ProductGroupMapsPanel
+            groups={groups}
+            categories={categories}
+            canWrite={canWriteCategories}
+          />
         </TabsContent>
       </Tabs>
 
@@ -598,15 +520,19 @@ export default function AdminProducts() {
         ) : null}
       </ConfirmDialog>
 
-      <ConfirmDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        title="从上游导入商品"
-        description="将从上游读取商品目录与每个商品的详情（只读调用），耗时可能数十秒，期间请不要关闭页面。导入按上游 PID 幂等：已存在则更新、无变化则跳过，并自动创建缺失的分组。"
-        confirmLabel="开始导入"
-        pending={importing}
-        onConfirm={handleImport}
-      />
+      {importOpen ? (
+        <ProductImportDialog
+          groups={groups}
+          groupsLoading={groupsState.loading}
+          groupsError={groupsState.error}
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setPage(1)
+            refresh()
+            toast.success('商品导入完成')
+          }}
+        />
+      ) : null}
     </div>
   )
 }

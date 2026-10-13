@@ -12,10 +12,10 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/migrations"
 )
 
-// 迁移 up/down 往返测试（R10-B 硬性约束：0016 必须 up/down 成对）。
+// 迁移 up/down 往返测试（R10-B 起硬性约束：最新迁移必须 up/down 成对；R12 扩到 0017）。
 //
-// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言 0016 落表且版本 16 →
-// down 一步 → 断言表被删且版本 15 → 再 up 一次确认可重复应用。
+// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言当前最新迁移（0017）落表且版本 17 →
+// down 一步 → 断言表被删且版本 16 → 再 up 一次确认可重复应用。
 // 本机/CI 没有 MySQL 时 t.Skip（与集成测试同一口径）。
 
 const roundTripDSN = "root:lyidc123@tcp(127.0.0.1:3306)/lyidc_mig_check?charset=utf8mb4&parseTime=true&loc=UTC&multiStatements=true"
@@ -67,45 +67,45 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	}
 	defer func() { _, _ = migrator.Close() }()
 
-	countPayouts := func() int64 {
+	countMaps := func() int64 {
 		t.Helper()
 		var n int64
 		if err := sqlDB.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
-			"WHERE table_schema = 'lyidc_mig_check' AND table_name = 'referral_payouts'").Scan(&n); err != nil {
+			"WHERE table_schema = 'lyidc_mig_check' AND table_name = 'product_group_category_maps'").Scan(&n); err != nil {
 			t.Fatalf("查询表存在性失败: %v", err)
 		}
 		return n
 	}
 
-	// 1) 全量 up：0016 建表，版本停在 16。
+	// 1) 全量 up：0017 建表，版本停在 17。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("全量 up 失败: %v", err)
 	}
-	if n := countPayouts(); n != 1 {
-		t.Fatalf("up 后 referral_payouts 存在性 = %d，期望 1", n)
+	if n := countMaps(); n != 1 {
+		t.Fatalf("up 后 product_group_category_maps 存在性 = %d，期望 1", n)
 	}
 	version, dirty, err := migrator.Version()
-	if err != nil || version != 16 || dirty {
-		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 16/clean", version, dirty, err)
+	if err != nil || version != 17 || dirty {
+		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 17/clean", version, dirty, err)
 	}
 
-	// 2) down 一步：0016 回滚删表，版本退回 15。
+	// 2) down 一步：0017 回滚删表，版本退回 16。
 	if err := migrator.Steps(-1); err != nil {
 		t.Fatalf("down 一步失败: %v", err)
 	}
-	if n := countPayouts(); n != 0 {
-		t.Fatalf("down 后 referral_payouts 存在性 = %d，期望 0", n)
+	if n := countMaps(); n != 0 {
+		t.Fatalf("down 后 product_group_category_maps 存在性 = %d，期望 0", n)
 	}
 	version, dirty, err = migrator.Version()
-	if err != nil || version != 15 || dirty {
-		t.Fatalf("down 后版本 = %d/dirty=%v err=%v，期望 15/clean", version, dirty, err)
+	if err != nil || version != 16 || dirty {
+		t.Fatalf("down 后版本 = %d/dirty=%v err=%v，期望 16/clean", version, dirty, err)
 	}
 
-	// 3) 再 up 一次：0016 可重复应用（up 幂等由版本号保证）。
+	// 3) 再 up 一次：0017 可重复应用（up 幂等由版本号保证）。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("二次 up 失败: %v", err)
 	}
-	if n := countPayouts(); n != 1 {
-		t.Fatalf("二次 up 后 referral_payouts 存在性 = %d，期望 1", n)
+	if n := countMaps(); n != 1 {
+		t.Fatalf("二次 up 后 product_group_category_maps 存在性 = %d，期望 1", n)
 	}
 }

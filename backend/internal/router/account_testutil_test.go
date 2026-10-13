@@ -141,6 +141,8 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM product_groups",
 		// 商品两级分类（R7）：子分类引用主分类，先删子再删主。
 		"DELETE FROM product_categories",
+		// 上游分组 → 子分类映射（R12）：不建外键，随目录一起清空。
+		"DELETE FROM product_group_category_maps",
 		"DELETE FROM coupons",
 		"DELETE FROM instance_operation_logs",
 		"DELETE FROM instances",
@@ -163,6 +165,7 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"ALTER TABLE products AUTO_INCREMENT = 1",
 		"ALTER TABLE product_groups AUTO_INCREMENT = 1",
 		"ALTER TABLE product_categories AUTO_INCREMENT = 1",
+		"ALTER TABLE product_group_category_maps AUTO_INCREMENT = 1",
 		"ALTER TABLE coupons AUTO_INCREMENT = 1",
 		"ALTER TABLE instance_operation_logs AUTO_INCREMENT = 1",
 		"ALTER TABLE instances AUTO_INCREMENT = 1",

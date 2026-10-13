@@ -18,6 +18,7 @@ import type {
   Order,
   ProductCatalog,
   ProductDetail,
+  ProductGroupCategoryMap,
   ProductSummary,
   Recharge,
   ReferralInvitee,
@@ -452,6 +453,20 @@ export function makeAdminProductGroup(
     products: { total: 2, on: 1, off: 1 },
     created_at: '2026-10-08T09:00:00Z',
     updated_at: '2026-10-08T09:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 上游分组 → 本地子分类映射（R12，契约 10.4 的 GET /admin/product-group-maps）。 */
+export function makeProductGroupCategoryMap(
+  overrides: Partial<ProductGroupCategoryMap> = {},
+): ProductGroupCategoryMap {
+  return {
+    upstream_group_id: 9,
+    upstream_group_name: '香港二区',
+    category_id: 201,
+    category_name: '香港二区',
+    category_parent_name: '香港',
     ...overrides,
   }
 }

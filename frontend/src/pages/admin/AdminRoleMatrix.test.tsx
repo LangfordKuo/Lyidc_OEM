@@ -28,6 +28,12 @@ function mockBackend(role: AdminRole) {
     if (path === '/api/v1/admin/categories') {
       return ok({ items: [makeAdminCategory()] })
     }
+    if (path === '/api/v1/admin/product-groups') {
+      return ok({ items: [] })
+    }
+    if (path === '/api/v1/admin/product-group-maps') {
+      return ok({ items: [] })
+    }
     if (path === '/api/v1/admin/orders') {
       return ok({ items: [], page: 1, page_size: 20, total: 0 })
     }

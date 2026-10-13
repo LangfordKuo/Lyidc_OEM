@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { AdminProduct } from '@/api/types'
+import type { AdminProduct, ImportProductsInput } from '@/api/types'
 import {
   makeAdminAccount,
   makeAdminCategory,
@@ -20,8 +20,15 @@ import {
 } from '@/test/harness'
 
 // 管理后台「商品与分类」页的**商品页签**：定价弹窗（三模式参数）、上下架二次确认、分类列与改分类、
-// 角色矩阵（support 只读）；另有页签 URL 与旧地址 /admin/categories 重定向。
+// 上游导入弹窗（R12：分组多选 + 请求体口径）、角色矩阵（support 只读）；
+// 另有页签 URL 与旧地址 /admin/categories 重定向。
 // 分类页签自身的用例见 AdminProductsCategories.test.tsx。
+
+/** 两个上游分组（R12 导入弹窗多选用）。 */
+const IMPORT_GROUPS = [
+  makeAdminProductGroup({ id: 1, upstream_group_id: 9, name: '香港二区' }),
+  makeAdminProductGroup({ id: 2, upstream_group_id: 12, name: '美国一区', sort: 1 }),
+]
 
 function mockProducts(
   handler?: FetchHandler,
@@ -40,7 +47,10 @@ function mockProducts(
       return ok({ items: products, page: 1, page_size: 20, total: products.length })
     }
     if (path === '/api/v1/admin/product-groups') {
-      return ok({ items: [makeAdminProductGroup()] })
+      return ok({ items: IMPORT_GROUPS })
+    }
+    if (path === '/api/v1/admin/product-group-maps') {
+      return ok({ items: [] })
     }
     if (path === '/api/v1/admin/categories') {
       return ok({ items: [makeAdminCategory()] })
@@ -286,5 +296,126 @@ describe('管理后台 · 商品管理', () => {
     // 落在分类分区：分类树在、商品表格不在
     expect(await screen.findByText('排序 0 · 子分类 1 个')).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: '商品列表' })).not.toBeInTheDocument()
+  })
+
+  // —— 上游导入弹窗（R12） ——
+
+  it('导入弹窗：默认全选，提交时省略 upstream_group_ids（缺省=全量导入）', async () => {
+    const fetchMock = mockProducts((url, init) => {
+      if (url.pathname === '/api/v1/admin/products/import' && init.method === 'POST') {
+        return ok({ created: 3, updated: 0, unchanged: 0, groups: 2, failed: 0 })
+      }
+      return undefined
+    })
+    const user = userEvent.setup()
+    await renderProducts()
+
+    await user.click(screen.getByRole('button', { name: '从上游导入商品' }))
+    expect(await screen.findByRole('heading', { name: '从上游导入商品' })).toBeInTheDocument()
+
+    // 两个分组默认全选。
+    const boxes = screen.getAllByRole('checkbox')
+    expect(boxes).toHaveLength(2)
+    for (const box of boxes) {
+      expect(box).toBeChecked()
+    }
+
+    await user.click(screen.getByRole('button', { name: '开始导入' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/products/import') && init?.method === 'POST',
+      )
+      expect(call).toBeTruthy()
+      // 全选 = 全量导入：请求体省略（不传 upstream_group_ids）。
+      expect(requestBody(call?.[1] as RequestInit)).toBeNull()
+    })
+    expect(await screen.findByText('上游导入完成')).toBeInTheDocument()
+  })
+
+  it('导入弹窗：部分选择时提交选中的 upstream_group_ids（升序）', async () => {
+    const fetchMock = mockProducts((url, init) => {
+      if (url.pathname === '/api/v1/admin/products/import' && init.method === 'POST') {
+        return ok({
+          created: 2,
+          updated: 0,
+          unchanged: 0,
+          groups: 1,
+          failed: 0,
+          selected_groups: [12],
+        })
+      }
+      return undefined
+    })
+    const user = userEvent.setup()
+    await renderProducts()
+
+    await user.click(screen.getByRole('button', { name: '从上游导入商品' }))
+    await screen.findByRole('heading', { name: '从上游导入商品' })
+
+    // 取消「香港二区」，只保留「美国一区」（upstream_group_id=12）。
+    await user.click(screen.getByRole('checkbox', { name: /香港二区/ }))
+    expect(screen.getByRole('checkbox', { name: /香港二区/ })).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: '开始导入' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/products/import') && init?.method === 'POST',
+      )
+      expect(call).toBeTruthy()
+      expect(requestBody<ImportProductsInput>(call?.[1] as RequestInit)).toEqual({
+        upstream_group_ids: [12],
+      })
+    })
+    expect(await screen.findByText(/本次只导入了选中的 1 个分组/)).toBeInTheDocument()
+  })
+
+  it('导入弹窗：一个都不选时禁用确认并提示原因，不发请求', async () => {
+    const fetchMock = mockProducts()
+    const user = userEvent.setup()
+    await renderProducts()
+
+    await user.click(screen.getByRole('button', { name: '从上游导入商品' }))
+    await screen.findByRole('heading', { name: '从上游导入商品' })
+
+    await user.click(screen.getByRole('button', { name: '全不选' }))
+    expect(screen.getByRole('button', { name: '开始导入' })).toBeDisabled()
+    expect(
+      screen.getByText(/请至少勾选一个上游分组/),
+    ).toBeInTheDocument()
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).includes('/admin/products/import') && init?.method === 'POST',
+      ),
+    ).toBe(false)
+  })
+
+  it('导入弹窗：映射目标失效时在结果里给出回落提示', async () => {
+    mockProducts((url, init) => {
+      if (url.pathname === '/api/v1/admin/products/import' && init.method === 'POST') {
+        return ok({
+          created: 0,
+          updated: 2,
+          unchanged: 0,
+          groups: 1,
+          failed: 0,
+          selected_groups: [9],
+          map_fallback_group_ids: [9],
+        })
+      }
+      return undefined
+    })
+    const user = userEvent.setup()
+    await renderProducts()
+
+    await user.click(screen.getByRole('button', { name: '从上游导入商品' }))
+    await screen.findByRole('heading', { name: '从上游导入商品' })
+    await user.click(screen.getByRole('button', { name: '开始导入' }))
+
+    expect(await screen.findByText(/映射目标已失效/)).toBeInTheDocument()
   })
 })

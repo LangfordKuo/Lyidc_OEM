@@ -37,6 +37,10 @@ type ProductInput struct {
 	// Category 是 R7 派生的两级分类归属（契约 10.1）；nil 表示不参与分类派生。
 	// category_source=manual 的商品由调用方置 nil，导入不覆盖其归属。
 	Category *model.ProductCategoryInput
+	// MappedCategoryID 是 R12「上游分组 → 本地子分类」映射命中的**子分类 id**（契约 10.1）：
+	// >0 时**优先于** Category 直接采用（映射优先于自动派生），且不再参与分类 key 的 find-or-create。
+	// 调用方负责校验映射目标仍是存在的子分类；失效时应降级为 Category（回落自动派生）而不设本字段。
+	MappedCategoryID uint64
 }
 
 // ImportResult 是导入的计数结果：分组数 + 商品的三态计数。
@@ -306,27 +310,39 @@ func importProducts(tx *gorm.DB, products []ProductInput, categoryIDs map[string
 	return nil
 }
 
-// resolveCategoryID 解析商品归属的子分类 id；无派生信息时返回 0。
+// resolveCategoryID 解析商品归属的子分类 id；无分类信息时返回 0。
+//
+// R12：映射命中的 MappedCategoryID 优先于派生（契约 10.1 归类优先级第 2 条）。
 func resolveCategoryID(in ProductInput, categoryIDs map[string]uint64) uint64 {
+	if in.MappedCategoryID > 0 {
+		return in.MappedCategoryID
+	}
 	if in.Category == nil {
 		return 0
 	}
 	return categoryIDs[in.Category.SubKey]
 }
 
+// hasCategoryAssignment 判断商品输入是否带分类归属信息（映射或派生其一），
+// 决定导入是否参与分类比较与写入（两者都没有时绝不写 category_id）。
+func hasCategoryAssignment(in ProductInput) bool {
+	return in.MappedCategoryID > 0 || in.Category != nil
+}
+
 // productUpstreamColumns 比较上游字段并返回需要更新的列（无变化时返回空 map）。
 //
 // 这是「重复导入即幂等」的判定核心：返回空即计为 unchanged。
 // 本地字段（pricing_json / status / sort）不在比较与写入范围内。
-// R7：category_id 参与比较，但**仅当 category_source != manual**——
-// 管理员手工改挂的商品（manual）导入不得覆盖（契约 10.1）。
+// R7/R12：category_id 参与比较，但**仅当 category_source != manual**——
+// 管理员手工改挂的商品（manual）导入不得覆盖（契约 10.1）；映射命中（MappedCategoryID）
+// 与自动派生都写 category_source=derived，因此改映射后重导会刷新归属。
 func productUpstreamColumns(existing *model.Product, in ProductInput, categoryID uint64) map[string]any {
 	columns := make(map[string]any)
 
 	if existing.UpstreamGroupID != in.UpstreamGroupID {
 		columns["upstream_group_id"] = in.UpstreamGroupID
 	}
-	if in.Category != nil && existing.CategorySource != model.CategorySourceManual && existing.CategoryID != categoryID {
+	if hasCategoryAssignment(in) && existing.CategorySource != model.CategorySourceManual && existing.CategoryID != categoryID {
 		columns["category_id"] = categoryID
 		columns["category_source"] = model.CategorySourceDerived
 	}

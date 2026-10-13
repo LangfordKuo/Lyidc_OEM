@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,15 +121,19 @@ func TestVerifyRejectsTamperedTokenAndForeignKey(t *testing.T) {
 		t.Fatalf("IssueMemberToken() 返回错误: %v", err)
 	}
 
-	// 篡改签名的最后一个字符：替换为「与原字符必然不同」的 base64url 字符
-	// （历史写法 token[:len-2]+"xx" 有约 0.1% 概率与原值完全相同——签名末两位本就是 xx 时
-	// 篡改后 token 不变，用例会偶发失败；此处改为确定性构造）。
-	last := token[len(token)-1]
+	// 篡改签名段的**首个**字符：替换为「与原字符必然不同」的 base64url 字符。
+	//
+	// 为何不能只改末位：签名是 32 字节 HMAC，base64url 编码后末位字符只承载 4 位有效数据，
+	// 其余 2 位是填充位；Go 的 base64 解码器会忽略填充位，因此把末位换成 'A'/'B'（有效位都是 0）
+	// 有时会解出**与原始完全相同**的签名，导致「篡改后的 token 仍然验签通过」的偶发失败
+	// （历史写法 token[:len-2]+"xx" 更有约 0.1% 概率篡改后与原值完全相同）。
+	// 改首字符必然改变解码后的签名，构造完全确定。
+	sigStart := strings.LastIndexByte(token, '.') + 1
 	replacement := byte('A')
-	if last == 'A' {
+	if token[sigStart] == 'A' {
 		replacement = 'B'
 	}
-	tampered := token[:len(token)-1] + string(replacement)
+	tampered := token[:sigStart] + string(replacement) + token[sigStart+1:]
 	if tampered == token {
 		t.Fatal("篡改后的 token 与原值相同（构造错误）")
 	}

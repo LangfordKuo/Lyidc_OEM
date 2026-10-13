@@ -2,7 +2,7 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v21（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v22（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
@@ -11,7 +11,8 @@
 > R7 配置差价联动计价 + 商品两级分类（主分类 / 子分类）；R9-A 商品分类管理；R9-B 商品与分类合并页；
 > R10-A 邀请返佣：契约 + 迁移 + 绑定与返佣结算核心；
 > R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理；
-> **R11 数量型档位区间下放（`tiers`）+ 商品详情页展示调整**）
+> R11 数量型档位区间下放（`tiers`）+ 商品详情页展示调整；
+> **R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射（迁移 0017）**）
 
 ## 1. 通用约定
 
@@ -925,6 +926,34 @@ R5 起 `description` 落库前额外做一次 HTML 实体反转义（口径见 1
 R7 首次导入会因 `category_id` 从 `0` 变为派生值而计一次 `updated=<商品数>`，属预期（同 10.4 第 5 条），
 **再导入一次必回到 `unchanged`**。`category_source=manual` 的商品不参与派生比较与写入。
 
+**「上游分组 → 本地子分类」映射（R12，迁移 0017）**
+
+导入时可只挑部分上游分组（见 10.4 的 `upstream_group_ids`），也可把某个上游分组**固定映射**到一个
+本地**子分类**：此后每次导入该分组的商品都自动套用该归类，不再依赖商品名/组名派生。
+
+**`product_group_category_maps`（本地表，与 `product_groups` / `product_categories` 均不建外键）**
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | int | 本地主键 |
+| `upstream_group_id` | int | 上游分组 ID（**唯一键**，对应 `product_groups.upstream_group_id`） |
+| `category_id` | int | 目标**子分类** ID（`product_categories.id`，必须 `parent_id` 非空）；主分类不可作为目标 |
+| `created_at` / `updated_at` | string | RFC3339（UTC） |
+
+**导入归类优先级（R12，对每个导入的商品依次判定）**
+
+1. `products.category_source=manual`（管理员手工改挂）→ **一律不覆盖**（与 R7 一致，最高优先）。
+2. 该商品所属**上游分组**命中映射 → 直接归到映射指向的子分类，写入时 `category_source=derived`
+   （取舍：映射是**导入规则的一部分**，改映射后重新导入会刷新这些商品的归属；
+   只有管理端 `PUT /admin/products/:id` 的 `category_id` 才写 `manual`）。
+3. 无映射（或映射目标已失效，见下）→ 走 R7 的 `category.Derive` 自动派生（行为不变）。
+
+**映射目标失效的降级**：映射指向的分类已被删除、或（被外部改坏）指向了主分类时，导入**不报错**，
+仅对该分组回落自动派生，并在导入响应 `map_fallback_group_ids` 与导入日志中体现（不 500、不静默）。
+
+说明：映射只作用于**导入写入路径**（`store.ImportCatalog`），与读时兜底 `EnsureProductCategories`
+（只补 `category_id=0` 的商品）无关；无映射的老数据行为完全不变。映射的查看 / 修改 / 删除见 10.4。
+
 ### 10.2 定价模型
 
 **计费周期（6 个）与中文显示名**
@@ -1279,14 +1308,20 @@ R7 起 `groups[]` 的语义从「上游产品组」演进为「**子分类**」�
 | 项目 | 说明 |
 | --- | --- |
 | 鉴权 | 管理员 token，角色 `admin` / `finance` |
-| 请求体 | 无 |
-| 上游调用 | `GET /cart/all` 一次 + `GET /cart/get_product_config` 每个商品一次（4 并发） |
+| 请求体 | **可选**（R12）：`{ "upstream_group_ids": [1, 3, 5] }`；省略请求体 / `{}` / `[]` / `null` = **全量导入** |
+| 上游调用 | `GET /cart/all` 一次 + `GET /cart/get_product_config` 每个（选中分组的）商品一次（4 并发） |
 | 超时 | 单次上游请求取 `upstream.timeout_seconds`；整次导入上限 5 分钟 |
-| 成功 | HTTP 200，`data` 为 `{created, updated, unchanged, groups, failed, failed_pids}` |
+| 成功 | HTTP 200，`data` 为 `{created, updated, unchanged, groups, failed, failed_pids?, selected_groups?, map_fallback_group_ids?}` |
 
 ```bash
+# 全量导入（不带请求体，与 R11 前完全一致）
 curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
   -H 'Authorization: Bearer <admin-token>'
+
+# 只导入选中的上游分组（R12）
+curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"upstream_group_ids":[1,3,5]}'
 ```
 
 ```json
@@ -1298,25 +1333,33 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/admin/products/import \
 | `created` | 新建商品数（新商品默认 `status=off`、`pricing_json={"mode":"upstream"}`，须人工定价后上架） |
 | `updated` | 上游字段发生变化的商品数 |
 | `unchanged` | 与库内完全一致的商品数 |
-| `groups` | 本次处理的分组数（分组只创建不覆盖） |
+| `groups` | 本次处理的分组数（分组只创建不覆盖；**只计选中的分组**） |
 | `failed` / `failed_pids` | 详情抓取失败而被跳过的商品数与 ID 列表（`failed_pids` 最多 20 个，`failed=0` 时不出现） |
+| `selected_groups` | R12：本次选中的上游分组 ID（升序去重）；**全量导入时不出现** |
+| `map_fallback_group_ids` | R12：因映射目标失效而回落自动派生的上游分组 ID（见 10.1）；无失效映射时不出现 |
 
 行为约定：
 
 1. 同一批数据重复导入：`created=0, updated=0, unchanged=<商品数>, groups=<分组数>`（幂等）。
 2. 单个商品的详情抓取失败不中断整次导入，计入 `failed` 并跳过该商品；**目录里有商品但全部失败**时返回 `500`。
-3. 首次导入按上游目录顺序写入 `sort`（分组与商品都是）。
+3. 首次导入按上游目录顺序写入 `sort`（分组的 `sort` = 其在上游目录中的位置；商品的 `sort` = 本次导入的顺序编号）。
+   选中子集时同样稳定（重复导入不会改 `sort`：它是本地字段，只创建不覆盖）。
 4. 对上游已删除的商品不做处理（本地保留，由管理端下架）。
 5. **周期解析升级后的首次导入会出现 `updated>0`，属预期**：阶段 3b 把 `upstream_prices_json`
    从 4 键扩为 6 键（新增 `biennial` / `triennial`），而导入的「上游变化检测」按字段整串比较，
    因此升级后首次导入会刷新所有商品的该字段（`updated=<商品数>`）；**再导入一次必回到
    `unchanged=<商品数>`**（幂等保持）。
+6. **按分组筛选（R12）**：传了非空 `upstream_group_ids` 时只抓取这些上游分组的商品，`product_groups`
+   的 upsert 也只处理选中的分组（与全量导入同一套幂等口径）。全量导入（缺省/空/`null`）行为与 R11 前
+   完全一致，既有调用方不受影响。
+7. **归类优先级（R12）**：manual 商品不覆盖 > 上游分组映射 > 自动派生，详见 10.1。
 
 错误码：
 
 | code | HTTP | 场景与 message |
 | --- | --- | --- |
-| `40001` | 400 | —（本接口无请求体） |
+| `40001` | 400 | 请求体不是合法 JSON、`upstream_group_ids` 不是数组、或含 `0` / 负数 |
+| `40002` | 400 | `upstream_group_ids` 里有不在本次上游目录中的分组（`上游分组不存在：…`；不静默导入 0 个商品还报成功） |
 | `403` | 403 | 角色为 `support` |
 | `500` | 500 | 上游未配置（`上游未配置，无法导入商品`）、上游目录拉取失败（`上游商品目录拉取失败：…`）、全部商品详情抓取失败 |
 | `50001` | 500 | 写入本地库失败 |
@@ -1473,6 +1516,82 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 
 说明：分组名与排序是**本地字段**，导入不会覆盖（见 10.1），因此可以放心按自己的品牌重命名。
 
+#### `GET /api/v1/admin/product-group-maps`（R12）
+
+列出全部「上游分组 → 本地子分类」映射（数量级 = 上游分组数，几十条，**不分页**）。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token（**所有角色**，只读，与分类树同口径） |
+| 成功 | HTTP 200，`data` 为 `{items}`，按 `upstream_group_id` 升序 |
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "upstream_group_id": 9,
+        "upstream_group_name": "香港二区",
+        "category_id": 201,
+        "category_name": "香港二区",
+        "category_parent_name": "香港"
+      }
+    ]
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `upstream_group_id` / `upstream_group_name` | 上游分组 ID 与其本地组名（组名缺失时为空串） |
+| `category_id` | 目标子分类 ID（存储值） |
+| `category_name` / `category_parent_name` | 目标子分类名与其主分类名；**目标分类已被删除时为两个空串**（页面据此提示「目标分类已失效」） |
+
+只返回**已建立映射**的分组；未映射的分组由前端与 `GET /admin/product-groups` 对照展示为「未映射（按规则自动归类）」。
+
+#### `PUT /api/v1/admin/product-group-maps/:upstream_group_id`（R12）
+
+新增或更新某上游分组的映射（upsert，同一分组只有一条）。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin`**（沿用 `categories.write`，与分类写一致） |
+| 路径参数 | `upstream_group_id`：**上游分组 ID**（不是本地分组 ID） |
+| 请求体 | `{ "category_id": 31 }`（必填，正整数） |
+| 成功 | HTTP 200，`data` 为更新后的映射（结构同上，`upstream_group_name` / 分类名已解析） |
+
+```bash
+curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/product-group-maps/9 \
+  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -d '{"category_id": 201}'
+```
+
+错误码：
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | `upstream_group_id` 非正整数、`category_id` 缺失或非正整数、请求体不是合法 JSON |
+| `40002` | 400 | `category_id` 指向的分类不存在（`分类不存在`）、指向的是**主分类**（`只能映射到子分类`）、`upstream_group_id` 对应的上游分组尚未导入本地（`上游分组不存在`） |
+| `403` | 403 | 角色为 `finance` / `support` |
+| `50001` | 500 | 写入本地库失败 |
+
+#### `DELETE /api/v1/admin/product-group-maps/:upstream_group_id`（R12）
+
+删除某上游分组的映射（不存在的映射返回 `404`）。删除后该分组回到自动派生。
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin`** |
+| 路径参数 | `upstream_group_id`：上游分组 ID |
+| 成功 | HTTP 200，`data` 为 `null` |
+| 错误码 | `40001`（ID 非正整数）、`403`（finance / support）、`404`（`该分组没有映射`）、`50001` |
+
+说明：映射只影响**导入**时的归类（见 10.1），不会就地改写任何商品当前的 `category_id`；
+要让映射生效需重新导入该分组（或全量导入）。删除映射同样不就地回退，
+需重新导入才会回落自动派生——这是为了不与 `category_source=manual` 的手工归属混淆。
+
 #### `GET /api/v1/admin/categories`
 
 列出全部分类树（主分类 → 子分类）与每个子分类下的商品计数。
@@ -1550,12 +1669,21 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
        提交 `PUT /admin/products/:id` 的 `category_id`；成功后提示「已改挂，后续导入不再覆盖该商品分类」；
      - 写权限沿用商品写（`admin` / `finance`），与分类页签的 `categories.write`（仅 `admin`）**不是同一个权限点**；
      - 列表另支持按分类筛选（`GET /admin/products` 的 `category_id` 查询参数，`0` = 只看未归类）。
+     - **上游导入（R12）**为弹窗：列出上游分组（数据来源 `GET /admin/product-groups`，多选、默认全选），
+       结果区沿用 `created / updated / unchanged / groups / failed` 展示；
+       **全选（或一个分组都没有）时省略 `upstream_group_ids`**（保持「缺省=全量」语义），
+       部分选择时提交选中的上游分组 ID；一个都不选时禁用确认并提示原因。
    - **分类页签**（原 `/admin/categories` 分类管理页）：
      - 数据来源 `GET /admin/categories`：主分类 → 子分类两级树，展示 `name` / `sort` 与子分类的
        `products{total,on,off}` 商品计数；
      - 改名（主/子通用）→ `PUT /admin/categories/:id` 的 `name`；改排序 → `sort`；
      - 子分类改挂主分类 → `parent_id`（下拉目标为主分类，不能选自身；主分类不提供此项）；
      - 写操作**仅 `admin`**（`finance` / `support` 进来是只读视图：写入口禁用并给出原因，且不发无权限请求）。
+     - **上游分组映射（R12）**区块：表格展示每个上游分组 → 目标子分类（**下拉只列已有子分类**，
+       两级展示如「香港 / 香港二区」）；支持新增 / 修改（同一个下拉 + 保存）与删除；
+       未映射的分组显示「未映射（按规则自动归类）」；数据来源 `GET /admin/product-group-maps`
+       与 `GET /admin/product-groups` 对照。写操作沿用 `categories.write`（**仅 `admin`**），
+       与分类写同一闸门。**不做**弹窗内联新建分类（要新建分类先去分类分区建）。
 2. **旧地址 `/admin/categories`**：重定向到 `/admin/products?tab=categories`（收藏 / 外链 / 文档里的旧地址不断，
    不再有独立分类页）。
 
@@ -1567,6 +1695,9 @@ curl -s -X PUT http://127.0.0.1:8080/api/v1/admin/products/1 \
 | `GET /api/v1/admin/products`、`GET /api/v1/admin/products/:id` | ✓ | ✓ | ✓ |
 | `GET /api/v1/admin/product-groups` | ✓ | ✓ | ✓ |
 | `GET /api/v1/admin/categories`（R7，只读） | ✓ | ✓ | ✓ |
+| `GET /api/v1/admin/product-group-maps`（R12，只读） | ✓ | ✓ | ✓ |
+| `PUT /api/v1/admin/product-group-maps/:upstream_group_id`（R12，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） |
+| `DELETE /api/v1/admin/product-group-maps/:upstream_group_id`（R12，仅 admin） | ✓ | ✗（`403`） | ✗（`403`） |
 | `POST /api/v1/admin/products/import` | ✓ | ✓ | ✗（`403`） |
 | `PUT /api/v1/admin/products/:id`（改定价/上下架/排序/改挂子分类/商品级返佣 `rebate_percent`+`rebate_disabled`，R10-A） | ✓ | ✓ | ✗（`403`） |
 | `PUT /api/v1/admin/product-groups/:id` | ✓ | ✓ | ✗（`403`） |
@@ -4593,6 +4724,8 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-13 | v22 | R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射——**① 导入请求体（10.4，本批唯一既有接口形状变化，向后兼容）**：`POST /admin/products/import` 新增**可选**请求体 `{ "upstream_group_ids": [1,3,5] }`——省略请求体 / `{}` / `[]` / `null` = **全量导入**（与 R11 前完全一致，既有调用与测试不受影响）；传非空数组时**只抓取这些上游分组的商品**，`product_groups` 的 upsert 也只处理选中的分组；**非法值走统一错误码**：非数组 / 含 `0` 或负数 → `40001`，含不在本次上游目录中的分组 → `40002`（`上游分组不存在：…`，**不静默导入 0 个商品还报成功**）；响应**增量**补两个可选字段 `selected_groups`（选中的上游分组 ID，升序去重，全量时不出现）与 `map_fallback_group_ids`（映射目标失效而回落派生的分组，无则不出现），其余 `created/updated/unchanged/groups/failed/failed_pids` 不变；商品 `sort` 仍按上游目录顺序写入（选子集时沿用其原位置，排序稳定）。**② 迁移 0017（up/down 成对 + go:embed，不改 0001–0016）**——新表 `product_group_category_maps`：`id` / `upstream_group_id`（**UNIQUE**，对应 `product_groups.upstream_group_id`）/ `category_id`（**必须指向子分类**，即 `parent_id IS NOT NULL`）/ `created_at` / `updated_at`，**不建外键**（与既有表风格一致），附 `roundtrip_test.go` 的 up→down→up 往返断言。**③ 归类优先级定稿（10.1，本批核心语义）**——每导入一个商品依次判定：**manual（管理员手工改挂）一律不覆盖**（R7 规则不变，最高优先）→ **命中「上游分组 → 子分类」映射则归到该子分类，写入 `category_source=derived`**（取舍：映射是**导入规则的一部分**，改映射后重新导入会刷新这些商品的归属；只有管理端改分类才写 `manual`，两者语义不混淆）→ 无映射则走 R7 的 `category.Derive` 自动派生（行为不变）。**④ 映射目标失效的降级（10.1）**——映射指向的分类被删除、或（被外部改坏）指向了主分类时，导入**不报错**，仅对该分组回落自动派生，并在响应 `map_fallback_group_ids` 与导入日志中体现（不 500、不静默）；映射只作用于导入写入路径，与读时兜底 `EnsureProductCategories`（只补 `category_id=0`）无关；删除映射**不就地回退**，需重新导入该分组才回落（避免与 manual 手工归属混淆）。**⑤ 管理端映射接口（10.4 新增小节）**——`GET /admin/product-group-maps`（列表，含 `upstream_group_id` / `upstream_group_name` / `category_id` / `category_name` / `category_parent_name`，按 `upstream_group_id` 升序，几十条**不分页**；只返回已建立的映射，未映射分组由前端与 `GET /admin/product-groups` 对照展示；目标分类已被删除时两个名字字段为空串）、`PUT /admin/product-group-maps/:upstream_group_id`（upsert `{category_id}`；校验分类存在且**必须是子分类**，否则 `40002`；上游分组尚未导入本地亦 `40002`）、`DELETE /admin/product-group-maps/:upstream_group_id`（不存在 `404`）。**⑥ 上游分组清单复用既有端点**——**不新增** `GET /admin/upstream-groups`：`GET /api/v1/admin/product-groups`（10.4 既有，已含 `upstream_group_id` / `name` / `products{total,on,off}`）即所需的只读分组清单，导入弹窗与映射区块均以它为数据源。**⑦ 权限（10.5 矩阵同步）**——查看类（`GET /admin/product-group-maps`）三角色均可读；写操作（`PUT` / `DELETE`）沿用 `categories.write`（**仅 admin**，与分类写同一闸门），`finance` / `support` 一律 `403`，前端写入口按同一矩阵禁用并给原因、不发越权请求。**⑧ 前端**——「从上游导入商品」由二次确认改为**弹窗**：分组多选（默认全选；全选/无分组时省略 `upstream_group_ids`，部分选择时提交选中 ID，一个都不选时禁用确认并提示原因），结果区沿用既有计数展示；分类页签新增「上游分组映射」区块（表格 + 只列**已有子分类**的两级下拉 + 新增/修改/删除，不做弹窗内联新建分类）。**测试**：`go test ./...` 全量绿，新增覆盖——按分组筛选（只选 1 个 / 选 2 个 / 全选省略 = 全量）、非法值 `40001`（非数组 / 含 0 / 含负数）与 `40002`（分组不在上游目录）、映射命中后商品归到映射子分类且 `category_source=derived`、改映射后重导刷新、删除映射后重导回落派生、映射目标被删/被改成主分类时降级 + 响应体现、`manual` 商品不被映射覆盖、映射 CRUD（非法分类 / 主分类 / 分组不存在 / 重复 upsert / 删除不存在）与角色矩阵（三角色读、写仅 admin）；迁移往返 0017 up→down→up。 |
+
 | 2026-10-13 | v21 | R11 数量型档位区间下放 + 商品详情页展示调整——**① 数量型多档位价格联动修复（10.2.1 / 10.3 第 6 条，本批唯一接口形状变化）**：根因是 R7 的「档位并集归一化」把每档 `qty_minimum`/`qty_maximum` 统一改写成并集（商品 2 数据盘 `[30-30 @0.00]` + `[31-256 @0.50]` 两档都变成 `30~256`），前端按「qty 落在哪个档位区间」挑档位时永远命中第一档（免费档），加量不加价。**修法（方案 A，向后兼容）**：`values[].qty_minimum`/`qty_maximum` **语义不变、继续是并集**（只用于数量控件 min/max 与默认值，旧客户端行为不变），数量型配置项**新增 `options[].tiers[]`**（`{value_id, qty_min, qty_max, pricings}`，按 `qty_min` 升序、与 `values[]` 同源同 hidden 过滤），`qty_min`/`qty_max` 是**该档真实区间**、`pricings` 是该档单位差价；**挑档位与算 `billable` 一律以 `tiers` 为唯一依据**（`billable = qty − 低一档 qty_max`），选项型不下发 `tiers`。后端 `pricing.Quote`/`quantityLine` 本就按 `TierFor(qty)` + `tierFloor` 正确计费，本批不改计费口径，只把真实档位区间补回接口。**算例（前后端同口径，入测试）**：商品 2 数据盘 qty=30 → 差价 `0.00`；qty=31 → `0.50`；qty=50 → `(50−30)×0.50 = 10.00`；商品 1 单档 `[0-256 @0.50]` 回归 qty=0 → `0.00`、qty=50 → `25.00`。**② 纯前端展示调整（接口不变）**：商品详情页删除「配置速览」（`description_lines` 清单）与「价格一览」（六周期表格），接口仍下发 `description_lines`（列表页商品卡仍在用）；计费周期选择器**直接不渲染不可售周期**（价格 `null`），不再置灰，全部不可售时出空态并禁用下单。 |
 | 2026-10-13 | v20 | R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理——**① 折扣上限（18.5，核心风控，口径写死）**——`上限 = min(settings.referral.max_coupon_percent, 邀请人的生效返佣比例)`，其中「生效返佣比例」= 会员级 `rebate_percent_override` 优先、否则全局 `default_percent`（即 18.2 三级的**前两级**，**商品级不参与**——券跨商品通用，绑不到商品比例）；含义是「返还 20% 的人最多发 8 折券」，此时 `返佣 = max(原价×20% − 券减免, 0) = 0` 恰好归零，叠加公式地板保证**任何情况下返佣不为负**；生效比例为 `0.00` 时上限也是 `0.00`，任何自建券被拒（message 含当前上限值与两个来源）；上限**只在创建时判定**，事后收紧设置不回收既有券（运营走停用）。**② 自建券接口（18.5）**——`POST /api/v1/referral/coupons`（前置：`referral_enabled=1` 否则 `40002`；`owner_member_id` 强制 = 调用者；**`type` 本批只允许 `percent`**，`fixed` 是绝对金额减免、无法用一个比例卡住倒挂，故不做；`code`/`cycles`/`starts_at`/`expires_at`/`max_uses`/`comment` 沿用 11.1 校验口径）、`GET /api/v1/referral/coupons`（我创建的券分页）、`PUT /api/v1/referral/coupons/:id`（**只能改自己的券**，他人券与平台券一律 `404`；**仅允许改 `status` 与 `expires_at`**，`value`/`code`/`owner`/`type` 出现在请求体即 `40001` 明确拒绝不静默忽略——杜绝绕过上限与挖客）；管理端 `GET /admin/coupons` 视图补 `owner_member_id` 与派生 `source`（`platform`/`member`）区分平台券与自建券，管理端 `PUT` **拒绝改自建券的 `value`**（`40002`「自建券的折扣值不可修改」）。**③ 迁移 0016（up/down 成对 + go:embed，不改 0001–0015）**——新表 `referral_payouts`（**提现与转余额共用一张申请表，`kind` 区分 `withdraw`/`convert`**；取舍：字段与审核动作几乎一致，拆两表会复制状态机与幂等锚点；表名取中性 `payouts` 因 convert 不是提现），字段 `id`/`kind`/`member_id`/`amount`/`channel`(`wechat`/`alipay`)/`account_name`/`account_no`(**敏感**)/`status`(`pending`/`approved`/`rejected`/`paid`)/`remark`/`review_note`/`reviewed_by`/`reviewed_at`/`paid_at`/`created_at`/`updated_at` + 两个索引；**不新增 `ledger.type` 枚举**（避免 0016 再扩 ENUM 与 `IsValidLedgerType` 双处同步）。**④ 状态机与幂等（18.1.1）**——`withdraw: pending→approved→paid`、`pending→rejected`；`convert: pending→approved|rejected`；`rejected`/`paid` 为终态不可再流转（`40002`）；**重复审核/重复打款幂等**（对 `approved` 再 approve、对 `rejected` 再 reject、对 `paid` 再 mark-paid 一律 `200+already=true`，不重复产生资金动作、**不覆盖**首次 `reviewed_at`/`paid_at`）；非法流转 `40002`。**⑤ 账务口径定稿（18.1.1，两类不同）**——**提现「提交即冻结」**：提交时 `rebate_balance` 立即扣减 + 写返现侧 ledger（负），approve 只改状态，**reject 退回冻结额**（加回 + 正向 ledger），mark-paid 只记 `paid_at`；取舍是「钱要出系统」，冻结保证重复申请不超额、线下打款前资金已锁定，与既有返佣冲回同一套账务模式。**转换「审核通过时才换算」**：提交**只登记不动钱**，approve 在**同一事务**里 `rebate_balance` 减 + `balance` 加 + **两端各一条 ledger**（返现侧 `referral_rebate` 负向、消费侧 `adjust` 正向），幂等锚点是 `status: pending→approved` 的条件更新；**reject 不动余额**（提交时就没扣过）；取舍是「钱不离开系统」，不必提前冻结。**可用余额公式**（两类共用，行锁下校验）：`可用 = rebate_balance − Σ(kind=convert 且 status=pending 的 amount)`，在途 withdraw 不必再减（已冻结）。**⑥ ledger 口径扩写（18.3）**——凡动 `rebate_balance` 的账目（发放/冲回/提现冻结/退回/转出）一律 `type=referral_rebate`（有符号），靠 `ref_type` 区分（`referral_rebate`/`referral_withdrawal`/`referral_conversion`）；转换的消费侧用 **`adjust`**（正，`ref_type=referral_conversion`）——既有预留的「人工调整」类型，语义即非充值非订单支付的余额变动，用 `recharge`/`order_pay` 会污染那两类对账口径；会员端余额流水继续过滤 `referral_rebate`（故提现冻结/退回不出现），转换的 `adjust` 那条**会出现**（正确）。**⑦ 负数口径（18.1.1）**——`rebate_balance < 0` 时**禁止**提现与转换（`40002` 明确提示），登录/下单/充值/邀请/建券不受影响。**⑧ 敏感数据脱敏（18.5）**——`account_name`/`account_no` 对齐 SMTP 口令「只进库、对外一律掩码」口径：接口回显 `account_name` 姓氏保留 + `**`、`account_no` 前 2 后 2 中间 `****`（不足 6 位留首尾各 1、不足 2 位整体 `****`）；提交回执同脱敏不回显原文；日志/审计/备注一律脱敏；库内存原文供线下打款核对。**⑨ 会员级特批比例写入口（6.3，补 18.7 第 1 条）**——新增 `PUT /api/v1/admin/members/:id`（本批只承载 `rebate_percent_override`，**三态**：缺省不改 / `null` 清空 / 字符串设值 `0.00`–`100.00` 两位小数，非法 `40001` 越界 `40002`；权限沿用 `members.status` 口径 admin/finance）；管理端会员视图输出 `rebate_percent_override` 供页面显示「已特批 x%」；设值后下一笔支付即生效，已发放流水不受影响（快照）。**⑩ 提现/转换接口（18.5）**——会员端 `POST/GET /api/v1/referral/withdrawals`、`POST/GET /api/v1/referral/conversions`（仅本人，校验金额格式/`>0`/负数余额/可用余额，账号字段 1–64 字符非空）；管理端 `GET /api/v1/admin/referral/withdrawals`、`GET /api/v1/admin/referral/conversions`（筛选 `status`/`member_id`，分页，带会员概要，**admin/finance**）、`POST /api/v1/admin/referral/withdrawals/:id/review`（approve/reject + `review_note`）、`POST .../mark-paid`（线下已打款 → `paid` + `paid_at`）、`POST /api/v1/admin/referral/conversions/:id/review`——**审核与打款仅 admin**，查看 admin/finance（财务域口径）。**⑪ 同步**：6.4 矩阵补 `PUT /admin/members/:id`；11.1 补 `owner_member_id`/`source`；11.3 补自建券 `value` 不可代改；12.7 矩阵补 7 行；18.6 矩阵补 6 行；18.7 边界重写（特批比例影响范围、自建券只 percent/不可改值/上限只在创建时、提现线下打款无自动超时、退款联动未做）。**测试**：`go test ./...` 全量绿（改前 411 个 `func Test`）；新增覆盖——自建券：未开通返现者建券被拒、`percent` 超上限被拒（「上限 = min(设置, 生效比例)」两种来源各一例）、建券成功后 `owner_member_id` 正确、`type=fixed` 被拒、`value`/`code` 不可改、他人券 404；自建券使用规则回归（未绑定→首绑、已绑定→拒绝、自用→拒绝、平台券不受限）；提现：余额不足/为负/金额非法被拒、提交→审核通过→标记打款全链、驳回退回（断言 `rebate_balance` 加回 + 正向 ledger）、重复审核/重复打款幂等（`already=true` 且不覆盖 `paid_at`）；转换：审核通过才换算（两端余额与两条 ledger 一致）、驳回不动余额、重复审核只生效一次、负数余额禁止；管理端会员特批比例：三态（不改/null/设值）与非法值拒绝、特批后发放比例随之变化 |
 | 2026-10-13 | v19 | R10-A 邀请返佣（一）：契约 + 迁移 + 绑定与返佣结算核心——**新增第 18 节「邀请返佣」**（数据模型 / 公式与比例优先级 / 参与与不参与 / 发放幂等与回滚 / 接口 / 角色矩阵 / 边界），变更记录移至第 19 节。**① 钱的口径（18.2，不得改动）**——`返佣 = max(订单原价 × 生效比例 − 本单优惠券减免, 0)`，**下取整到分**、结果恒 ≥ 0（公式自带地板，永远不会负返佣）；「订单原价」= `orders.amount`（基础价 + Σ 配置差价，不含券减免），「本单优惠券减免」= `orders.discount_amount`；四个验证例子入契约与测试（原价 100、比例 20% → 返 20；用券实付 90（减 10）→ 返 10；20% 比例下 8 折券（减 20）→ 返 **0**；9 折券 → 返 10）。**② 生效比例三级优先（18.2）**——商品级 `products.rebate_percent` > 会员级 `members.rebate_percent_override`（邀请人本人特批）> 全局默认 `referral.default_percent`，取第一个非空命中；`products.rebate_disabled=1` **压过一切**（该商品完全不返佣）；比例 `0.00`–`100.00` 两位小数，非法值一律拒绝。**③ 返现余额独立且可负（18.3）**——发放目标是**邀请返现余额** `members.rebate_balance`（**不是**消费余额 `balance`），两个账户完全独立；**可为负**（已提现后客户退款 → 扣成负），负值时只禁止提现与转余额，不影响登录/下单/充值；`ledger.type` 扩枚举 `referral_rebate`（正=发放、负=冲回），该类型流水的 `balance_before`/`after` 记的是 `rebate_balance` 前后值，会员端余额流水过滤掉本类型（动的不是消费余额）、管理端可按类型对账。**④ 参与与不参与（18.3）**——**返**：新购 `new` 与续费 `renew`，**含用充值余额支付**（余额支付与渠道回调两条入账路径都返）；**不返**：**充值**（`recharges` 入账路径绝不挂返佣）、未绑定邀请人（`inviter_id=0`）、商品禁用返佣、总开关关闭、公式结果为 0（券减免吃满比例时不发放也不写流水）。**⑤ 发放与幂等（18.4）**——**支付成功即发**且与入账**同事务**，挂在 `store.PayOrderWithBalance`（余额）与 `store.CompleteOrderPayment`（渠道回调）两处入账口，**不挂在交付**；`referral_rebates.order_id` **唯一约束**为发放幂等锚点，重复回调由 `model.IsOrderSettled` 闸门挡住（不重复入账/不重复发放），唯一约束是第二道防线。**⑥ 回滚（18.4）**——订单取消（`status=cancelled`）回滚该笔返佣：写负向 `ledger(referral_rebate)` + `rebate_balance` 冲回 + `referral_rebates.status` 置 `rolled_back`，**再次回滚不重复**；当前取消接口只允许 `pending`（从未发放过返佣），故钩子在现有取消路径上是**防御性**的（`CancelOrder` 已改为取消成功后同事务调用同一钩子），一旦出现「已支付取消/退款」路径复用即可；系统当前无退款接口，若后续出现其他「钱退回买家」路径按同一钩子接入。**⑦ 首绑不改（18.4）**——`members.inviter_id` 一旦非 `0` 永久生效，绑定只发生在注册带邀请码、或下单用邀请人自建券且尚未绑定两处。**⑧ 迁移 0015**（up/down 成对 + go:embed，不改 0001–0014）——`members` 加 `inviter_id`/`invite_code`（唯一键，惰性生成）/`referral_enabled`/`rebate_balance`/`rebate_percent_override`；`coupons` 加 `owner_member_id`（0=平台券 / 非 0=邀请人自建券）；`products` 加 `rebate_percent`/`rebate_disabled`；新表 `referral_rebates`（`order_id` 唯一 + inviter/buyer 索引）；`ledger.type` **MODIFY 扩枚举** `referral_rebate`（down 先删该类型流水再收窄枚举，保证回滚干净）。**⑨ 接口（18.5）**——`POST /auth/register` 扩**可选** `invite_code`（按 `members.invite_code` 精确匹配解析，非法/不存在/**自邀**（同用户名或同邮箱）一律 `40002` 明确报错、不静默忽略，解析成功写 `inviter_id`）；`GET/PUT /api/v1/referral`（概览 / 开通关闭，**首次开通惰性生成唯一邀请码**：8 位 base32 去 `0/O/1/I`、`crypto/rand` + 唯一冲突换码重试 5 次、已生成则复用不换码；概览含 `invite_link`（域名取站点设置）/`rebate_balance`/`effective_percent`（总开关关闭时恒 `0.00`）/已邀请人数/累计返佣）；`GET /api/v1/referral/rebates`（返佣流水分页）、`GET /api/v1/referral/invitees`（被邀请人分页 + 消费/贡献返佣统计）；`GET/PUT /api/v1/admin/settings/referral`（总开关 + 全局默认比例 + 自建券折扣上限，**仅 admin**，复用 12.1 设置机制，改完下一笔支付即生效）；`PUT /admin/products/:id` 扩 `rebate_percent`（三态：缺省不改/`null` 清空/字符串设值）与 `rebate_disabled`，管理端商品视图同步输出两字段。**⑩ 邀请人自建券绑定规则（18.5，本批只落地使用规则，建券接口留 R10-B）**——买家用 `owner_member_id` 非 `0` 的券：未绑定 → **下单同事务首绑**到 `owner_member_id`；已绑定 → **拒绝用券** `40002`「该优惠码仅限未绑定邀请关系的客户使用」且**不改绑**（首绑不改）；邀请人用自己自建券 → 拒绝（否则自邀）；平台券（owner=0）任何人可用、不触发绑定。**⑪ 同步**：12.1 设置键补 `referral`、12.7 与 10.5 矩阵同步（`/api/v1/referral*` 仅本人、`/admin/settings/referral` 仅 admin、`PUT /admin/products/:id` 含返佣字段）、6.2 注册请求体补 `invite_code`。**测试**：`go test ./...` 全量绿（411 个 `func Test`，此前 393）；新增纯计算四例逐一断言 + 下取整/地板/边界、三级优先级与 `rebate_disabled` 压过一切、新购/续费/余额支付都返而**充值不返**、重复回调只发一次、回滚冲回 + 状态翻转 + 重复回滚不重复、`CancelOrder` 回滚钩子接线、注册邀请码合法绑定/非法/空/自邀拒绝、自建券绑定与首绑不改、概览与流水/邀请列表、管理端设置与 finance 403、会员端余额流水不含返佣而管理端可按类型对账 |

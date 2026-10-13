@@ -3,7 +3,9 @@ import type {
   AdminProduct,
   AdminProductDetail,
   AdminProductGroup,
+  ImportProductsInput,
   Paged,
+  ProductGroupCategoryMap,
   ProductImportResult,
   UpdateProductInput,
 } from './types'
@@ -45,9 +47,14 @@ export function updateAdminProduct(
   return http.put<AdminProductDetail>(`/admin/products/${id}`, input, { auth: 'admin' })
 }
 
-/** POST /api/v1/admin/products/import —— 从上游导入商品目录（admin / finance，可能耗时数十秒）。 */
-export function importAdminProducts(): Promise<ProductImportResult> {
-  return http.post<ProductImportResult>('/admin/products/import', undefined, {
+/**
+ * POST /api/v1/admin/products/import —— 从上游导入商品目录（admin / finance，可能耗时数十秒）。
+ *
+ * R12：可选 `{ upstream_group_ids: [...] }` 只导入选中的上游分组；**省略请求体 = 全量导入**
+ * （调用方在全选时传 undefined，保持「缺省即全量」语义）。
+ */
+export function importAdminProducts(input?: ImportProductsInput): Promise<ProductImportResult> {
+  return http.post<ProductImportResult>('/admin/products/import', input, {
     auth: 'admin',
     // 导入整次上限 5 分钟（契约 10.4），前端超时放宽到 5 分钟 + 缓冲。
     timeoutMs: 320_000,
@@ -65,4 +72,31 @@ export function updateAdminProductGroup(
   input: { name?: string; sort?: number },
 ): Promise<AdminProductGroup> {
   return http.put<AdminProductGroup>(`/admin/product-groups/${id}`, input, { auth: 'admin' })
+}
+
+// —— 上游分组 → 本地子分类映射（R12，契约 10.4）——
+// 角色矩阵：查看类（GET）三角色只读；写操作沿用 categories.write（**仅 admin**）。
+
+/** GET /api/v1/admin/product-group-maps —— 全部映射（按 upstream_group_id 升序，不分页）。 */
+export function listAdminProductGroupMaps(): Promise<{ items: ProductGroupCategoryMap[] }> {
+  return http.get<{ items: ProductGroupCategoryMap[] }>('/admin/product-group-maps', {
+    auth: 'admin',
+  })
+}
+
+/** PUT /api/v1/admin/product-group-maps/:upstream_group_id —— 新增/更新映射（仅 admin）。 */
+export function upsertAdminProductGroupMap(
+  upstreamGroupId: number,
+  categoryId: number,
+): Promise<ProductGroupCategoryMap> {
+  return http.put<ProductGroupCategoryMap>(
+    `/admin/product-group-maps/${upstreamGroupId}`,
+    { category_id: categoryId },
+    { auth: 'admin' },
+  )
+}
+
+/** DELETE /api/v1/admin/product-group-maps/:upstream_group_id —— 删除映射（仅 admin）。 */
+export function deleteAdminProductGroupMap(upstreamGroupId: number): Promise<null> {
+  return http.del<null>(`/admin/product-group-maps/${upstreamGroupId}`, { auth: 'admin' })
 }

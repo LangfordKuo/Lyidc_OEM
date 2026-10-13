@@ -62,6 +62,22 @@ func (c ProductCategory) ParentIDValue() uint64 {
 	return *c.ParentID
 }
 
+// ProductGroupCategoryMap 是 product_group_category_maps 表的 GORM 模型（R12，迁移 0017）。
+//
+// 语义：把某个上游分组固定映射到一个本地**子分类**，导入该分组的商品时优先于自动派生
+// （契约 10.1 归类优先级第 2 条）。upstream_group_id 唯一（一个分组至多一条映射）；
+// category_id 必须指向子分类（parent_id 非空），由 store 在写入前校验，本表不建外键。
+type ProductGroupCategoryMap struct {
+	ID              uint64    `gorm:"column:id;primaryKey;autoIncrement"`
+	UpstreamGroupID int       `gorm:"column:upstream_group_id"`
+	CategoryID      uint64    `gorm:"column:category_id"`
+	CreatedAt       time.Time `gorm:"column:created_at"`
+	UpdatedAt       time.Time `gorm:"column:updated_at"`
+}
+
+// TableName 返回上游分组映射表名。
+func (ProductGroupCategoryMap) TableName() string { return "product_group_category_maps" }
+
 // ProductCategoryInput 是导入派生出的一个分类归属（主分类 + 子分类名）。
 type ProductCategoryInput struct {
 	// MainKey / MainName 是主分类的稳定键与展示名（首次创建时写入 name）。

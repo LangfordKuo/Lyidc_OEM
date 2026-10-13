@@ -136,3 +136,47 @@ func TestProductUpstreamColumnsDetectsChanges(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveCategoryIDPrefersMapping 验证 R12 归类优先级：映射（MappedCategoryID）优先于派生。
+func TestResolveCategoryIDPrefersMapping(t *testing.T) {
+	derived := model.ProductCategoryInput{SubKey: "z:香港二区"}
+	ids := map[string]uint64{"z:香港二区": 201}
+
+	if got := resolveCategoryID(ProductInput{MappedCategoryID: 999, Category: &derived}, ids); got != 999 {
+		t.Fatalf("映射应优先于派生：got %d，want 999", got)
+	}
+	if got := resolveCategoryID(ProductInput{Category: &derived}, ids); got != 201 {
+		t.Fatalf("无映射时按派生解析：got %d，want 201", got)
+	}
+	if got := resolveCategoryID(ProductInput{}, ids); got != 0 {
+		t.Fatalf("无分类信息应返回 0：got %d", got)
+	}
+}
+
+// TestProductUpstreamColumnsMappedCategory 验证映射归属的写入口径：
+// 写 category_source=derived、命中同分类时零写入、且绝不覆盖 manual。
+func TestProductUpstreamColumnsMappedCategory(t *testing.T) {
+	input := sampleProductInput()
+	input.MappedCategoryID = 900
+	existing := productFromInput(input)
+	existing.CategoryID = 201
+	existing.CategorySource = model.CategorySourceDerived
+
+	columns := productUpstreamColumns(existing, input, 900)
+	if columns["category_id"] != uint64(900) || columns["category_source"] != model.CategorySourceDerived {
+		t.Fatalf("映射归属应以 derived 写入：%v", columns)
+	}
+
+	// 映射结果与库内一致：零写入（幂等）。
+	existing.CategoryID = 900
+	if columns := productUpstreamColumns(existing, input, 900); len(columns) != 0 {
+		t.Fatalf("映射结果一致时应无更新列：%v", columns)
+	}
+
+	// manual 商品一律不被映射覆盖。
+	existing.CategoryID = 201
+	existing.CategorySource = model.CategorySourceManual
+	if columns := productUpstreamColumns(existing, input, 900); len(columns) != 0 {
+		t.Fatalf("manual 不应被映射覆盖：%v", columns)
+	}
+}

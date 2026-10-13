@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +38,64 @@ type productImportView struct {
 	Groups     int   `json:"groups"`
 	Failed     int   `json:"failed"`
 	FailedPIDs []int `json:"failed_pids,omitempty"`
+	// SelectedGroups 是本次选中的上游分组 ID（升序去重）；**全量导入时不出现**（R12，契约 10.4）。
+	SelectedGroups []int `json:"selected_groups,omitempty"`
+	// MapFallbackGroupIDs 是因映射目标失效而回落自动派生的上游分组 ID（R12，契约 10.1）；
+	// 无失效映射时不出现。
+	MapFallbackGroupIDs []int `json:"map_fallback_group_ids,omitempty"`
+}
+
+// productImportRequest 是 POST /api/v1/admin/products/import 的**可选**请求体（R12，契约 10.4）。
+//
+// UpstreamGroupIDs 用指针承接，以区分「省略请求体 / null」（nil → 全量导入）与
+// 「显式数组」（非 nil）：空数组同样按全量导入处理，保持向后兼容。
+type productImportRequest struct {
+	UpstreamGroupIDs *[]int `json:"upstream_group_ids"`
+}
+
+// parseImportSelection 解析可选请求体并返回选中的上游分组 ID（去重升序）。
+//
+// 返回 selection=nil 表示**全量导入**：省略请求体 / `{}` / `null` / `[]` 都归一到这一支
+// （契约 10.4：缺省即全量，与 R11 前完全一致）。非法时已写出响应并返回 ok=false。
+func parseImportSelection(c *gin.Context) ([]int, bool) {
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		response.Fail(c, response.CodeInvalidParam, "读取请求体失败")
+		return nil, false
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	// 省略请求体 / null / 空数组（`[]` 或 `{"upstream_group_ids":[]}`）一律归一到全量导入（契约 10.4）。
+	switch trimmed {
+	case "", "[]", "null":
+		return nil, true
+	}
+
+	var req productImportRequest
+	if err := json.Unmarshal([]byte(trimmed), &req); err != nil {
+		response.Fail(c, response.CodeInvalidParam,
+			`请求体格式不正确：应为 {"upstream_group_ids": [上游分组 ID]}`)
+		return nil, false
+	}
+	if req.UpstreamGroupIDs == nil || len(*req.UpstreamGroupIDs) == 0 {
+		return nil, true
+	}
+
+	seen := make(map[int]struct{}, len(*req.UpstreamGroupIDs))
+	ids := make([]int, 0, len(*req.UpstreamGroupIDs))
+	for _, id := range *req.UpstreamGroupIDs {
+		if id <= 0 {
+			response.Fail(c, response.CodeInvalidParam,
+				"upstream_group_ids 只能是正整数（不能为 0 或负数）")
+			return nil, false
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	return ids, true
 }
 
 // importJob 是一个待抓取详情的上游商品。
@@ -56,7 +117,16 @@ type importFetchResult struct {
 // 拉取上游目录与逐个商品详情（价格/库存/可配置项），批量 upsert 到本地。
 //
 // 上游侧全程只读（GET /cart/all、GET /cart/get_product_config）。
+//
+// R12：可选请求体 `{"upstream_group_ids":[...]}` 只导入选中的上游分组（缺省/空/`null` = 全量）；
+// 归类优先级为 manual 不覆盖 > 上游分组映射 > 自动派生（契约 10.1）。
 func (h *productHandler) importProducts(c *gin.Context) {
+	// 先解析可选请求体（纯格式校验，不依赖上游）；非法直接 40001，不发起任何上游调用。
+	selection, ok := parseImportSelection(c)
+	if !ok {
+		return
+	}
+
 	client, err := h.upstreamClient(c.Request.Context())
 	if err != nil {
 		// 上游参数来自后台设置（upstream 键）：未配置齐全时明确提示，不发起任何请求。
@@ -74,10 +144,36 @@ func (h *productHandler) importProducts(c *gin.Context) {
 		return
 	}
 
+	// 选中的分组必须在本次上游目录里：否则会「静默导入 0 个商品还报成功」（契约 10.4）。
+	if selection != nil {
+		missing := missingGroupIDs(selection, catalog.Groups)
+		if len(missing) > 0 {
+			response.Fail(c, response.CodeValidationFailed, "上游分组不存在："+formatIntList(missing))
+			return
+		}
+	}
+
+	// R12：载入「上游分组 → 本地子分类」映射；目标已失效的降级为自动派生（不 500、不静默）。
+	mappings, fallbackGroups, err := h.resolveGroupMappings(ctx)
+	if err != nil {
+		failDB(c, h.logger, err)
+		return
+	}
+
+	selected := make(map[int]struct{}, len(selection))
+	for _, id := range selection {
+		selected[id] = struct{}{}
+	}
+
 	groups := make([]store.ProductGroupInput, 0, len(catalog.Groups))
 	jobs := make([]importJob, 0)
 	groupNames := make(map[int]string, len(catalog.Groups))
 	for groupIndex, group := range catalog.Groups {
+		if selection != nil {
+			if _, ok := selected[group.ID]; !ok {
+				continue
+			}
+		}
 		groupNames[group.ID] = group.Name
 		groups = append(groups, store.ProductGroupInput{
 			UpstreamGroupID: group.ID,
@@ -109,10 +205,16 @@ func (h *productHandler) importProducts(c *gin.Context) {
 			continue
 		}
 		input := results[i].input
-		// R7：导入时自动派生两级分类（契约 10.1）。派生是纯函数，重复导入收敛；
-		// 已被管理员改挂（category_source=manual）的商品由 store 跳过覆盖。
-		derived := category.Derive(input.Name, groupNames[jobs[i].groupID], jobs[i].groupID, jobs[i].sort)
-		input.Category = &derived
+		if mappedID, ok := mappings[jobs[i].groupID]; ok {
+			// R12：命中「上游分组 → 子分类」映射，直接采用（优先于自动派生）。
+			// 映射是导入规则的一部分，写入 category_source=derived（改映射后重导可刷新）；
+			// manual 商品仍由 store 跳过覆盖（契约 10.1 优先级第 1 条）。
+			input.MappedCategoryID = mappedID
+		} else {
+			// R7：无映射时自动派生两级分类（契约 10.1）。派生是纯函数，重复导入收敛。
+			derived := category.Derive(input.Name, groupNames[jobs[i].groupID], jobs[i].groupID, jobs[i].sort)
+			input.Category = &derived
+		}
 		inputs = append(inputs, input)
 	}
 
@@ -141,13 +243,85 @@ func (h *productHandler) importProducts(c *gin.Context) {
 	} else {
 		view.FailedPIDs = failedPIDs
 	}
+	if selection != nil {
+		view.SelectedGroups = selection
+	}
+	if len(fallbackGroups) > 0 {
+		sort.Ints(fallbackGroups)
+		view.MapFallbackGroupIDs = fallbackGroups
+	}
 
 	if len(failedPIDs) > 0 {
 		h.logger.Warn("商品导入部分失败", "failed", len(failedPIDs), "pids", view.FailedPIDs, "error", firstErr)
 	}
 	h.logger.Info("商品导入完成", "groups", view.Groups, "created", view.Created,
-		"updated", view.Updated, "unchanged", view.Unchanged, "failed", view.Failed)
+		"updated", view.Updated, "unchanged", view.Unchanged, "failed", view.Failed,
+		"selected_groups", view.SelectedGroups, "map_fallback_group_ids", view.MapFallbackGroupIDs)
 	response.Success(c, view)
+}
+
+// resolveGroupMappings 载入「上游分组 → 本地子分类」映射（R12，契约 10.1）。
+//
+// 第二个返回值是**目标已失效**（分类被删除、或被外部改坏成主分类）的映射分组 ID：
+// 这些分组本次导入回落自动派生，并由调用方写进响应的 map_fallback_group_ids 与日志。
+func (h *productHandler) resolveGroupMappings(ctx context.Context) (map[int]uint64, []int, error) {
+	maps, err := h.store.ListGroupCategoryMaps(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(maps) == 0 {
+		return map[int]uint64{}, nil, nil
+	}
+
+	// 一次性加载分类表，判定映射目标是否仍是存在的**子分类**（避免逐条查库）。
+	categories, err := h.store.ListProductCategories(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	subIDs := make(map[uint64]struct{}, len(categories))
+	for i := range categories {
+		if !categories[i].IsMain() {
+			subIDs[categories[i].ID] = struct{}{}
+		}
+	}
+
+	resolved := make(map[int]uint64, len(maps))
+	fallback := make([]int, 0)
+	for _, item := range maps {
+		if _, ok := subIDs[item.CategoryID]; !ok {
+			h.logger.Warn("上游分组映射的目标分类已失效，本次导入回落自动派生",
+				"upstream_group_id", item.UpstreamGroupID, "category_id", item.CategoryID)
+			fallback = append(fallback, item.UpstreamGroupID)
+			continue
+		}
+		resolved[item.UpstreamGroupID] = item.CategoryID
+	}
+	return resolved, fallback, nil
+}
+
+// missingGroupIDs 返回 selection 中不在本次上游目录里的分组 ID（升序）。
+func missingGroupIDs(selection []int, catalog []upstream.ProductGroup) []int {
+	present := make(map[int]struct{}, len(catalog))
+	for _, group := range catalog {
+		present[group.ID] = struct{}{}
+	}
+	missing := make([]int, 0)
+	for _, id := range selection {
+		if _, ok := present[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	sort.Ints(missing)
+	return missing
+}
+
+// formatIntList 把整数列表拼成「1、3、5」形式（错误文案用）。
+func formatIntList(values []int) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, "、")
 }
 
 // fetchProductDetails 以固定并发抓取全部商品详情，结果按 jobs 下标回填。

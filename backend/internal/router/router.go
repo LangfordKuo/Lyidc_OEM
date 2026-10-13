@@ -156,6 +156,7 @@ func New(opts Options) *gin.Engine {
 		logger:   opts.Logger,
 	}
 	categories := &categoryHandler{store: st, logger: opts.Logger}
+	groupMaps := &groupMapHandler{store: st, logger: opts.Logger}
 	coupons := &couponHandler{store: st, logger: opts.Logger}
 	orders := &orderHandler{store: st, payments: payments, deliveries: deliveries, logger: opts.Logger}
 	finance := &financeHandler{store: st, payments: payments, logger: opts.Logger}
@@ -371,6 +372,14 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/product-groups", products.listProductGroups)
 			adminGroup.PUT("/product-groups/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProductGroup)
+
+			// 上游分组 → 本地子分类映射（R12，契约 10.4）：列表三角色只读；
+			// 写操作沿用 categories.write（改名/排序/改挂同口径）——**仅 admin**。
+			adminGroup.GET("/product-group-maps", groupMaps.listGroupMaps)
+			adminGroup.PUT("/product-group-maps/:upstream_group_id",
+				requireAdminRole(model.RoleAdmin), groupMaps.upsertGroupMap)
+			adminGroup.DELETE("/product-group-maps/:upstream_group_id",
+				requireAdminRole(model.RoleAdmin), groupMaps.deleteGroupMap)
 
 			// 商品两级分类（R7）：分类树三角色只读；改名 / 子分类改挂主分类仅 admin。
 			adminGroup.GET("/categories", categories.listCategories)

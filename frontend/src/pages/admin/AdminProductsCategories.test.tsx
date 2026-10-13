@@ -1,12 +1,19 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { cleanup as cleanupRender, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import type { AdminCategory, AdminRole, UpdateCategoryInput } from '@/api/types'
+import type {
+  AdminCategory,
+  AdminRole,
+  ProductGroupCategoryMap,
+  UpdateCategoryInput,
+} from '@/api/types'
 import {
   makeAdminAccount,
   makeAdminCategory,
+  makeAdminProductGroup,
   makeAdminSubcategory,
+  makeProductGroupCategoryMap,
 } from '@/test/fixtures'
 import {
   installFetchMock,
@@ -53,8 +60,24 @@ function seedCategoryTree(): AdminCategory[] {
   ]
 }
 
+/** 上游分组（R12「上游分组映射」区块用）：名字刻意与分类名不同，避免文本查询歧义。 */
+const MOCK_GROUPS = [
+  makeAdminProductGroup({ id: 1, upstream_group_id: 9, name: '二区 CN2标准性能' }),
+  makeAdminProductGroup({ id: 2, upstream_group_id: 12, name: '一区 Kurun', sort: 1 }),
+]
+
 function mockCategories(role: AdminRole = 'admin') {
   const tree = seedCategoryTree()
+  // 初始映射：分组 12 → 子分类「美国一区」(202)；分组 9 未映射。
+  const maps: ProductGroupCategoryMap[] = [
+    makeProductGroupCategoryMap({
+      upstream_group_id: 12,
+      upstream_group_name: '一区 Kurun',
+      category_id: 202,
+      category_name: '美国一区',
+      category_parent_name: '美国',
+    }),
+  ]
   const fetchMock = installFetchMock((url, init) => {
     const path = url.pathname
     if (path === '/api/v1/admin/profile') {
@@ -65,6 +88,39 @@ function mockCategories(role: AdminRole = 'admin') {
     }
     if (path === '/api/v1/admin/categories' && init.method !== 'PUT') {
       return ok({ items: tree })
+    }
+    if (path === '/api/v1/admin/product-groups') {
+      return ok({ items: MOCK_GROUPS })
+    }
+    if (path === '/api/v1/admin/product-group-maps' && init.method === 'GET') {
+      return ok({ items: maps })
+    }
+    const mapPut = path.match(/^\/api\/v1\/admin\/product-group-maps\/(\d+)$/)
+    if (mapPut && init.method === 'PUT') {
+      const upstreamGroupID = Number(mapPut[1])
+      const body = requestBody<{ category_id: number }>(init) ?? { category_id: 0 }
+      const view = makeProductGroupCategoryMap({
+        upstream_group_id: upstreamGroupID,
+        category_id: body.category_id,
+        category_name: body.category_id === 201 ? '香港二区' : '美国一区',
+        category_parent_name: body.category_id === 201 ? '香港' : '美国',
+      })
+      const index = maps.findIndex((item) => item.upstream_group_id === upstreamGroupID)
+      if (index >= 0) {
+        maps[index] = view
+      } else {
+        maps.push(view)
+      }
+      return ok(view)
+    }
+    if (mapPut && init.method === 'DELETE') {
+      const upstreamGroupID = Number(mapPut[1])
+      const index = maps.findIndex((item) => item.upstream_group_id === upstreamGroupID)
+      if (index < 0) {
+        return { status: 404, body: { code: 404, message: '该分组没有映射', data: null } }
+      }
+      maps.splice(index, 1)
+      return ok(null)
     }
     const putMatch = path.match(/^\/api\/v1\/admin\/categories\/(\d+)$/)
     if (putMatch && init.method === 'PUT') {
@@ -95,7 +151,7 @@ function mockCategories(role: AdminRole = 'admin') {
     }
     return undefined
   })
-  return { fetchMock, tree }
+  return { fetchMock, tree, maps }
 }
 
 async function renderCategoriesTab(role: AdminRole = 'admin') {
@@ -252,5 +308,87 @@ describe('管理后台 · 商品与分类 · 分类页签', () => {
       expect(button).toBeEnabled()
     }
     expect(screen.queryByText(/为只读视角/)).not.toBeInTheDocument()
+  })
+
+  // —— 上游分组映射（R12） ——
+
+  it('上游分组映射：已映射显示目标子分类，未映射显示「未映射（按规则自动归类）」', async () => {
+    await renderCategoriesTab()
+
+    expect(screen.getByTestId('group-map-9')).toHaveTextContent('二区 CN2标准性能')
+    expect(screen.getByTestId('group-map-9')).toHaveTextContent('未映射（按规则自动归类）')
+    expect(screen.getByTestId('group-map-12')).toHaveTextContent('美国 / 美国一区')
+  })
+
+  it('上游分组映射：下拉只列已有子分类（两级展示，不含主分类）', async () => {
+    await renderCategoriesTab()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('combobox', { name: '映射目标 二区 CN2标准性能' }))
+    expect(await screen.findByRole('option', { name: '香港 / 香港二区' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '美国 / 美国一区' })).toBeInTheDocument()
+    // 只有两个子分类；主分类「香港」「美国」不在下拉里。
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+  })
+
+  it('上游分组映射：选择子分类后保存，提交 category_id 并刷新展示', async () => {
+    const { fetchMock } = await renderCategoriesTab()
+    const user = userEvent.setup()
+
+    const row = screen.getByTestId('group-map-9')
+    await user.click(within(row).getByRole('combobox'))
+    await user.click(await screen.findByRole('option', { name: '香港 / 香港二区' }))
+    await user.click(within(row).getByRole('button', { name: '保存' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes('/api/v1/admin/product-group-maps/9') && init?.method === 'PUT',
+      )
+      expect(call).toBeTruthy()
+      expect(requestBody(call?.[1] as RequestInit)).toEqual({ category_id: 201 })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('group-map-9')).toHaveTextContent('香港 / 香港二区')
+    })
+  })
+
+  it('上游分组映射：删除已映射分组，调用 DELETE 并回落为未映射', async () => {
+    const { fetchMock } = await renderCategoriesTab()
+    const user = userEvent.setup()
+
+    await user.click(within(screen.getByTestId('group-map-12')).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes('/api/v1/admin/product-group-maps/12') &&
+            init?.method === 'DELETE',
+        ),
+      ).toBe(true)
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('group-map-12')).toHaveTextContent('未映射（按规则自动归类）')
+    })
+  })
+
+  it('上游分组映射：finance / support 只读（写入口禁用 + 原因，且不发写请求）', async () => {
+    for (const role of ['finance', 'support'] as const) {
+      const { fetchMock } = await renderCategoriesTab(role)
+      const row = screen.getByTestId('group-map-12')
+      const save = within(row).getByRole('button', { name: '保存' })
+      const remove = within(row).getByRole('button', { name: '删除' })
+      expect(save).toBeDisabled()
+      expect(remove).toBeDisabled()
+      expect(save).toHaveAttribute('title', '仅超级管理员可执行')
+      expect(within(row).getByRole('combobox')).toBeDisabled()
+      expect(
+        fetchMock.mock.calls.some(
+          ([, init]) => init?.method === 'PUT' || init?.method === 'DELETE',
+        ),
+      ).toBe(false)
+      cleanupRender()
+    }
   })
 })

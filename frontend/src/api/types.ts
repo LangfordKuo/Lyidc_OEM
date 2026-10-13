@@ -673,6 +673,28 @@ export interface ProductImportResult {
   groups: number
   failed: number
   failed_pids?: number[]
+  /** R12：本次选中的上游分组 ID（升序去重）；**全量导入时不出现** */
+  selected_groups?: number[]
+  /** R12：因映射目标失效而回落自动派生的上游分组 ID；无失效映射时不出现 */
+  map_fallback_group_ids?: number[]
+}
+
+/** POST /admin/products/import 的可选请求体（R12，契约 10.4）。 */
+export interface ImportProductsInput {
+  /** 只导入这些上游分组；缺省 / 空数组 = 全量导入 */
+  upstream_group_ids?: number[]
+}
+
+/**
+ * 上游分组 → 本地子分类映射（R12，契约 10.4 的 GET /admin/product-group-maps）。
+ * 目标分类已被删除时 category_name / category_parent_name 为空串（前端提示「目标分类已失效」）。
+ */
+export interface ProductGroupCategoryMap {
+  upstream_group_id: number
+  upstream_group_name: string
+  category_id: number
+  category_name: string
+  category_parent_name: string
 }
 
 export interface UpdateProductInput {
