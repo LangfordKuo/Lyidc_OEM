@@ -3,6 +3,7 @@ import { AlertTriangleIcon, DatabaseBackupIcon, LoaderCircleIcon } from 'lucide-
 import { toast } from 'sonner'
 
 import { createDbBackup, deleteDbBackup, fetchDbBackups, restoreDbBackup } from '@/api/adminBackups'
+import { fetchDbBackupSettings, updateDbBackupSettings } from '@/api/adminSettings'
 import { errorMessage } from '@/api/client'
 import type { DbBackup, DbBackupRestoreResult } from '@/api/types'
 import AdminTable, { type AdminColumn } from '@/components/admin/AdminTable'
@@ -250,6 +251,8 @@ export default function DbBackupsPanel() {
               </Alert>
             )}
 
+            <BackupDirForm onSaved={state.reload} />
+
             <p className="text-xs text-muted-foreground">
               备份文件<strong>不会自动清理</strong>：需要腾出空间时请用下方「删除」手动处理。
               备份内容含全库数据（含管理员密码哈希），因此本页不提供下载，也不提供查看内容；
@@ -360,5 +363,119 @@ export default function DbBackupsPanel() {
         }
       />
     </Card>
+  )
+}
+
+/**
+ * BackupDirForm 是「备份目录」编辑区（R15，契约 21.10）。
+ *
+ * 保存时后端先做环境校验（不在 Web 根内 → 不存在则按 0750 创建 → 写入探针），
+ * **校验不过不落库**并以 40002 返回可读原因，这里原样展示且保留输入值供修改。
+ * 旁边必须明示两条：**改目录不会搬走已有备份**（旧目录里的备份不出现在列表里，也不会被删除）、
+ * **留空即使用缺省目录**（展示缺省目录的实际路径）。
+ */
+function BackupDirForm({ onSaved }: { onSaved: () => void }) {
+  const state = useAsync(fetchDbBackupSettings, [])
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const current = state.data
+  const value = draft ?? current?.dir ?? ''
+  const dirty = current !== null && value !== current.dir
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const next = await updateDbBackupSettings({ dir: value })
+      setDraft(null)
+      state.reload()
+      // 目录变了 → 上面的「备份目录」与列表随之刷新（旧备份不会跟过来，见下方提示）。
+      onSaved()
+      toast.success(
+        next.default
+          ? `备份目录已恢复为缺省目录：${next.resolved_dir}`
+          : `备份目录已保存：${next.resolved_dir}（原目录中的备份不会自动迁移）`,
+      )
+    } catch (err) {
+      // 落在 Web 根内 / 创建失败 / 不可写：后端拒绝且不落库，这里展示可读原因。
+      setError(errorMessage(err, '保存失败，请稍后重试'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section
+      data-testid="db-backup-dir-form"
+      aria-label="备份目录设置"
+      className="space-y-2 rounded-xl border border-border bg-muted/30 p-3"
+    >
+      <div className="space-y-0.5">
+        <p className="text-sm font-medium text-foreground">备份目录</p>
+        <p className="text-xs text-muted-foreground">
+          留空即使用缺省目录（{current?.default_dir || '安装目录下的 backups/'}）；
+          保存时先校验目录（不在 Web 根 dist/ 内、可创建、可写），校验不通过不会保存。
+        </p>
+      </div>
+
+      {state.loading && !current ? (
+        <LoadingBlock label="正在读取备份目录设置…" />
+      ) : state.error && !current ? (
+        <ErrorState message={state.error} onRetry={state.reload} />
+      ) : current ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id="db-backup-dir"
+              name="db_backup_dir"
+              className="w-full max-w-md"
+              placeholder={current.default_dir}
+              value={value}
+              aria-label="备份目录"
+              aria-invalid={error ? true : undefined}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={saving || !dirty}
+              onClick={handleSave}
+              data-testid="db-backup-dir-save"
+            >
+              {saving ? (
+                <>
+                  <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
+                  保存中…
+                </>
+              ) : (
+                '保存'
+              )}
+            </Button>
+          </div>
+
+          <p data-testid="db-backup-dir-status" className="text-xs">
+            {error ? (
+              <span className="text-destructive">{error}</span>
+            ) : !current.outside_web_root ? (
+              <span className="text-destructive">{current.message || '备份目录不可用'}</span>
+            ) : !current.writable ? (
+              // 目录不存在（保存/首次备份时会创建）或不可写：如实展示后端提示。
+              <span className="text-warning">{current.message || '备份目录不可写'}</span>
+            ) : (
+              <span className="text-muted-foreground">
+                目录可用：解析为 {current.resolved_dir}，不在 Web 根内且可写
+                {current.default ? '（当前使用缺省目录）' : ''}。
+              </span>
+            )}
+          </p>
+
+          <p className="text-xs text-muted-foreground">
+            <strong>改目录不会搬走已有备份</strong>：旧目录里的备份文件不会出现在上面的列表里
+            （系统也不会删除它们）；要保留就手工把备份文件与同名 sidecar 迁到新目录，或把目录改回原值。
+          </p>
+        </>
+      ) : null}
+    </section>
   )
 }

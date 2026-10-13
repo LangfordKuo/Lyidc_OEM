@@ -1313,3 +1313,33 @@ export interface DeleteDbBackupResult {
   id: string
   file_name: string
 }
+
+/**
+ * GET/PUT /api/v1/admin/settings/db_backup 的 data（契约 21.10，R15）：
+ * 备份目录设置——配置原值 + 解析后的绝对路径 + 目录可用性（供界面展示校验结果）。
+ */
+export interface DbBackupSettings {
+  /** 设置项原值：空串表示用缺省目录。 */
+  dir: string
+  /** 当前是否用缺省目录（dir 留空）。 */
+  default: boolean
+  /** 缺省目录的绝对路径（与当前是否在用无关，供界面展示「留空 = 用这个」）。 */
+  default_dir: string
+  /** 当前配置解析后的绝对路径（dir 留空时等于 default_dir）。 */
+  resolved_dir: string
+  /** 目录不在 Web 根内；false 时备份接口拒绝写入，原因见 message。 */
+  outside_web_root: boolean
+  /** 目录当前是否存在（GET 不创建目录）。 */
+  exists: boolean
+  /** 写入探针是否通过（目录不存在时恒为 false）。 */
+  writable: boolean
+  /** 需要管理员注意的原因；一切正常时为空串。 */
+  message: string
+  updated_by: number | null
+  updated_at: string | null
+}
+
+/** PUT /api/v1/admin/settings/db_backup 请求体（契约 21.10）：dir 必须提供，空串 = 恢复缺省目录。 */
+export interface UpdateDbBackupSettingsInput {
+  dir: string
+}

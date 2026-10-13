@@ -46,14 +46,35 @@ docker compose up -d
 | --- | --- | --- |
 | `mysql-data` | 全部业务数据 | 数据全丢 |
 | `backend-data` | `config.yaml`（数据库 DSN + JWT 密钥） | 重启后回到安装向导 |
+| `./backups`（绑定挂载 → 容器 `/app/backups`） | 后台「立即备份」产出的 SQL 与 sidecar | 备份文件被手工删除（不影响业务数据） |
 
-备份：`docker compose exec mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" lyidc' > lyidc-$(date +%F).sql`
+### 备份
 
-也可以直接用后台的「设置 → 数据库备份」（纯 Go 导出，不依赖 mysqldump；恢复是覆盖式的，需当前管理员密码）。
-注意容器部署下它写的是**容器内** `/app/backups`（安装目录下、**不在 Web 根内**）：容器重建即丢失，
-要长期保留请把该目录挂到宿主机（在 `deploy/docker-compose.yml` 的 `backend.volumes` 里加 `./backups:/app/backups`）
-或继续用上面的 `mysqldump` 落宿主机；两种方式的落点都**不要**指向 Web 可访问的目录（如前端镜像里的
-`/usr/share/nginx/html`），备份文件含全库数据与管理员密码哈希。
+两种方式：`mysqldump`（手工）或后台「设置 → 数据库备份」（纯 Go 导出，不依赖 mysqldump；恢复是覆盖式的，需当前管理员密码）。
+
+```bash
+# 方式一：mysqldump 直接落宿主机
+docker compose exec mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" lyidc' > lyidc-$(date +%F).sql
+```
+
+```bash
+# 方式二：后台点「立即备份」，文件落在 deploy/backups/（compose 已默认挂好，见下）
+ls deploy/backups/                              # 宿主机视角（compose 文件旁边）
+docker compose exec backend ls /app/backups     # 容器里看到的是同一份
+```
+
+- **备份目录默认已挂到宿主机**：compose 里 `backend` 服务的 `./backups:/app/backups` 绑定挂载，
+  落点是 compose 文件同级的 `deploy/backups/`（容器内的安装目录子目录，与 `dist/` 同级、**不在 Web 根内**）。
+  备份**没有下载入口**（含全库数据与管理员密码哈希，绝不从网站下发），运维取文件就是「直接去 `deploy/backups/` 拿」，
+  异地留存用 rsync / scp 等运维手段。`deploy/backups/` 已被 `.gitignore` 忽略，不会进版本库。
+- **权限 / 属主**：后端容器默认以 **root** 运行（见下文「数据卷权限」的取舍说明），所以宿主机上目录与文件的
+  属主通常是 `root`（目录 0750、文件 0640）；非 root 账号取文件需要 `sudo`（或先 `chown` 再取）。
+- 想改用**命名卷**（取文件需 `docker cp`）：把该行换成 `backend-backups:/app/backups`，
+  并在 `deploy/docker-compose.yml` 末尾的顶层 `volumes:` 里声明 `backend-backups:`。
+- 在后台「设置 → 数据库备份 → 备份目录」里改成**别的路径**时，那个路径**不在**本挂载里，
+  需自行加挂载（或把目录改回 `/app/backups`），否则容器重建即丢；改目录**不会搬走已有备份**。
+- 两种方式的落点都**绝不要**指向 Web 可访问的目录（如前端镜像里的 `/usr/share/nginx/html`）：
+  备份文件含全库数据与管理员密码哈希。
 
 ### 升级
 
@@ -62,6 +83,10 @@ cd deploy
 cp -r /path/to/backup .          # 可选：先备份
 docker compose pull && docker compose up -d     # 同一数据卷，配置与数据都保留
 ```
+
+> **容器里不要用后台的「立即升级」**（设置 → 系统更新）：一键升级是**主机直装**场景（替换安装目录里的
+> 二进制与 `dist/`、再用分离的 helper 进程重启服务），容器里替换的只是容器可写层——`docker compose
+> up -d` 重建容器或换镜像就没了。容器升级一律走上面这两条命令（换镜像 + 手动 `migrate up`，见下）。
 
 注意两点：
 
@@ -170,7 +195,8 @@ tar -xzf lyidc-oem-v1.0.0-linux-amd64.tar.gz && cd lyidc-oem-v1.0.0-linux-amd64
   回滚后页面会提示「数据库迁移已执行」，可用 `./lyidc-migrate version` 核对后重试。
 - 安装目录内会新增 `upgrade-state.json`（任务状态）与 `upgrade.log`（升级日志）、`.upgrade/`（工作目录，
   成功后清理）；三者都不含任何密钥。
-- 运行账号需要对**安装目录**有写权限（不是配置文件目录）。容器部署请改用「更新镜像」的方式（同级章节）。
+- 运行账号需要对**安装目录**有写权限（不是配置文件目录）。**容器部署不适用一键升级**（替换的是容器可写层，
+  重建即失效）：请用「更新镜像」的方式（见方式一的「升级」小节）。
 - 升级源默认 GitHub；镜像/内网环境可在更新源设置里填 `api_base` 与 `download_base`
   （只影响本机出网地址，**属于系统级信任**：指向哪里就从哪里下载二进制）。
 

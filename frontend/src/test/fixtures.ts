@@ -28,6 +28,7 @@ import type {
   MemberCoupon,
   DbBackup,
   DbBackupList,
+  DbBackupSettings,
   Ticket,
   TicketMessage,
   UpdateJob,
@@ -687,6 +688,23 @@ export function makeDbBackupList(overrides: Partial<DbBackupList> = {}): DbBacku
     total_size_bytes: 1048576,
     backups: [makeDbBackup()],
     auto_cleanup: false,
+    ...overrides,
+  }
+}
+
+/** 备份目录设置（R15，契约 21.10）：缺省状态与 makeDbBackupList 的缺省目录口径一致。 */
+export function makeDbBackupSettings(overrides: Partial<DbBackupSettings> = {}): DbBackupSettings {
+  return {
+    dir: '',
+    default: true,
+    default_dir: '/opt/lyidc/backups',
+    resolved_dir: '/opt/lyidc/backups',
+    outside_web_root: true,
+    exists: true,
+    writable: true,
+    message: '',
+    updated_by: 1,
+    updated_at: '2026-10-14T06:00:00Z',
     ...overrides,
   }
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/dbbackup"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/notify"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
@@ -24,7 +25,10 @@ type settingsHandler struct {
 	reader *settings.Reader
 	// notify 是通知能力（阶段 6b）：设置页的「发送测试邮件」经它发送并留痕。
 	notify NotificationTrigger
-	logger *slog.Logger
+	// backups 是数据库备份服务（R15，契约 21.10）：备份目录设置接口用它做解析、Web 根判定、
+	// 目录创建与写入探针（与备份运行时同一套口径）；nil 表示备份服务不可用，两个接口明确拒绝。
+	backups *dbbackup.Service
+	logger  *slog.Logger
 }
 
 // epaySettingsView 是 payment.epay 设置的对外视图。

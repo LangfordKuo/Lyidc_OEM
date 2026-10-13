@@ -48,6 +48,13 @@ services:
     volumes:
       # 配置（安装向导写入 config.yaml）与运行数据都落在这个卷里。
       - backend-data:/app/data
+      # 数据库备份（R14/R15）缺省落在 <安装目录>/backups = 容器内 /app/backups，
+      # 它**不在**上面的数据卷里：不挂出来就容器重建即丢，而且备份**没有下载入口**
+      # （含管理员密码哈希，绝不从网站下发），运维只能从文件系统取。
+      # 绑定挂载到 compose 文件同级的 deploy/backups/，取文件就是「直接去那个目录拿」：
+      - ./backups:/app/backups
+      # 想改用命名卷（取文件需 `docker cp`）：换成 backend-backups:/app/backups，
+      # 并在文件末尾的顶层 volumes: 里声明 backend-backups。
     # 健康检查在 Dockerfile.backend 里定义：
     #   已安装 → /api/v1/health 200；未安装（安装向导模式）→ /install/api/status 200。
     # 因此首启未安装时 backend 也是 healthy，下面 frontend 的 service_healthy 依赖不会卡住。

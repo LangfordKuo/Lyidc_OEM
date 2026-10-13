@@ -197,6 +197,111 @@ func (s *Service) BackupDir(ctx context.Context) DirState {
 	return state
 }
 
+// DefaultDir 返回缺省备份目录的绝对路径（`<安装目录>/backups`，与 `dist/` 同级）。
+func (s *Service) DefaultDir() string { return filepath.Join(s.installDir, DefaultDirName) }
+
+// DirReport 是备份目录的解析与校验报告（R15，契约 21.10 的展示口径）：
+// 「解析后的绝对路径 + 是否在 Web 根外 + 是否存在 + 是否可写」。
+//
+// 只供设置接口与测试使用，不经 JSON 直接下发（对外视图由 router 层组装）。
+type DirReport struct {
+	// Dir 是解析后的绝对路径（相对路径按安装目录解析）。
+	Dir string
+	// DefaultDir 是缺省目录的绝对路径，与当前配置无关（供界面展示「留空 = 用这个」）。
+	DefaultDir string
+	// Default 表示用的是缺省目录（配置留空）。
+	Default bool
+	// OutsideWebRoot 表示目录不在 Web 根内（false 时不可用，原因见 Message）。
+	OutsideWebRoot bool
+	// Exists 表示目录当前存在。
+	Exists bool
+	// Writable 表示写入探针通过（目录不存在时恒为 false）。
+	Writable bool
+	// Message 是需要管理员注意的原因（面向管理员、已脱敏）；一切正常时为空串。
+	Message string
+}
+
+// InspectDir 解析并检查候选备份目录（设置页读取用，契约 21.10）：**不创建目录、不写任何配置**。
+// 目录已存在时做写入探针；不存在时只提示「保存或首次备份时会自动创建」。
+func (s *Service) InspectDir(dir string) DirReport {
+	report, err := s.resolveReport(dir)
+	if err != nil {
+		return report
+	}
+	if !report.Exists {
+		report.Message = "备份目录尚不存在：保存该设置或首次备份时会自动创建（0750；上级目录不可写则会失败）"
+		return report
+	}
+	if err := probeWritable(report.Dir); err != nil {
+		report.Message = fmt.Sprintf("备份目录不可写：%v", err)
+		return report
+	}
+	report.Writable = true
+	return report
+}
+
+// PrepareDir 解析候选目录并做保存前准备（设置页保存用，契约 21.10）：
+// 目录不存在则按 0750 创建（含中间目录），随后做写入探针；任一步失败都返回 ErrDirUnusable，
+// 且**不落库**由调用方保证（本函数只碰文件系统）。返回的 report 在失败时也带可读原因。
+func (s *Service) PrepareDir(dir string) (DirReport, error) {
+	report, err := s.resolveReport(dir)
+	if err != nil {
+		// checkDir 的错误已经是 ErrDirUnusable + 可读原因，原样返回（不再二次加前缀）。
+		return report, err
+	}
+	if err := os.MkdirAll(report.Dir, 0o750); err != nil {
+		report.Message = fmt.Sprintf("创建备份目录失败：%v", err)
+		return report, fmt.Errorf("%w: %s", ErrDirUnusable, report.Message)
+	}
+	report.Exists = true
+	if err := probeWritable(report.Dir); err != nil {
+		report.Message = fmt.Sprintf("备份目录不可写：%v", err)
+		return report, fmt.Errorf("%w: %s", ErrDirUnusable, report.Message)
+	}
+	report.Writable = true
+	return report, nil
+}
+
+// resolveReport 解析候选目录（空串 = 缺省）并执行**与运行时同一套**目录校验
+// （Web 根 / 已存在的非目录 / 符号链接，见 checkDir）——两处口径绝不各写一套。
+// 校验失败时返回 checkDir 的错误原文（ErrDirUnusable），供调用方原样映射为 40002。
+func (s *Service) resolveReport(dir string) (DirReport, error) {
+	report := DirReport{
+		Dir:            s.DefaultDir(),
+		DefaultDir:     s.DefaultDir(),
+		Default:        true,
+		OutsideWebRoot: true,
+	}
+	if trimmed := strings.TrimSpace(dir); trimmed != "" {
+		report.Default = false
+		report.Dir = s.resolveConfigured(trimmed)
+	}
+	if err := s.checkDir(report.Dir); err != nil {
+		report.OutsideWebRoot = false
+		report.Message = err.Error()
+		return report, err
+	}
+	if info, err := os.Lstat(report.Dir); err == nil && info.IsDir() {
+		report.Exists = true
+	}
+	return report, nil
+}
+
+// probeWritable 在目录里写一个临时文件再删除：权限不足、只读挂载、磁盘故障都在这里暴露。
+// 探针文件用完即删（名字带点前缀，正常情况不会出现在备份列表里——列表只认白名单形状的 .sql）。
+func probeWritable(dir string) error {
+	file, err := os.CreateTemp(dir, ".lyidc-write-probe-*")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
+}
+
 // resolveConfigured 把设置里的目录解析成绝对路径：相对路径相对**安装目录**解析。
 func (s *Service) resolveConfigured(dir string) string {
 	if filepath.IsAbs(dir) {

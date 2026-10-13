@@ -254,7 +254,9 @@ func New(opts Options) *gin.Engine {
 	}
 	instances := &instanceHandler{store: st, ops: instanceOperator, logger: opts.Logger}
 	adminSettings := &settingsHandler{
-		store: st, reader: settingsReader, notify: notifier, logger: opts.Logger,
+		store: st, reader: settingsReader, notify: notifier,
+		// R15：备份目录设置接口与备份运行时共用同一个服务实例（同一套目录校验口径）。
+		backups: backupService, logger: opts.Logger,
 	}
 	// 阶段 6a：工单（纯本地域，不调用上游；管理端为 admin + support 的客服域）。
 	// 阶段 6b：工单事件（创建/会员回复/客服公开回复/客服关闭）在事务提交后触发通知。
@@ -418,6 +420,13 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getUpdatesSettings)
 				settingsGroup.PUT("/updates",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateUpdatesSettings)
+
+				// 备份目录（R15，契约 21.10）：db_backup 键的读写，**仅 admin**（含读取）。
+				// 保存时就用备份服务的同一套校验（Web 根拒绝 + 0750 创建 + 写入探针），不过不落库。
+				settingsGroup.GET("/db_backup",
+					requireAdminRole(model.RoleAdmin), adminSettings.getDBBackupSettings)
+				settingsGroup.PUT("/db_backup",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateDBBackupSettings)
 			}
 
 			// 系统版本与更新检查（R13-A，契约 19.3）：仅 admin（19.6）。读缓存不出网；检查更新强制出网。

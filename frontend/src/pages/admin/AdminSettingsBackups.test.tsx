@@ -2,7 +2,14 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { makeAdminAccount, makeDbBackup, makeDbBackupList, makeUpdateStatus } from '@/test/fixtures'
+import {
+  makeAdminAccount,
+  makeDbBackup,
+  makeDbBackupList,
+  makeDbBackupSettings,
+  makeUpdateStatus,
+} from '@/test/fixtures'
+import type { DbBackupSettings } from '@/api/types'
 import {
   fail,
   installFetchMock,
@@ -29,8 +36,12 @@ function mockSettingsPage(nodes: {
   restore?: () => MockResponse
   remove?: () => MockResponse
   updates?: MockResponse
+  dirSettings?: MockResponse | (() => MockResponse)
+  saveDir?: () => MockResponse
 } = {}) {
   const role = nodes.role ?? 'admin'
+  // 备份目录设置的「服务端状态」：保存成功后 GET 回读保存结果（与真实后端一致）。
+  let savedDir: DbBackupSettings | null = null
   return installFetchMock((url, init) => {
     const path = url.pathname
     const method = init.method ?? 'GET'
@@ -63,6 +74,29 @@ function mockSettingsPage(nodes: {
     }
     if (path === '/api/v1/admin/db-backups' && method === 'POST') {
       return nodes.create ? nodes.create() : ok(makeDbBackup())
+    }
+    // 备份目录设置（R15，契约 21.10）：GET 读当前值；PUT 默认按请求体回显保存结果。
+    if (path === '/api/v1/admin/settings/db_backup' && method === 'GET') {
+      if (savedDir) {
+        return ok(savedDir)
+      }
+      const settings = nodes.dirSettings ?? ok(makeDbBackupSettings())
+      return typeof settings === 'function' ? settings() : settings
+    }
+    if (path === '/api/v1/admin/settings/db_backup' && method === 'PUT') {
+      if (nodes.saveDir) {
+        return nodes.saveDir()
+      }
+      const dir = (requestBody<{ dir?: string }>(init)?.dir ?? '').trim()
+      savedDir =
+        dir === ''
+          ? makeDbBackupSettings()
+          : makeDbBackupSettings({
+              dir,
+              default: false,
+              resolved_dir: dir.startsWith('/') ? dir : `/opt/lyidc/${dir}`,
+            })
+      return ok(savedDir)
     }
     if (path.endsWith('/restore') && method === 'POST') {
       return nodes.restore
@@ -221,6 +255,90 @@ describe('管理后台 · 数据库备份（R14，契约 21）', () => {
     expect(button).toBeDisabled()
     await user.click(button)
     expect(callsTo(fetchMock, '/admin/db-backups', 'POST')).toHaveLength(0)
+  })
+
+  it('备份目录设置（R15）：展示解析路径与可写状态，并写明两条必读提示', async () => {
+    await renderSettings()
+
+    const form = await screen.findByTestId('db-backup-dir-form')
+    expect(within(form).getByText('备份目录')).toBeInTheDocument()
+    // 留空即缺省目录：显示缺省目录的实际路径。
+    expect(within(form).getByText(/留空即使用缺省目录（\/opt\/lyidc\/backups）/)).toBeInTheDocument()
+    // 改目录不搬走已有备份。
+    expect(within(form).getByText(/改目录不会搬走已有备份/)).toBeInTheDocument()
+    // 校验结果：解析后的绝对路径 + 不在 Web 根内 + 可写。
+    expect(await screen.findByTestId('db-backup-dir-status')).toHaveTextContent(
+      '目录可用：解析为 /opt/lyidc/backups，不在 Web 根内且可写（当前使用缺省目录）。',
+    )
+    // 配置留空时输入框为空（placeholder 展示缺省路径）。
+    expect(within(form).getByLabelText('备份目录')).toHaveValue('')
+  })
+
+  it('保存备份目录：提交 {dir} 请求体，成功后重读列表（目录展示随之更新）', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+
+    await user.type(await screen.findByLabelText('备份目录'), '/srv/lyidc-bk')
+    await user.click(screen.getByTestId('db-backup-dir-save'))
+
+    const calls = await waitFor(() => {
+      const found = callsTo(fetchMock, '/admin/settings/db_backup', 'PUT')
+      expect(found).toHaveLength(1)
+      return found
+    })
+    expect(requestBody(calls[0][1] as RequestInit)).toEqual({ dir: '/srv/lyidc-bk' })
+    expect(await screen.findByText(/备份目录已保存：\/srv\/lyidc-bk/)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(callsTo(fetchMock, '/admin/db-backups', 'GET').length).toBeGreaterThanOrEqual(2),
+    )
+  })
+
+  it('留空保存：dir 为空串 = 恢复缺省目录', async () => {
+    const fetchMock = await renderSettings({
+      dirSettings: ok(
+        makeDbBackupSettings({
+          dir: '/srv/lyidc-bk',
+          default: false,
+          resolved_dir: '/srv/lyidc-bk',
+        }),
+      ),
+    })
+    const user = userEvent.setup()
+
+    const input = await screen.findByLabelText('备份目录')
+    expect(input).toHaveValue('/srv/lyidc-bk')
+    await user.clear(input)
+    await user.click(screen.getByTestId('db-backup-dir-save'))
+
+    const calls = await waitFor(() => {
+      const found = callsTo(fetchMock, '/admin/settings/db_backup', 'PUT')
+      expect(found).toHaveLength(1)
+      return found
+    })
+    expect(requestBody(calls[0][1] as RequestInit)).toEqual({ dir: '' })
+    expect(await screen.findByText(/备份目录已恢复为缺省目录/)).toBeInTheDocument()
+  })
+
+  it('保存被拒（Web 根内 40002）：展示后端原因、输入保留、不谎报成功', async () => {
+    const fetchMock = await renderSettings({
+      saveDir: () =>
+        fail(
+          40002,
+          '备份目录不可用: 备份目录不能位于 Web 根（/opt/lyidc/dist）内——备份含管理员密码哈希等敏感数据，绝不能被 Web 服务器读取',
+          400,
+        ),
+    })
+    const user = userEvent.setup()
+
+    await user.type(await screen.findByLabelText('备份目录'), '/opt/lyidc/dist/bk')
+    await user.click(screen.getByTestId('db-backup-dir-save'))
+
+    expect(await screen.findByText(/不能位于 Web 根/)).toBeInTheDocument()
+    expect(callsTo(fetchMock, '/admin/settings/db_backup', 'PUT')).toHaveLength(1)
+    // 被拒绝的这次保存绝不出现成功提示（只断言该值，避免同文件里其他用例的 toast 残留干扰）。
+    expect(screen.queryByText(/备份目录已保存：\/opt\/lyidc\/dist/)).not.toBeInTheDocument()
+    // 输入值保留，管理员可据此改正。
+    expect(screen.getByLabelText('备份目录')).toHaveValue('/opt/lyidc/dist/bk')
   })
 
   it('「立即备份」：进行中禁用并提示结果，成功后重新拉取列表', async () => {

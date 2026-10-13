@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-10-12T22:04:04Z",
-  "updated_at": "2026-10-13T20:10:30Z",
+  "updated_at": "2026-10-13T21:10:18Z",
   "files": {
     ".dockerignore": {
       "role": "index",
@@ -59,15 +59,15 @@
     },
     "README.md": {
       "role": "index",
-      "sha256": "e7c1d0b61161677180e4d2d4120f11204d47019e888bb3d52bcd0f5e64fcfd14",
-      "size": 5915,
-      "normalized_sha256": "e7c1d0b61161677180e4d2d4120f11204d47019e888bb3d52bcd0f5e64fcfd14"
+      "sha256": "3b950833318ba90ac5ddd8d8502d7fcd29630d2325536de7c88b85706308caaa",
+      "size": 6088,
+      "normalized_sha256": "3b950833318ba90ac5ddd8d8502d7fcd29630d2325536de7c88b85706308caaa"
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "3b4adc587fd2af0fe73061899ab6b789aa2e2342a99179259db62229d9878082",
-      "size": 117118,
-      "normalized_sha256": "3b4adc587fd2af0fe73061899ab6b789aa2e2342a99179259db62229d9878082"
+      "sha256": "417795e9b9518d7c658cf8ea834a7dd99a7bd9953c662be6797f9c9964e210db",
+      "size": 119370,
+      "normalized_sha256": "417795e9b9518d7c658cf8ea834a7dd99a7bd9953c662be6797f9c9964e210db"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -269,18 +269,18 @@
     },
     "backend/internal/dbbackup/service.go": {
       "role": "index",
-      "sha256": "0dabf8c3c7dbc7ed475133ad1691b2ed03312aa15890b78520d4b164781299cd",
-      "size": 26077,
-      "normalized_sha256": "0dabf8c3c7dbc7ed475133ad1691b2ed03312aa15890b78520d4b164781299cd",
-      "format_sha256": "0dabf8c3c7dbc7ed475133ad1691b2ed03312aa15890b78520d4b164781299cd",
+      "sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
+      "size": 30496,
+      "normalized_sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
+      "format_sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
       "format_kind": "gofmt"
     },
     "backend/internal/dbbackup/service_test.go": {
       "role": "observe",
-      "sha256": "8e281a72a56ca49d9a4b3f64bfa6f43a4553934168f5fae701dd430c132945c2",
-      "size": 9143,
-      "normalized_sha256": "8e281a72a56ca49d9a4b3f64bfa6f43a4553934168f5fae701dd430c132945c2",
-      "format_sha256": "8e281a72a56ca49d9a4b3f64bfa6f43a4553934168f5fae701dd430c132945c2",
+      "sha256": "c131e5f4eb6c4166c1ba837b9d864be02301156484da84e83057cfc39c2c06db",
+      "size": 16037,
+      "normalized_sha256": "c131e5f4eb6c4166c1ba837b9d864be02301156484da84e83057cfc39c2c06db",
+      "format_sha256": "c131e5f4eb6c4166c1ba837b9d864be02301156484da84e83057cfc39c2c06db",
       "format_kind": "gofmt"
     },
     "backend/internal/dbbackup/split_test.go": {
@@ -831,6 +831,14 @@
       "format_sha256": "df06d64bfa042bfc4f01154ba9fe589ba9501778dcd187c3e2486fda13773dda",
       "format_kind": "gofmt"
     },
+    "backend/internal/router/db_backup_settings_integration_test.go": {
+      "role": "observe",
+      "sha256": "7e12e69b6e1749e4c05329bf22d8edb58c46f38c637668402e24f95198cf026c",
+      "size": 10612,
+      "normalized_sha256": "7e12e69b6e1749e4c05329bf22d8edb58c46f38c637668402e24f95198cf026c",
+      "format_sha256": "7e12e69b6e1749e4c05329bf22d8edb58c46f38c637668402e24f95198cf026c",
+      "format_kind": "gofmt"
+    },
     "backend/internal/router/delivery_integration_test.go": {
       "role": "observe",
       "sha256": "459c8024d7b8dd289999123a3a48ec869907a19dd10511026be5e2d4cab93bcb",
@@ -1185,10 +1193,10 @@
     },
     "backend/internal/router/router.go": {
       "role": "index",
-      "sha256": "f3d84f2726bbea3bfabea2aff8eb6fb25edd723d1b4f07996ab0b3aa5e1ff18c",
-      "size": 30724,
-      "normalized_sha256": "f3d84f2726bbea3bfabea2aff8eb6fb25edd723d1b4f07996ab0b3aa5e1ff18c",
-      "format_sha256": "f3d84f2726bbea3bfabea2aff8eb6fb25edd723d1b4f07996ab0b3aa5e1ff18c",
+      "sha256": "5b0c5b9ad284643e5b934417c3dad174a639ab53ab68aee5ca17c00ed0bf41dc",
+      "size": 31318,
+      "normalized_sha256": "5b0c5b9ad284643e5b934417c3dad174a639ab53ab68aee5ca17c00ed0bf41dc",
+      "format_sha256": "5b0c5b9ad284643e5b934417c3dad174a639ab53ab68aee5ca17c00ed0bf41dc",
       "format_kind": "gofmt"
     },
     "backend/internal/router/router_test.go": {
@@ -1207,12 +1215,20 @@
       "format_sha256": "b5b301ef8d80e7e10e95e6d09612975a00efbf8d7af4e4c8f7da501798b708d8",
       "format_kind": "gofmt"
     },
+    "backend/internal/router/settings_backup_handler.go": {
+      "role": "index",
+      "sha256": "76f432731f6bf5d2d7cdc232b5153b8cc04f1cf445f8330911b095b5954c2411",
+      "size": 5660,
+      "normalized_sha256": "76f432731f6bf5d2d7cdc232b5153b8cc04f1cf445f8330911b095b5954c2411",
+      "format_sha256": "76f432731f6bf5d2d7cdc232b5153b8cc04f1cf445f8330911b095b5954c2411",
+      "format_kind": "gofmt"
+    },
     "backend/internal/router/settings_handler.go": {
       "role": "index",
-      "sha256": "cae6db2260a44cd3b8e1beb01984c5a55bd6cf4b37aba2b748ad414ac988be87",
-      "size": 26235,
-      "normalized_sha256": "cae6db2260a44cd3b8e1beb01984c5a55bd6cf4b37aba2b748ad414ac988be87",
-      "format_sha256": "cae6db2260a44cd3b8e1beb01984c5a55bd6cf4b37aba2b748ad414ac988be87",
+      "sha256": "a8348a404724c00970b063870869a923dd2237375ffb1d3bd4c4ebef8af79dc7",
+      "size": 26582,
+      "normalized_sha256": "a8348a404724c00970b063870869a923dd2237375ffb1d3bd4c4ebef8af79dc7",
+      "format_sha256": "a8348a404724c00970b063870869a923dd2237375ffb1d3bd4c4ebef8af79dc7",
       "format_kind": "gofmt"
     },
     "backend/internal/router/settings_integration_test.go": {
@@ -2083,9 +2099,9 @@
     },
     "deploy/docker-compose.yml": {
       "role": "index",
-      "sha256": "414808ba2103112885c42aee386fc677c5e4934d98e663e9d8ba23202c1e3fd8",
-      "size": 2902,
-      "normalized_sha256": "38d127bcd6e581f52d0afeeb0867fe3f3e7c7776390a9b94fe9049b126e1c0a6"
+      "sha256": "fc3993f16ec1eaf41e091199a3f3e77ac54b8f3d6f86d0b9b77c99779c3e6cec",
+      "size": 3542,
+      "normalized_sha256": "f10a4eca2b149bc56157126cff9e873211812ecc1fb458c7c0955bc1e1b10826"
     },
     "deploy/docker/backend-entrypoint.sh": {
       "role": "index",
@@ -2107,15 +2123,15 @@
     },
     "docs/api-contract.md": {
       "role": "index",
-      "sha256": "9c0e0994764a41a643c5b1cb1374c48125e124dd0ce380848514cf564dde0c16",
-      "size": 414770,
-      "normalized_sha256": "9c0e0994764a41a643c5b1cb1374c48125e124dd0ce380848514cf564dde0c16"
+      "sha256": "c5b17efe7a40715d276229654a633cca99a726e9334d4f4e75b094d497936313",
+      "size": 425267,
+      "normalized_sha256": "c5b17efe7a40715d276229654a633cca99a726e9334d4f4e75b094d497936313"
     },
     "docs/deploy.md": {
       "role": "index",
-      "sha256": "b391c528c98b1ea5164b20cdba809e3f240bfde3e9ee3defd2561b7c46be3b09",
-      "size": 13487,
-      "normalized_sha256": "f2e8e833842ec0b99921d32cf2c9a36201d1d04ff7785741feec141007e1e066"
+      "sha256": "230472561facbcd510e91683fcfe91410778c34223f3326cb72439e73050597c",
+      "size": 15543,
+      "normalized_sha256": "da5eb5cb9e1004e61e62a0665d8ac33efbe91fed61fd67c2e345a5efd61caaf8"
     },
     "docs/references/upstream/012_前台产品功能": {
       "role": "index",
@@ -2293,9 +2309,9 @@
     },
     "frontend/src/api/adminSettings.ts": {
       "role": "index",
-      "sha256": "ee327010173a48d8d2a9e34bf2552e4d98fbb2f0a1479243432e1dae7bd8b210",
-      "size": 5037,
-      "normalized_sha256": "ee327010173a48d8d2a9e34bf2552e4d98fbb2f0a1479243432e1dae7bd8b210"
+      "sha256": "eef3cd19a294e25a2a2aee4c3555026da1e5d902205b97a10a0550c259fcc171",
+      "size": 5963,
+      "normalized_sha256": "eef3cd19a294e25a2a2aee4c3555026da1e5d902205b97a10a0550c259fcc171"
     },
     "frontend/src/api/adminTickets.ts": {
       "role": "index",
@@ -2383,9 +2399,9 @@
     },
     "frontend/src/api/types.ts": {
       "role": "index",
-      "sha256": "a7709ea8a61a52c2bceba2a93706b553e159393c88a85ec1a5a471b62a219a4f",
-      "size": 38002,
-      "normalized_sha256": "a7709ea8a61a52c2bceba2a93706b553e159393c88a85ec1a5a471b62a219a4f"
+      "sha256": "35d8c53c48cef4973c134843cf81932326c39175e50071de6b9d2903e0609f77",
+      "size": 39268,
+      "normalized_sha256": "35d8c53c48cef4973c134843cf81932326c39175e50071de6b9d2903e0609f77"
     },
     "frontend/src/app/paths.ts": {
       "role": "index",
@@ -2479,9 +2495,9 @@
     },
     "frontend/src/components/admin/DbBackupsPanel.tsx": {
       "role": "index",
-      "sha256": "93780be988067092cc79987dca86b76111ba4f89f58a8812c47a11858820a59f",
-      "size": 13652,
-      "normalized_sha256": "93780be988067092cc79987dca86b76111ba4f89f58a8812c47a11858820a59f"
+      "sha256": "99e20f066adc4c248c141496fac550401fb72339c557d6a04618eed10dbefc59",
+      "size": 18517,
+      "normalized_sha256": "99e20f066adc4c248c141496fac550401fb72339c557d6a04618eed10dbefc59"
     },
     "frontend/src/components/admin/FilterSelect.tsx": {
       "role": "index",
@@ -3463,9 +3479,9 @@
     },
     "frontend/src/pages/admin/AdminSettingsBackups.test.tsx": {
       "role": "observe",
-      "sha256": "cd5475894272450feaafc9286126872b399094e29336558670bb03104569a31e",
-      "size": 14854,
-      "normalized_sha256": "cd5475894272450feaafc9286126872b399094e29336558670bb03104569a31e"
+      "sha256": "195876bbb10ee07a630a0459fb304dcecad308889fb4ef6a0e83fbae7857ee68",
+      "size": 19984,
+      "normalized_sha256": "195876bbb10ee07a630a0459fb304dcecad308889fb4ef6a0e83fbae7857ee68"
     },
     "frontend/src/pages/admin/AdminSettingsUpgrade.test.tsx": {
       "role": "observe",
@@ -3493,9 +3509,9 @@
     },
     "frontend/src/test/fixtures.ts": {
       "role": "index",
-      "sha256": "e0bb9b5541c10719dda7c1c50e4c8c499e97b646488e67c3033fa5cb49d28200",
-      "size": 18463,
-      "normalized_sha256": "e0bb9b5541c10719dda7c1c50e4c8c499e97b646488e67c3033fa5cb49d28200"
+      "sha256": "aa5df589b29620d5e83c78c112fa1dd463a1d1209aa22f457ccadc8792014b03",
+      "size": 18988,
+      "normalized_sha256": "aa5df589b29620d5e83c78c112fa1dd463a1d1209aa22f457ccadc8792014b03"
     },
     "frontend/src/test/harness.tsx": {
       "role": "index",

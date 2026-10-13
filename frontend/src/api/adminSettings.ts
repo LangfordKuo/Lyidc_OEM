@@ -1,10 +1,12 @@
 import { http } from './client'
 import type {
+  DbBackupSettings,
   EmailSMTPSettings,
   EmailTestResult,
   EpaySettings,
   NotificationSettings,
   ReferralSettings,
+  UpdateDbBackupSettingsInput,
   UpdateEmailSMTPSettingsInput,
   UpdateEpaySettingsInput,
   UpdateNotificationSettingsInput,
@@ -117,4 +119,23 @@ export function updateUpdatesSettings(
   input: UpdateUpdatesSettingsInput,
 ): Promise<UpdatesSettings> {
   return http.put<UpdatesSettings>('/admin/settings/updates', input, { auth: 'admin' })
+}
+
+/**
+ * GET /api/v1/admin/settings/db_backup —— 备份目录设置（R15，契约 21.10，**仅 admin**）。
+ * 读取不创建目录、不写库：返回配置原值 + 解析后的绝对路径 + 目录可用性。
+ */
+export function fetchDbBackupSettings(): Promise<DbBackupSettings> {
+  return http.get<DbBackupSettings>('/admin/settings/db_backup', { auth: 'admin' })
+}
+
+/**
+ * PUT /api/v1/admin/settings/db_backup —— 保存备份目录（dir 必填，空串 = 恢复缺省目录）。
+ * 后端**保存时**即做环境校验（Web 根拒绝 → 按需创建 0750 → 写入探针）；
+ * 失败抛 ApiError（40002 带可读原因）且**不落库**。
+ */
+export function updateDbBackupSettings(
+  input: UpdateDbBackupSettingsInput,
+): Promise<DbBackupSettings> {
+  return http.put<DbBackupSettings>('/admin/settings/db_backup', input, { auth: 'admin' })
 }
