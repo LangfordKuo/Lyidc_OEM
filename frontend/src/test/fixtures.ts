@@ -26,6 +26,8 @@ import type {
   ReferralPayout,
   ReferralRebate,
   MemberCoupon,
+  DbBackup,
+  DbBackupList,
   Ticket,
   TicketMessage,
   UpdateJob,
@@ -649,6 +651,42 @@ export function makeUpdateJob(overrides: Partial<UpdateJob> = {}): UpdateJob {
     db_migrated: false,
     log_tail: [],
     log_truncated: false,
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 数据库备份与恢复（契约 21，R14）：默认一条备份、目录在 Web 根外。
+// ---------------------------------------------------------------------------
+
+export function makeDbBackup(overrides: Partial<DbBackup> = {}): DbBackup {
+  return {
+    id: 'lyidc-backup-20261014T070000Z-1a2b3c4d',
+    file_name: 'lyidc-backup-20261014T070000Z-1a2b3c4d.sql',
+    created_at: '2026-10-14T07:00:00Z',
+    database: 'lyidc',
+    schema_version: 17,
+    table_count: 17,
+    row_count: 1234,
+    file_size: 1048576,
+    operator: 'admin',
+    app_version: 'v0.9.0',
+    file_exists: true,
+    meta_missing: false,
+    ...overrides,
+  }
+}
+
+export function makeDbBackupList(overrides: Partial<DbBackupList> = {}): DbBackupList {
+  return {
+    database: 'lyidc',
+    backup_dir: '/opt/lyidc/backups',
+    backup_dir_default: true,
+    backup_dir_outside_web_root: true,
+    backup_dir_message: '',
+    total_size_bytes: 1048576,
+    backups: [makeDbBackup()],
+    auto_cleanup: false,
     ...overrides,
   }
 }

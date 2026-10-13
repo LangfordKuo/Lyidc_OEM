@@ -36,6 +36,9 @@ docker compose up -d
 - **部署**：浏览器安装向导、容器化交付（GHCR 双镜像）、Release 三平台包
 - **版本与更新**：构建期注入版本号（`-version` 可查）；管理端「系统更新」检查 GitHub 最新正式版并**一键自动升级**
   （下载 → sha256 校验 → 替换二进制与 dist → 迁移 → 重启 → 健康检查，失败自动回滚）
+- **数据库备份与恢复**：管理端手动备份整库为可重放 SQL（纯 Go 导出，不依赖 mysqldump）；备份文件存在
+  **Web 根之外的 `backups/`** 且**不提供任何下载接口**（接口只回元信息）；恢复为**覆盖式**（需当前管理员密码，
+  低版本备份恢复后自动追迁移），不做自动清理
 
 ## 目录结构
 
@@ -46,7 +49,8 @@ backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/ba
   internal/              config / db / install / auth / model / store / router / upstream /
                          payment / pricing / delivery / scheduler / notify / email / settings /
                          buildinfo（构建期版本注入）/ updates（检查更新）/
-                         upgrade（一键自动升级：下载校验、helper 交接、替换迁移与回滚）
+                         upgrade（一键自动升级：下载校验、helper 交接、替换迁移与回滚）/
+                         dbbackup（数据库备份与恢复：纯 Go 导出 + 覆盖式恢复）
   migrations/            编号 SQL 迁移（go:embed 内嵌进二进制）
 frontend/                React 前端（src/api、src/app、src/pages、src/components…）
 deploy/                  compose 编排 + .env 示例 + 镜像内的 nginx/入口脚本模板

@@ -94,6 +94,9 @@ func main() {
 				EnableUpdateCheck: true,
 				// R13-B：一键升级按监听地址推导健康检查地址（契约 20.6.2）。
 				ServerAddr: cfg.Server.Addr,
+				// R14：数据库备份恢复后需要追迁移，迁移文件含多语句，必须用带
+				// multiStatements 的 DSN 新开连接（契约 21.5）。
+				DatabaseDSN: cfg.Database.DSN,
 			})
 		},
 	})

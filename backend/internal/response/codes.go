@@ -38,6 +38,9 @@ const (
 	// CodeEmailFailed 邮件发送失败（管理端「发送测试邮件」同步返回的场景，契约 17.3）：
 	// message 为已脱敏的 SMTP 原因（不含认证口令）。
 	CodeEmailFailed = 50004
+	// CodeBackupFailed 数据库备份或恢复失败（R14，契约 21.3）：message 只带语句种类与表名，
+	// **绝不回显备份内容**（备份含管理员密码哈希等敏感数据）。
+	CodeBackupFailed = 50005
 
 	// CodeNotInstalled 系统尚未完成安装：除安装页、安装 API 与健康检查外的请求一律拒绝
 	// （浏览器页面请求改为 302 跳转到 /install），见契约 13.1。
@@ -63,6 +66,7 @@ var messages = map[int]string{
 	CodePaymentGateway:   "支付渠道调用失败",
 	CodeUpstreamFailed:   "上游调用失败",
 	CodeEmailFailed:      "邮件发送失败",
+	CodeBackupFailed:     "数据库备份或恢复失败",
 	CodeNotInstalled:     "系统尚未安装",
 	CodeInstallClosed:    "系统已安装，安装向导已关闭",
 	CodeDBConnectFailed:  "数据库连接失败",

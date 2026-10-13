@@ -49,6 +49,12 @@ docker compose up -d
 
 备份：`docker compose exec mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" lyidc' > lyidc-$(date +%F).sql`
 
+也可以直接用后台的「设置 → 数据库备份」（纯 Go 导出，不依赖 mysqldump；恢复是覆盖式的，需当前管理员密码）。
+注意容器部署下它写的是**容器内** `/app/backups`（安装目录下、**不在 Web 根内**）：容器重建即丢失，
+要长期保留请把该目录挂到宿主机（在 `deploy/docker-compose.yml` 的 `backend.volumes` 里加 `./backups:/app/backups`）
+或继续用上面的 `mysqldump` 落宿主机；两种方式的落点都**不要**指向 Web 可访问的目录（如前端镜像里的
+`/usr/share/nginx/html`），备份文件含全库数据与管理员密码哈希。
+
 ### 升级
 
 ```bash

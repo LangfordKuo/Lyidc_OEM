@@ -43,6 +43,7 @@ import type {
   UpstreamSettings,
 } from '@/api/types'
 import { useAdminAuth } from '@/auth/adminAuthContext'
+import DbBackupsPanel from '@/components/admin/DbBackupsPanel'
 import FilterSelect from '@/components/admin/FilterSelect'
 import NoPermission from '@/components/admin/NoPermission'
 import SecretInput from '@/components/admin/SecretInput'
@@ -92,11 +93,12 @@ export default function AdminSettings() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          系统更新、支付渠道、上游对接、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
+          系统更新、数据库备份、支付渠道、上游对接、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
         </p>
       </header>
 
       <UpdatesSection />
+      <DbBackupsPanel />
       <EpaySection />
       <UpstreamSection />
       <SMTPSection />
@@ -1297,6 +1299,14 @@ function UpdatesSection() {
             <p>
               升级失败会自动回滚到当前版本 {status?.current_version ?? '—'}
               （数据库迁移不可逆，回滚不还原数据库）。
+            </p>
+            {/* R14（契约 20.10 第 6 条）：只提示，不自动备份、不阻断升级。 */}
+            <p className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2">
+              <strong>建议先备份数据库</strong>：升级会执行数据库迁移且不可逆，建议先到下面的
+              <a className="font-medium underline underline-offset-2" href="#db-backups">
+                「数据库备份」
+              </a>
+              分区点一次「立即备份」再升级。
             </p>
           </div>
         }

@@ -13,6 +13,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/dbbackup"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
@@ -98,6 +99,14 @@ type Options struct {
 	Upgrade *upgrade.Service
 	// ServerAddr 是监听地址（R13-B 用它推导新版本的健康检查地址）；空时取 config 缺省值。
 	ServerAddr string
+	// DBBackup 是数据库备份服务（R14，契约 21）；nil 时按 Options.DB / InstallDir / DatabaseDSN
+	// 构造（备份目录缺省为 <安装目录>/backups）。测试注入以指定临时安装目录，避免写到可执行文件目录。
+	DBBackup *dbbackup.Service
+	// InstallDir 是安装目录（R14 备份目录缺省值的父目录）；空时取当前可执行文件所在目录。
+	InstallDir string
+	// DatabaseDSN 是数据库连接串（R14）：恢复后追迁移时用它新开连接（迁移文件含多语句，
+	// 需要 DSN 上的 multiStatements=true）；为空时退回应用连接池。
+	DatabaseDSN string
 	// Notifier 是通知能力（阶段 6b）；nil 时构造默认实现（事件入口异步、按后台设置发信）。
 	// 注入的实现同时被「交付/扫描（经 Options.Delivery 与调度器）」与「工单/设置页」使用；
 	// 测试注入 Async=false 的 notify.Service 即可同步断言通知结果。
@@ -106,6 +115,9 @@ type Options struct {
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
 const defaultUpstreamProbeTimeout = 5 * time.Second
+
+// backupDirCheckTimeout 是启动时校验备份目录的超时（一次主键读取，慢也不会拖住启动）。
+const backupDirCheckTimeout = 3 * time.Second
 
 // New 创建 gin 引擎并注册全部路由。
 func New(opts Options) *gin.Engine {
@@ -201,6 +213,29 @@ func New(opts Options) *gin.Engine {
 		}
 	}
 	updatesAdmin := &updatesHandler{service: updateChecker, upgrade: upgradeService, logger: opts.Logger}
+
+	// R14：数据库备份与恢复（契约 21）。安装目录缺省取可执行文件所在目录（与一键升级同一口径），
+	// 备份目录缺省 <安装目录>/backups；构造失败只让备份接口不可用，其余功能照常。
+	// 启动时校验一次备份目录（契约 21.4：启动与保存时都校验），不可用只记警告、不阻断启动。
+	backupService := opts.DBBackup
+	if backupService == nil && opts.DB != nil {
+		service, err := dbbackup.NewService(dbbackup.Options{
+			InstallDir: opts.InstallDir,
+			DB:         opts.DB,
+			DSN:        opts.DatabaseDSN,
+			Settings:   settingsReader,
+			Logger:     opts.Logger,
+		})
+		if err != nil {
+			opts.Logger.Warn("数据库备份功能不可用", "error", err)
+		} else {
+			backupService = service
+			verifyCtx, cancelVerify := context.WithTimeout(context.Background(), backupDirCheckTimeout)
+			service.VerifyDir(verifyCtx)
+			cancelVerify()
+		}
+	}
+	dbBackups := &dbBackupHandler{service: backupService, logger: opts.Logger}
 
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
@@ -395,6 +430,18 @@ func New(opts Options) *gin.Engine {
 				requireAdminRole(model.RoleAdmin), updatesAdmin.applyUpdate)
 			adminGroup.GET("/updates/job",
 				requireAdminRole(model.RoleAdmin), updatesAdmin.getUpdateJob)
+
+			// 数据库备份与恢复（R14，契约 21.3）：四个接口**全部仅 admin**（含读取）。
+			// 只输出元信息——**没有任何能读到备份文件内容的接口**（契约 21.2）；
+			// 恢复与删除只接受备份 ID，服务在自己的白名单目录里解析路径（契约 21.4）。
+			adminGroup.GET("/db-backups",
+				requireAdminRole(model.RoleAdmin), dbBackups.listBackups)
+			adminGroup.POST("/db-backups",
+				requireAdminRole(model.RoleAdmin), dbBackups.createBackup)
+			adminGroup.POST("/db-backups/:id/restore",
+				requireAdminRole(model.RoleAdmin), dbBackups.restoreBackup)
+			adminGroup.DELETE("/db-backups/:id",
+				requireAdminRole(model.RoleAdmin), dbBackups.deleteBackup)
 
 			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。
 			adminGroup.GET("/recharges",

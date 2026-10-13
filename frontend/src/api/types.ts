@@ -1234,3 +1234,82 @@ export interface ApplyUpdateInput {
   confirm: true
   target_version: string
 }
+
+// —— 数据库备份与恢复（契约 21，R14；全部仅 admin 角色） ——
+
+/**
+ * 一条备份的**元信息**（契约 21.3）。接口只输出元信息——**没有任何接口能读到备份文件内容**
+ * （契约 21.4：不可下载，防止拖库）。
+ */
+export interface DbBackup {
+  /** 备份 ID（= 文件名去掉 .sql）；恢复与删除接口只接受它，不接受路径。 */
+  id: string
+  file_name: string
+  /** RFC3339 UTC。 */
+  created_at: string
+  database: string
+  /** 备份时的 schema_migrations 版本。 */
+  schema_version: number
+  table_count: number
+  row_count: number
+  /** 备份文件字节数（不含元信息 sidecar）。 */
+  file_size: number
+  /** 发起备份的管理员用户名。 */
+  operator: string
+  /** 备份时的应用版本（buildinfo.Version）。 */
+  app_version: string
+  /** 文件是否仍在磁盘上（被手工删除时为 false，恢复与删除都不可用）。 */
+  file_exists: boolean
+  /** 元信息 sidecar 丢失（只可能是被手工删除），字段按可得信息回退。 */
+  meta_missing: boolean
+}
+
+/** GET /api/v1/admin/db-backups 的 data（契约 21.3）。 */
+export interface DbBackupList {
+  /** 当前连接的库名。 */
+  database: string
+  backup_dir: string
+  /** 目录来自缺省值（设置项 db_backup 留空）而非显式配置。 */
+  backup_dir_default: boolean
+  /** 目录不在 Web 根内（false 时不可备份，原因见 backup_dir_message）。 */
+  backup_dir_outside_web_root: boolean
+  backup_dir_message: string
+  /** 全部备份文件占用的磁盘空间（不含元信息 sidecar）。 */
+  total_size_bytes: number
+  /** 按时间倒序。 */
+  backups: DbBackup[]
+  /** 恒为 false：本批不自动清理，删除由管理员手动执行。 */
+  auto_cleanup: boolean
+}
+
+/** POST /api/v1/admin/db-backups/:id/restore 请求体（契约 21.5）：二次确认 + 当前管理员密码。 */
+export interface RestoreDbBackupInput {
+  confirm: true
+  password: string
+}
+
+/** 恢复结果（契约 21.5）：只报结果，不含任何备份内容。 */
+export interface DbBackupRestoreResult {
+  backup_id: string
+  file_name: string
+  database: string
+  /** 备份里的 schema 版本。 */
+  from_schema_version: number
+  /** 恢复后的实际版本（低版本备份会被自动追迁移）。 */
+  to_schema_version: number
+  /** 恢复后是否执行了迁移把库追到当前代码所需版本。 */
+  migrated: boolean
+  table_count: number
+  /** 备份里没有、恢复时被删掉的表（覆盖而非合并的证据）。 */
+  dropped_tables: string[]
+  restored_at: string
+  /** 备份版本高于当前代码等需要管理员知悉的提示；空串表示无。 */
+  warning: string
+}
+
+/** DELETE /api/v1/admin/db-backups/:id 的 data。 */
+export interface DeleteDbBackupResult {
+  deleted: boolean
+  id: string
+  file_name: string
+}
