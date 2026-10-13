@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -25,7 +25,7 @@ import {
   updateUpdatesSettings,
   updateUpstreamSettings,
 } from '@/api/adminSettings'
-import { checkAdminUpdates } from '@/api/adminUpdates'
+import { applyAdminUpdate, checkAdminUpdates, fetchAdminUpdateJob } from '@/api/adminUpdates'
 import type {
   EmailSMTPSettings,
   EpaySettings,
@@ -33,6 +33,8 @@ import type {
   ReferralSettings,
   SMTPEncryption,
   UpdateAsset,
+  UpdateJob,
+  UpdateJobStatus,
   UpdateStatus,
   UpdateStatusCode,
   UpdateUpdatesSettingsInput,
@@ -45,6 +47,7 @@ import FilterSelect from '@/components/admin/FilterSelect'
 import NoPermission from '@/components/admin/NoPermission'
 import SecretInput from '@/components/admin/SecretInput'
 import UpdateDot from '@/components/admin/UpdateDot'
+import ConfirmDialog from '@/components/common/ConfirmDialog'
 import CopyButton from '@/components/common/CopyButton'
 import { ErrorState, LoadingBlock } from '@/components/common/PageState'
 import StatusBadge from '@/components/common/StatusBadge'
@@ -1140,13 +1143,19 @@ function isUpdateFailure(
 }
 
 /**
- * UpdatesSection 是「系统更新」卡片（契约 19.7）：当前版本（读缓存）、「检查更新」（实时出网）、
- * 结果区与更新源设置。仅 admin 可进（设置页整页闸门已挡 finance / support，卡片内不再额外判断）。
+ * UpdatesSection 是「系统更新」卡片（契约 19.7 / 20.10）：当前版本（读缓存）、「检查更新」（实时出网）、
+ * 结果区、一键升级（R13-B）与更新源设置。仅 admin 可进（设置页整页闸门已挡 finance / support，
+ * 卡片内不再额外判断，也不发越权请求）。
  * GitHub 侧失败是 200 + status：页面据 status 展示失败态与「重试」；只有 HTTP 层异常（ApiError）才 toast。
  */
 function UpdatesSection() {
   const { status, hasUpdate } = useAdminUpdateStatus()
   const [checking, setChecking] = useState(false)
+  const [job, setJob] = useState<UpdateJob | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [applying, setApplying] = useState(false)
+
+  const running = job?.status === 'running'
 
   const handleCheck = async () => {
     setChecking(true)
@@ -1160,6 +1169,64 @@ function UpdatesSection() {
     }
   }
 
+  // 进入设置页即读一次**持久化**的升级任务（契约 20.10 第 4 条）：刷新页面后仍能看到
+  // 进行中 / 已完成 / 已回滚；读取失败（未登录、无权限、网络异常）静默忽略，不打扰用户。
+  useEffect(() => {
+    let alive = true
+    fetchAdminUpdateJob()
+      .then((next) => {
+        if (alive) setJob(next)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // 仅在任务进行中轮询（2 秒一次）。升级会重启服务进程，期间请求会中断：失败忽略，下一轮继续，
+  // 直到读到终态（done / failed / rolled_back）为止（契约 20.10 第 2 条）。
+  useEffect(() => {
+    if (!running) {
+      return
+    }
+    const timer = setInterval(() => {
+      fetchAdminUpdateJob()
+        .then((next) => {
+          if (next) setJob(next)
+        })
+        .catch(() => undefined)
+    }, UPGRADE_POLL_MS)
+    return () => clearInterval(timer)
+  }, [running])
+
+  // 升级成功：进程已是新版本，重读一次缓存状态让「当前版本」与红点同步刷新。
+  useEffect(() => {
+    if (job?.status === 'done') {
+      void refreshAdminUpdateStatus()
+    }
+  }, [job?.status])
+
+  const handleApply = async () => {
+    const target = status?.latest_version
+    if (!target) {
+      return
+    }
+    setApplying(true)
+    try {
+      const next = await applyAdminUpdate({ confirm: true, target_version: target })
+      setJob(next)
+      setConfirmOpen(false)
+      toast.success(`升级已开始：${next.target_version}，服务会在替换与重启阶段短暂中断`)
+    } catch (err) {
+      // 前置检查拒绝（40001 / 40002 / 409）与网络异常都在这里给出可读原因。
+      toast.error(errorMessage(err, '发起升级失败，请稍后重试'))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const canUpgrade = status?.has_update === true && status.compare === 'ok'
+
   return (
     <Card>
       <CardHeader className="border-b">
@@ -1170,28 +1237,218 @@ function UpdatesSection() {
               {hasUpdate ? <UpdateDot /> : null}
             </div>
             <CardDescription>
-              查看当前版本，并检查 GitHub 上的最新正式版。仅检测与展示，不下载、不替换、不重启服务。
+              查看当前版本、检查 GitHub 上的最新正式版，并可在有新版本时一键升级（下载 → 校验 → 替换 →
+              迁移 → 重启 → 失败回滚）。
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" disabled={checking} onClick={handleCheck}>
-            {checking ? (
-              <>
-                <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
-                检查中…
-              </>
-            ) : (
-              '检查更新'
-            )}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" disabled={checking} onClick={handleCheck}>
+              {checking ? (
+                <>
+                  <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
+                  检查中…
+                </>
+              ) : (
+                '检查更新'
+              )}
+            </Button>
+            {canUpgrade ? (
+              <Button
+                size="sm"
+                disabled={running || applying}
+                onClick={() => setConfirmOpen(true)}
+                data-testid="upgrade-apply-button"
+                title={running ? '已有升级任务进行中，请等待其结束' : undefined}
+              >
+                立即升级
+              </Button>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <CurrentVersion status={status} />
         <UpdateResult status={status} checking={checking} onRetry={handleCheck} />
+        {job ? <UpgradeJobPanel job={job} /> : null}
         <UpdateSourceForm />
       </CardContent>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`升级到 ${status?.latest_version ?? ''}`}
+        confirmLabel="开始升级"
+        pending={applying}
+        onConfirm={handleApply}
+        description={
+          <div className="space-y-2">
+            <p>
+              将从更新源下载本服务器平台（{status?.platform ?? '—'}）的发布包，校验 sha256
+              后替换安装目录中的：
+            </p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              <li>lyidc-server（服务二进制）与 lyidc-migrate（迁移命令）</li>
+              <li>dist/（前端静态产物）</li>
+            </ul>
+            <p>
+              随后执行数据库迁移并重启服务：<strong>服务会短暂中断</strong>（接口不可用约数十秒），
+              刷新页面不影响升级。config.yaml 与数据库配置不会被修改。
+            </p>
+            <p>
+              升级失败会自动回滚到当前版本 {status?.current_version ?? '—'}
+              （数据库迁移不可逆，回滚不还原数据库）。
+            </p>
+          </div>
+        }
+      />
     </Card>
   )
+}
+
+// ---------------------------------------------------------------------------
+// 一键升级（R13-B / 契约 20）：任务阶段进度与结果
+// ---------------------------------------------------------------------------
+
+/** 轮询间隔（契约 20.10 第 2 条）。 */
+const UPGRADE_POLL_MS = 2000
+
+/** 任务状态文案与色调（契约 20.4）。 */
+const UPGRADE_STATUS_LABELS: Record<UpdateJobStatus, string> = {
+  running: '升级进行中',
+  done: '升级完成',
+  failed: '升级失败',
+  rolled_back: '已回滚',
+}
+
+const UPGRADE_STATUS_TONES: Record<UpdateJobStatus, StatusTone> = {
+  running: 'pending',
+  done: 'ok',
+  failed: 'error',
+  rolled_back: 'warn',
+}
+
+/**
+ * UpgradeJobPanel 是升级任务面板（契约 20.10）：阶段名 + 进度条 + 起止时间 + 结果 + 日志尾部。
+ * 状态来自服务端持久化文件，因此刷新页面、进程重启、升级完成或回滚后看到的是同一份结论。
+ */
+function UpgradeJobPanel({ job }: { job: UpdateJob }) {
+  return (
+    <section
+      data-testid="upgrade-job"
+      className="space-y-3 rounded-xl border border-border bg-card p-3"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <StatusBadge tone={UPGRADE_STATUS_TONES[job.status]} label={UPGRADE_STATUS_LABELS[job.status]} />
+        <span className="text-sm font-medium text-foreground">
+          {job.from_version} → {job.target_version}
+        </span>
+        <span className="text-xs text-muted-foreground">任务 {job.job_id}</span>
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+          <span data-testid="upgrade-phase" className="font-medium text-foreground">
+            {job.phase_label}
+          </span>
+          <span className="text-muted-foreground">
+            {job.status === 'running' ? `${clampProgress(job.progress)}%` : UPGRADE_STATUS_LABELS[job.status]}
+          </span>
+        </div>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="升级进度"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={clampProgress(job.progress)}
+        >
+          <div
+            data-testid="upgrade-progress"
+            className={cn(
+              'h-full rounded-full transition-all',
+              job.status === 'failed' ? 'bg-destructive' : 'bg-primary',
+            )}
+            style={{ width: `${clampProgress(job.progress)}%` }}
+          />
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        开始 {formatDateTimeOr(job.started_at, '—')} · 最近更新 {formatDateTimeOr(job.updated_at, '—')}
+        {job.finished_at ? ` · 结束 ${formatDateTimeOr(job.finished_at, '—')}` : ''}
+      </p>
+
+      <UpgradeOutcome job={job} />
+
+      {job.log_tail.length > 0 ? (
+        <details>
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            升级日志（末尾 {job.log_tail.length} 行{job.log_truncated ? '，已截断' : ''}）
+          </summary>
+          <pre
+            data-testid="upgrade-log"
+            className="mt-2 max-h-56 overflow-auto rounded-lg border border-border bg-muted/50 p-2 text-[11px] leading-relaxed break-words whitespace-pre-wrap text-foreground"
+          >
+            {job.log_tail.join('\n')}
+          </pre>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
+/** 任务结论：进行中的提示、成功、失败原因、已回滚（含「迁移已前进」的中间态提示）。 */
+function UpgradeOutcome({ job }: { job: UpdateJob }) {
+  if (job.status === 'running') {
+    return (
+      <p className="text-xs text-muted-foreground">
+        升级进行中：替换与重启阶段服务会短暂中断（接口不可用约数十秒），页面会自动刷新状态。
+      </p>
+    )
+  }
+  if (job.status === 'done') {
+    return (
+      <p className={cn('text-sm font-medium', STATUS_TONE_TEXT_CLASSES.ok)} data-testid="upgrade-message">
+        已升级到 {job.target_version}。刷新页面即可看到新版本与版本号。
+      </p>
+    )
+  }
+  if (job.status === 'rolled_back') {
+    return (
+      <div className="space-y-1 rounded-lg border border-border bg-muted/50 px-3 py-2">
+        <p className={cn('text-sm font-medium', STATUS_TONE_TEXT_CLASSES.warn)} data-testid="upgrade-message">
+          升级失败，已自动回滚到 {job.from_version}，服务已恢复可用。
+        </p>
+        <p className="text-xs break-words text-muted-foreground">{job.message}</p>
+        {job.db_migrated ? (
+          <p className="text-xs text-muted-foreground">
+            注意：数据库迁移已执行且不可逆，请用 lyidc-migrate version 核对后再重试升级。
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-1 rounded-lg border border-border bg-muted/50 px-3 py-2">
+      <p className={cn('text-sm font-medium', STATUS_TONE_TEXT_CLASSES.error)} data-testid="upgrade-message">
+        升级失败
+      </p>
+      <p className="text-xs break-words text-muted-foreground">{job.message || '请查看升级日志'}</p>
+      {job.db_migrated ? (
+        <p className="text-xs text-muted-foreground">
+          注意：数据库迁移已执行且不可逆，请用 lyidc-migrate version 核对后再重试升级。
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** 进度值钳到 0-100（后端已保证，这里防御异常值撑破进度条）。 */
+function clampProgress(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.min(100, Math.max(0, Math.round(value)))
 }
 
 /** 当前版本（读缓存）；构建注入的 commit 与构建时间小字展示，未注入时为 unknown（原样展示）。 */

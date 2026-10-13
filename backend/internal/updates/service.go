@@ -86,9 +86,12 @@ type Options struct {
 	Store Store
 	// Settings 读取更新源设置（仓库与可选 Token），每次检查都重读，改完即生效。
 	Settings *settings.Reader
-	// Fetcher 访问 GitHub；nil 时使用默认 Client。
+	// Fetcher 访问 GitHub；nil 时使用默认 Client。与 FetcherFor 二选一：
+	// 注入 Fetcher 时忽略 API 基地址（测试用固定桩），生产走 FetcherFor（R13-B 的更新源注入，契约 19.5）。
 	Fetcher Fetcher
-	Logger  *slog.Logger
+	// FetcherFor 按当前设置的 API 基地址构造访问器（契约 19.5 / 20.8）；nil 时退化为 Fetcher。
+	FetcherFor func(apiBase string, timeout time.Duration) Fetcher
+	Logger     *slog.Logger
 	// Interval 是定时刷新间隔；零值取 DefaultInterval。
 	Interval time.Duration
 	// InitialDelay 是首次检查延迟；零值取 DefaultInitialDelay。
@@ -102,6 +105,7 @@ type Service struct {
 	store        Store
 	settings     *settings.Reader
 	fetcher      Fetcher
+	fetcherFor   func(apiBase string, timeout time.Duration) Fetcher
 	logger       *slog.Logger
 	now          func() time.Time
 	interval     time.Duration
@@ -125,6 +129,11 @@ func NewService(opts Options) *Service {
 	if fetcher == nil {
 		fetcher = NewClient(logger, buildinfo.Version)
 	}
+	// 注入固定桩时忽略地址注入：桩决定一切（地址注入只作用于生产装配的默认实现）。
+	fetcherFor := opts.FetcherFor
+	if opts.Fetcher != nil {
+		fetcherFor = func(string, time.Duration) Fetcher { return opts.Fetcher }
+	}
 	interval := opts.Interval
 	if interval <= 0 {
 		interval = DefaultInterval
@@ -141,12 +150,22 @@ func NewService(opts Options) *Service {
 		store:        opts.Store,
 		settings:     opts.Settings,
 		fetcher:      fetcher,
+		fetcherFor:   fetcherFor,
 		logger:       logger,
 		now:          now,
 		interval:     interval,
 		initialDelay: initialDelay,
 		stop:         make(chan struct{}),
 	}
+}
+
+// fetcherForConfig 按当前设置选出这一次检查用的访问器（契约 19.5 / 20.8）：
+// 注入的固定 Fetcher 优先（测试），否则按 api_base 构造（缺省 api.github.com）。
+func (s *Service) fetcherForConfig(apiBase string) Fetcher {
+	if s.fetcherFor != nil {
+		return s.fetcherFor(apiBase, DefaultRequestTimeout)
+	}
+	return s.fetcher
 }
 
 // Check 实时检查（契约 19.3）：强制访问 GitHub，成功或失败都写入缓存后返回视图。
@@ -165,7 +184,7 @@ func (s *Service) Check(ctx context.Context) (View, error) {
 		return View{}, err
 	}
 
-	release, err := s.fetcher.Latest(ctx, repo, cfg.Value.GitHubToken)
+	release, err := s.fetcherForConfig(cfg.Value.APIBaseOr()).Latest(ctx, repo, cfg.Value.GitHubToken)
 	if err != nil {
 		// 调用方已放弃请求时不把「被取消」写成失败态，避免污染下一次展示。
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -200,6 +219,32 @@ func (s *Service) Cached(ctx context.Context) (View, error) {
 	}
 	return s.view(rec, cfg.Value.Repo), nil
 }
+
+// CachedRelease 返回缓存里的最新正式版（含产物清单）与所属仓库；尚无成功记录时 ok=false。
+// 它只读缓存、**绝不发出网请求**，供 R13-B 的升级前置检查使用（契约 20.2）。
+func (s *Service) CachedRelease(ctx context.Context) (Release, string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cfg, err := s.settings.Updates(ctx)
+	if err != nil {
+		return Release{}, "", false, err
+	}
+	rec, err := s.load(ctx, cfg.Value.Repo)
+	if err != nil {
+		return Release{}, "", false, err
+	}
+	if rec.Release == nil {
+		return Release{}, cfg.Value.Repo, false, nil
+	}
+	return *rec.Release, cfg.Value.Repo, true, nil
+}
+
+// Platform 返回服务器运行平台（GOOS-GOARCH，契约 19.3）。
+func Platform() string { return runtime.GOOS + "-" + runtime.GOARCH }
+
+// MatchesPlatform 判断产物是否为指定平台的发布包（契约 19.3；.sha256 不匹配）。
+func MatchesPlatform(name, platform string) bool { return matchesPlatform(name, platform) }
 
 // Start 启动后台定时检查（契约 19.4）：启动后延迟 initialDelay 检查一次，之后每 interval 检查一次。
 // 失败只记日志并写入缓存状态，不重试、不弹窗。只应调用一次（重复调用无效果）；Stop 后不可再 Start。
@@ -307,7 +352,7 @@ func (s *Service) save(ctx context.Context, rec record) error {
 // view 把缓存记录组装成对外视图。比较结论在读取时按「当前运行版本」计算，
 // 因此升级重启后无需重新检查也能得到正确的比较结论。
 func (s *Service) view(rec record, repo string) View {
-	platform := runtime.GOOS + "-" + runtime.GOARCH
+	platform := Platform()
 	view := View{
 		CurrentVersion: buildinfo.Version,
 		Commit:         buildinfo.Commit,

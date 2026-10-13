@@ -633,24 +633,30 @@ func upstreamSettingsViewOf(value settings.Upstream, meta settings.Meta) upstrea
 }
 
 // updatesSettingsView 是 updates.github 设置的对外视图（Token 只输出配置标志与掩码，契约 19.5）。
+// api_base / download_base 是 R13-B 的更新源注入项，回显**配置原值**（空串表示按缺省）。
 type updatesSettingsView struct {
 	Repo                  string  `json:"repo"`
 	GitHubTokenConfigured bool    `json:"github_token_configured"`
 	GitHubTokenMasked     string  `json:"github_token_masked"`
+	APIBase               string  `json:"api_base"`
+	DownloadBase          string  `json:"download_base"`
 	UpdatedBy             *uint64 `json:"updated_by"`
 	UpdatedAt             *string `json:"updated_at"`
 }
 
 // updatesSettingsUpdateRequest 是 PUT /admin/settings/updates 请求体：字段均可选但至少一个。
-// github_token 三态：省略（键缺席或 null）=保持不变、给新值=替换、空串=清空。
+// github_token 三态：省略（键缺席或 null）=保持不变、给新值=替换、空串=清空；
+// api_base / download_base 省略=不变、空串=清除（契约 19.5）。
 type updatesSettingsUpdateRequest struct {
-	Repo        *string `json:"repo"`
-	GitHubToken *string `json:"github_token"`
+	Repo         *string `json:"repo"`
+	GitHubToken  *string `json:"github_token"`
+	APIBase      *string `json:"api_base"`
+	DownloadBase *string `json:"download_base"`
 }
 
 // provided 判断请求是否至少提供了一个字段。
 func (r updatesSettingsUpdateRequest) provided() bool {
-	return r.Repo != nil || r.GitHubToken != nil
+	return r.Repo != nil || r.GitHubToken != nil || r.APIBase != nil || r.DownloadBase != nil
 }
 
 // getUpdatesSettings 处理 GET /api/v1/admin/settings/updates。
@@ -689,8 +695,10 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 		return
 	}
 	merged, err := current.Value.Apply(settings.UpdatesUpdate{
-		Repo:        req.Repo,
-		GitHubToken: req.GitHubToken,
+		Repo:         req.Repo,
+		GitHubToken:  req.GitHubToken,
+		APIBase:      req.APIBase,
+		DownloadBase: req.DownloadBase,
 	})
 	if err != nil {
 		failRuleError(c, err)
@@ -707,14 +715,16 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
-	if merged.Repo != current.Value.Repo {
+	// 仓库或 API 基地址变化都会让旧结果失去意义：同一请求内清空检查缓存（契约 19.5 第 3 条）。
+	if merged.Repo != current.Value.Repo || merged.APIBase != current.Value.APIBase {
 		if err := h.store.DeleteSetting(ctx, updates.KeyCheck); err != nil {
 			failDB(c, h.logger, err)
 			return
 		}
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyUpdates, "admin_id", admin.ID,
-		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil)
+		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil,
+		"api_base", merged.APIBase, "download_base_changed", req.DownloadBase != nil)
 	response.Success(c, updatesSettingsViewOf(merged, settingMeta(setting)))
 }
 
@@ -724,6 +734,8 @@ func updatesSettingsViewOf(value settings.Updates, meta settings.Meta) updatesSe
 		Repo:                  value.Repo,
 		GitHubTokenConfigured: value.GitHubToken != "",
 		GitHubTokenMasked:     settings.MaskSecret(value.GitHubToken),
+		APIBase:               value.APIBase,
+		DownloadBase:          value.DownloadBase,
 		UpdatedBy:             meta.UpdatedBy,
 	}
 	if meta.UpdatedAt != nil {

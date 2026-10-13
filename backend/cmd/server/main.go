@@ -30,6 +30,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/install"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/router"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upgrade"
 )
 
 const (
@@ -39,6 +40,12 @@ const (
 )
 
 func main() {
+	// R13-B：一键升级的辅助进程入口（契约 20.6）。它在解析 flag 之前分流：helper 不读配置、
+	// 不连数据库、不监听端口，只按交接文件替换文件、跑迁移、拉起新服务并做健康检查。
+	if len(os.Args) > 1 && os.Args[1] == upgrade.CommandName {
+		os.Exit(upgrade.RunHelperCommand(os.Args[2:]))
+	}
+
 	configPath := flag.String("config", "", "配置文件路径（缺省时按 ./config.yaml、./backend/config.yaml 顺序查找）")
 	showVersion := flag.Bool("version", false, "打印版本信息后退出（不读取配置、不连接数据库）")
 	flag.Parse()
@@ -85,6 +92,8 @@ func main() {
 				EnableDueScan: true,
 				// R13-A：生产开启「检查更新」后台定时刷新（契约 19.4）。
 				EnableUpdateCheck: true,
+				// R13-B：一键升级按监听地址推导健康检查地址（契约 20.6.2）。
+				ServerAddr: cfg.Server.Addr,
 			})
 		},
 	})

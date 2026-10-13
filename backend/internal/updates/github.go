@@ -100,6 +100,15 @@ func NewClient(logger *slog.Logger, version string) *Client {
 	return newClient(defaultGitHubAPIBase, DefaultRequestTimeout, logger, version)
 }
 
+// NewClientFor 按指定 API 基地址与超时构造客户端（更新源注入，契约 19.5 / 20.8）；
+// 基地址为空时退回官方的 api.github.com。
+func NewClientFor(baseURL string, timeout time.Duration, logger *slog.Logger, version string) *Client {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultGitHubAPIBase
+	}
+	return newClient(baseURL, timeout, logger, version)
+}
+
 // newClient 允许测试指定地址与超时（httptest 服务器与短超时用例）。
 func newClient(baseURL string, timeout time.Duration, logger *slog.Logger, version string) *Client {
 	if logger == nil {

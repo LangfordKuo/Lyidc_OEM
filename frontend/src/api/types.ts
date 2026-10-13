@@ -1161,6 +1161,10 @@ export interface UpdatesSettings {
   repo: string
   github_token_configured: boolean
   github_token_masked: string
+  /** 检查更新访问的 API 根地址；空串表示用缺省 api.github.com（契约 19.5，仅 admin）。 */
+  api_base: string
+  /** 资产下载基地址；空串表示原样使用 Release 的 download_url（契约 20.8）。 */
+  download_base: string
   updated_by: number | null
   updated_at: string | null
 }
@@ -1169,4 +1173,64 @@ export interface UpdateUpdatesSettingsInput {
   repo?: string
   /** 三态同上：省略 = 不变、给值 = 替换、空串 = 清空。 */
   github_token?: string
+  /** 非三态：省略 = 不变、空串 = 清除（回到缺省）；非空须为 http(s) 绝对地址。 */
+  api_base?: string
+  download_base?: string
+}
+
+// —— 一键自动升级（契约 20，R13-B；全部仅 admin 角色） ——
+
+/** 升级任务状态（契约 20.4）：running 进行中 / done 成功 / failed 失败 / rolled_back 已回滚。 */
+export type UpdateJobStatus = 'running' | 'done' | 'failed' | 'rolled_back'
+
+/** 升级阶段（契约 20.4）；失败或回滚后保留最后一次到达的阶段。 */
+export type UpdateJobPhase =
+  | 'preparing'
+  | 'downloading'
+  | 'verifying'
+  | 'extracting'
+  | 'staging'
+  | 'handing_off'
+  | 'replacing'
+  | 'migrating'
+  | 'restarting'
+  | 'health_check'
+  | 'done'
+  | 'failed'
+  | 'rolled_back'
+
+/**
+ * 升级任务（契约 20.4）。状态在服务端持久化（安装目录下的 upgrade-state.json），
+ * 因此进程重启、升级完成与回滚之后刷新页面仍能读到同一份状态。
+ */
+export interface UpdateJob {
+  job_id: string
+  status: UpdateJobStatus
+  phase: UpdateJobPhase
+  /** 阶段中文名，由后端下发（前端不自建映射，避免两边漂移）。 */
+  phase_label: string
+  /** 0-100 的阶段进度。 */
+  progress: number
+  from_version: string
+  target_version: string
+  /** RFC3339 UTC；未结束为空串。 */
+  started_at: string
+  finished_at: string
+  updated_at: string
+  install_dir: string
+  /** 成功为空串；失败为已脱敏原因；回滚时为回滚原因。 */
+  message: string
+  /** 是否已回滚到旧版本。 */
+  rolled_back: boolean
+  /** 迁移是否已执行成功（回滚后据此提示「库已前进」的中间态）。 */
+  db_migrated: boolean
+  /** upgrade.log 末尾最多 100 行。 */
+  log_tail: string[]
+  log_truncated: boolean
+}
+
+/** POST /api/v1/admin/updates/apply 请求体（契约 20.3）：二次确认 + 目标版本回传校验。 */
+export interface ApplyUpdateInput {
+  confirm: true
+  target_version: string
 }

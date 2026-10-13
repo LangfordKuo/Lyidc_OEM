@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
@@ -21,6 +22,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upgrade"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
@@ -91,6 +93,11 @@ type Options struct {
 	// UpdateFetcher 是检查更新访问 GitHub 的能力（R13-A）；nil 时使用默认 GitHub 客户端。
 	// 测试注入假实现，避免真实出网。
 	UpdateFetcher updates.Fetcher
+	// Upgrade 是一键升级服务（R13-B，契约 20）；nil 时按 Options.ServerAddr 与 os.Args 构造，
+	// 无法定位安装目录则升级接口明确拒绝（其余功能不受影响）。测试注入假实现避免真实替换文件。
+	Upgrade *upgrade.Service
+	// ServerAddr 是监听地址（R13-B 用它推导新版本的健康检查地址）；空时取 config 缺省值。
+	ServerAddr string
 	// Notifier 是通知能力（阶段 6b）；nil 时构造默认实现（事件入口异步、按后台设置发信）。
 	// 注入的实现同时被「交付/扫描（经 Options.Delivery 与调度器）」与「工单/设置页」使用；
 	// 测试注入 Async=false 的 notify.Service 即可同步断言通知结果。
@@ -158,18 +165,42 @@ func New(opts Options) *gin.Engine {
 
 	// R13-A：系统版本与更新检查（契约 19）。检查服务始终构造（管理端接口可用）；
 	// 后台定时刷新只在生产装配开启（EnableUpdateCheck），与到期扫描同一套装配方式。
+	// R13-B：检查访问器按当前设置里的 api_base 构造（更新源可注入，契约 19.5）；注入固定桩时优先用它。
 	updateChecker := updates.NewService(updates.Options{
 		Store:    st,
 		Settings: settingsReader,
 		Fetcher:  opts.UpdateFetcher,
 		Logger:   opts.Logger,
+		FetcherFor: func(apiBase string, timeout time.Duration) updates.Fetcher {
+			return updates.NewClientFor(apiBase, timeout, opts.Logger, buildinfo.Version)
+		},
 	})
 	if opts.EnableUpdateCheck {
 		updateChecker.Start()
 		opts.Logger.Info("检查更新后台任务已启动",
 			"initial_delay", updates.DefaultInitialDelay, "interval", updates.DefaultInterval)
 	}
-	updatesAdmin := &updatesHandler{service: updateChecker, logger: opts.Logger}
+	// R13-B：一键升级（契约 20）。安装目录由可执行文件定位；定位失败只让升级接口不可用，
+	// 其余功能照常（集成测试的二进制在临时目录里，升级服务因此通常处于「不可用」态）。
+	upgradeService := opts.Upgrade
+	if upgradeService == nil {
+		serverAddr := opts.ServerAddr
+		if serverAddr == "" {
+			serverAddr = config.DefaultAddr
+		}
+		service, err := upgrade.NewService(upgrade.Options{
+			Addr:     serverAddr,
+			Checker:  updateChecker,
+			Settings: settingsReader,
+			Logger:   opts.Logger,
+		})
+		if err != nil {
+			opts.Logger.Warn("一键升级不可用（无法定位安装目录）", "error", err)
+		} else {
+			upgradeService = service
+		}
+	}
+	updatesAdmin := &updatesHandler{service: updateChecker, upgrade: upgradeService, logger: opts.Logger}
 
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
@@ -355,11 +386,15 @@ func New(opts Options) *gin.Engine {
 			}
 
 			// 系统版本与更新检查（R13-A，契约 19.3）：仅 admin（19.6）。读缓存不出网；检查更新强制出网。
-			// 预留（R13-B，本批不注册）：POST /admin/updates/apply（一键升级，契约 19.8）。
+			// 一键升级（R13-B，契约 20.3 / 20.4）：发起会替换二进制并重启进程，同样仅 admin。
 			adminGroup.GET("/updates",
 				requireAdminRole(model.RoleAdmin), updatesAdmin.getCachedUpdate)
 			adminGroup.GET("/updates/check",
 				requireAdminRole(model.RoleAdmin), updatesAdmin.checkUpdate)
+			adminGroup.POST("/updates/apply",
+				requireAdminRole(model.RoleAdmin), updatesAdmin.applyUpdate)
+			adminGroup.GET("/updates/job",
+				requireAdminRole(model.RoleAdmin), updatesAdmin.getUpdateJob)
 
 			// 充值单与流水对账（阶段 4）：admin / finance 可查（support 返回 403）。
 			adminGroup.GET("/recharges",

@@ -43,6 +43,9 @@ Desktop.ini
 # ---- 工具与临时文件 ----
 .codex-*/
 .claude-*/
+# 一键升级（R13-B）在安装目录落下的运行资产；若从仓库目录直接跑起来会出现在这里
+upgrade-state.json
+.upgrade/
 *.log
 *.tmp
 *.temp

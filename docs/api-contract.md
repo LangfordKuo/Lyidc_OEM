@@ -4723,7 +4723,7 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 
 ## 19. 系统版本与更新检查（R13-A）
 
-> 本节只做「检测 + 展示」：版本号可查、检查 GitHub 最新正式版、管理端展示与红点提示。**不实现任何下载、替换或重启动作**（一键升级见 19.8，待 R13-B）。本批**无数据库迁移**。
+> 本节只做「检测 + 展示」：版本号可查、检查 GitHub 最新正式版、管理端展示与红点提示。**下载、替换、迁移与重启见第 20 节（R13-B）**。本节**无数据库迁移**。
 
 ### 19.1 版本号约定（构建期注入）
 
@@ -4826,20 +4826,25 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 
 ### 19.5 更新源设置
 
-1. **设置键** `updates.github`（JSON）：`{"repo": "LangfordKuo/Lyidc_OEM", "github_token": "…"}`。`github_token` 为可选，只存 settings 表与进程内存，**任何接口与日志都不回显明文**（掩码口径同 12.1，`MaskSecret`）；缺省 `repo` 为 `LangfordKuo/Lyidc_OEM`。
+1. **设置键** `updates.github`（JSON）：`{"repo": "LangfordKuo/Lyidc_OEM", "github_token": "…", "api_base": "", "download_base": ""}`。`github_token` 为可选，只存 settings 表与进程内存，**任何接口与日志都不回显明文**（掩码口径同 12.1，`MaskSecret`）；缺省 `repo` 为 `LangfordKuo/Lyidc_OEM`。
+   - `api_base`（R13-B 新增，可选）：检查更新访问的 **API 根地址**，缺省 `https://api.github.com`。供镜像 / 内网代理 / 本地 mock 使用（20.8）。
+   - `download_base`（R13-B 新增，可选）：**资产下载基地址**，缺省空串表示原样使用 Release 返回的 `download_url`；非空时下载地址 = `download_base` + 原 URL 的路径部分（20.8）。
+   - 两者都**只影响本服务器出网地址**，属于系统级设置（仅 `admin`）；必须为空串或 `http(s)://host[:port][/path]` 形式的绝对地址（不带查询串与片段、不以 `/` 结尾），否则 `40001`。**把 `download_base` 指到非官方地址等于信任该源下发的二进制**，接口回显当前值以便核对。
 2. `GET /api/v1/admin/settings/updates`（仅 `admin`）→ `data`：
    ```json
-   {"repo": "LangfordKuo/Lyidc_OEM", "github_token_configured": false, "github_token_masked": "", "updated_by": null, "updated_at": null}
+   {"repo": "LangfordKuo/Lyidc_OEM", "github_token_configured": false, "github_token_masked": "", "api_base": "", "download_base": "", "updated_by": null, "updated_at": null}
    ```
-3. `PUT /api/v1/admin/settings/updates`（仅 `admin`）：请求体 `repo` / `github_token` **均可选但至少提供一个**。
+   `api_base` / `download_base` 回显**配置原值**（空串表示按缺省）；`api_base` 缺省时 `GET` 也回空串，由后端在检查时取 `https://api.github.com`。
+3. `PUT /api/v1/admin/settings/updates`（仅 `admin`）：请求体 `repo` / `github_token` / `api_base` / `download_base` **均可选但至少提供一个**。
    - `repo`：必须是 `owner/name`（`owner` 为字母数字与连字符，`name` 为字母数字与 `._-`），不合法即 `40001`；
-   - `github_token`：三态语义同 12.1 `key`——**缺席不变 / 非空串替换 / 空串清空**；非空时长度 ≤ 255 且不含空白与控制字符，否则 `40001`。
-   - 成功 HTTP 200，`data` 为更新后的视图。**修改 `repo` 时同一请求内清空 `updates.check` 缓存**（旧仓库的结果不得冒充新仓库）。
-4. **生效**：下一次检查（手动或定时）即使用新仓库与新 Token，无需重启。
+   - `github_token`：三态语义同 12.1 `key`——**缺席不变 / 非空串替换 / 空串清空**；非空时长度 ≤ 255 且不含空白与控制字符，否则 `40001`；
+   - `api_base` / `download_base`：**非三态**，缺席 = 不变，空串 = 清除（回到缺省 / 原样使用 `download_url`），非空即形状校验（见上）。
+   - 成功 HTTP 200，`data` 为更新后的视图。**修改 `repo` 或 `api_base` 时同一请求内清空 `updates.check` 缓存**（旧源的结果不得冒充新源）。
+4. **生效**：下一次检查（手动或定时）即使用新仓库、新 Token 与新地址，无需重启。
 
 | code | HTTP | 场景 |
 | --- | --- | --- |
-| `40001` | 400 | 未提供任何字段；`repo` 格式不合法；`github_token` 形状不合法 |
+| `40001` | 400 | 未提供任何字段；`repo` 格式不合法；`github_token` 形状不合法；`api_base` / `download_base` 形状不合法 |
 | `403` | 403 | 角色不是 `admin` |
 | `500` / `50001` | 500 | 值损坏 / 库操作失败 |
 
@@ -4850,8 +4855,10 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 | `GET /api/v1/admin/updates`（读缓存） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET /api/v1/admin/updates/check`（实时检查） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 | `GET/PUT /api/v1/admin/settings/updates` | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `POST /api/v1/admin/updates/apply`（一键升级，R13-B） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
+| `GET /api/v1/admin/updates/job`（升级任务，R13-B） | ✓ | ✗（`403`） | ✗（`403`） | ✗（`401`） |
 
-理由：版本与更新源属于系统级信息；实时检查会消耗 GitHub 配额，与设置类接口同口径仅 `admin`（finance 不纳入，已登记于此）。
+理由：版本、更新源与升级动作属于系统级操作（升级会替换二进制并重启进程），与设置类接口同口径仅 `admin`（finance / support 不纳入，已登记于此）。
 
 ### 19.7 管理端界面（R13-A）
 
@@ -4865,11 +4872,11 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 2. **红点**：只由 `has_update` 决定——`has_update=true` 时，在侧栏「设置」项与「系统更新」卡片标题显示红点。无更新、从未成功获取、缓存读取失败时**不显示**（失败不误报）。注意：最近一次**检查失败**但保留了上次成功结论（19.4）时，`has_update` 仍为真，红点继续显示，并在卡片内同时给出失败原因。红点数据来自 `GET /admin/updates`（缓存），**读取红点不触发出网**。
 3. 非 `admin` 角色不发起任何更新相关请求（与 19.6 一致）。
 
-### 19.8 预留：一键升级（待 R13-B，本批不实现）
+### 19.8 一键升级（R13-B 已实现，见第 20 节）
 
-- 预留接口位置：`POST /api/v1/admin/updates/apply`（**待 R13-B**）。本批**不注册路由、不实现**下载、校验、替换与重启。
-- R13-B 应复用本节的 `latest_version`、`assets[].platform_match` 与 `assets[].download_url`，并新增产物校验（`.sha256`）与失败回滚策略。
-- 本批 `buildinfo` 包与 `-version` 即为 R13-B 的版本基线。
+- 接口：`POST /api/v1/admin/updates/apply` 与 `GET /api/v1/admin/updates/job`（20.3 / 20.4）。
+- 复用本节的 `latest_version`、`assets[].platform_match` 与 `assets[].download_url`，并要求同名 `.sha256` 产物（20.7）。
+- 本节的 `buildinfo` 包与 `-version` 就是升级的版本基线：发布包内的新二进制会在交接前被要求自报版本（20.6.2）。
 
 ### 19.9 边界与本批未做
 
@@ -4887,10 +4894,193 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 - `Dockerfile.backend`：`ARG VERSION=dev` 注入 ldflags。
 - `.github/workflows/ci.yml`：只做 gofmt / vet / test 与前端构建，**不产出发布产物，不注入**；如后续 CI 产出制品，注入 `dev-<sha7>`。
 
-## 20. 变更记录
+## 20. 一键自动升级（R13-B）
+
+> 本节实现 19.8 预留的一键升级：**下载 → 校验 → 解包 → 交接 → 替换 → 迁移 → 重启 → 健康检查 → 失败回滚**。
+> 面向**主机直装**形态（安装目录含 `lyidc-server[.exe]`、`lyidc-migrate[.exe]`、`dist/`、`config.yaml`），
+> **自包含**：不依赖 systemd / Windows 服务 / PM2 等外部守护。容器部署见 20.9 第 2 条。本批**无数据库迁移**。
+
+### 20.1 安装目录与产物
+
+1. **安装目录**＝**当前运行的可执行文件所在目录**（`os.Executable()` 的父目录）。升级只在该目录内读写：
+   | 路径 | 角色 |
+   | --- | --- |
+   | `lyidc-server[.exe]` | 被替换的服务二进制 |
+   | `lyidc-migrate[.exe]` | 被替换的迁移二进制（升级时用**新包内的它**执行迁移） |
+   | `dist/` | 被替换的前端静态产物（Nginx 托管，替换后**无需 reload**——Nginx 每次请求读文件） |
+   | `config.yaml` | **不动**（升级不修改配置） |
+   | `upgrade-state.json` | 升级任务状态（20.5，本批新增） |
+   | `upgrade.log` | 升级日志（20.5，本批新增） |
+   | `.upgrade/` | 任务工作目录（下载包、解包暂存、helper 副本；成功后清理） |
+2. **升级包**＝ GitHub Release 的资产 `lyidc-oem-<版本>-<goos>-<goarch>.tar.gz | .zip`（`scripts/package.sh` 的既有产物，**布局不变**），同名 `.sha256` 为校验文件。
+3. **不新增发布产物**：helper 由**当前正在运行的二进制复制一份**充当（20.6.1）——否则「第一个带 helper 的版本」无法自我升级，且 helper 自身又要被替换。复制品位于 `.upgrade/<job>/helper/`，不在替换范围内。
+
+### 20.2 前置检查（apply 同步执行，失败即在响应里给出可读原因）
+
+按顺序判定，任一不满足即拒绝（错误码见 20.3）：
+
+| # | 检查 | 失败原因示例 |
+| --- | --- | --- |
+| 1 | `confirm === true` | `二次确认缺失：请求体必须带 "confirm": true` |
+| 2 | `target_version` 为合法语义化版本（19.2） | `target_version 格式不合法` |
+| 3 | 当前**不是**开发构建（`dev` / `dev-*`） | `当前为开发构建（版本 dev），没有可靠版本基线，无法判断升级目标；请手动解包替换并执行迁移` |
+| 4 | **已有成功检查的缓存**且 `has_update=true`（不强制出网） | `尚未检查更新或没有可用结果，请先「检查更新」` |
+| 5 | `target_version` == 缓存里的 `latest_version` | `目标版本 v1.2.0 与最新正式版 v1.1.0 不一致，请重新检查更新` |
+| 6 | 目标版本**严格高于**当前版本（不降级、不同版本重装） | `目标版本不高于当前版本` |
+| 7 | 存在本服务器平台产物（名称以 `-<GOOS>-<GOARCH>.tar.gz`/`.zip` 结尾） | `发布包缺少本服务器平台（linux-amd64）的产物` |
+| 8 | 存在同名 `.sha256` 资产 | `发布包缺少同名 .sha256 校验文件，拒绝升级` |
+| 9 | 安装目录可写（试写临时文件） | `安装目录不可写（<dir>），请检查权限` |
+| 10 | 磁盘可用空间 ≥ `max(2 × 发布包大小, 512 MiB)` | `磁盘空间不足：需要约 812 MiB，可用 120 MiB` |
+| 11 | 能连通更新源：同步拉取 `.sha256`（超时 10 秒） | `无法连接更新源：…`（网络类原因已脱敏） |
+| 12 | 无进行中的任务（进程内互斥 + 状态文件 `status=running`） | `已有升级任务进行中` |
+
+检查 11 是**唯一的出网同步动作**，只下载几百字节的校验文件；真正的发布包下载在异步任务里（下载阶段失败同样会写入状态与日志）。
+
+### 20.3 发起升级
+
+`POST /api/v1/admin/updates/apply`（仅 `admin`，20.9）
+
+```json
+{"confirm": true, "target_version": "v0.10.0"}
+```
+
+成功：**HTTP 202**，`data` 为任务视图（与 20.4 同形状）：
+
+```json
+{"code": 0, "message": "ok", "data": {"job_id": "20261014T101530Z-3f9a1c", "status": "running",
+ "phase": "preparing", "phase_label": "准备", "progress": 5, "from_version": "v0.9.0",
+ "target_version": "v0.10.0", "started_at": "2026-10-14T10:15:30Z", "finished_at": "",
+ "updated_at": "2026-10-14T10:15:30Z", "install_dir": "/opt/lyidc", "message": "", "rolled_back": false,
+ "db_migrated": false, "log_tail": [], "log_truncated": false}}
+```
+
+失败：
+
+| code | HTTP | 场景 |
+| --- | --- | --- |
+| `40001` | 400 | 请求体非法：`confirm` 不为 `true`；`target_version` 缺失或无法解析 |
+| `40002` | 400 | 20.2 第 3–11 条：开发构建 / 无有效检查结果 / 目标版本不一致 / 不高于当前版本 / 缺少平台产物 / 缺少 `.sha256` / 目录不可写 / 空间不足 / 连不上更新源 |
+| `409` | 409 | 已有升级任务进行中（含上一次任务仍处于 `running`） |
+| `403` | 403 | 角色不是 `admin` |
+| `500` / `50001` | 500 | 状态文件读写失败 / 库操作失败 |
+
+**退出进程**：202 响应写出后约 0.5 秒，主进程以 `os.Exit(0)` 结束（跳过优雅关闭），把端口与文件锁让给 helper（20.6）。前端据此在轮询 `job` 时容忍连接中断（20.10）。
+
+### 20.4 查询升级任务
+
+`GET /api/v1/admin/updates/job`（仅 `admin`）→ HTTP 200，`data` 为任务视图；**从未发起过升级时 `data` 为 `null`**（不是 404）。
+
+| 字段 | 说明 |
+| --- | --- |
+| `job_id` | 任务号（`<UTC 时间戳>-<4 字节随机>`），同时是 `.upgrade/` 下的目录名 |
+| `status` | `running` / `done` / `failed` / `rolled_back` |
+| `phase` / `phase_label` / `progress` | 见下表；失败/回滚后保留**最后一次到达的阶段** |
+| `from_version` / `target_version` | 升级前版本（构建注入值）与目标版本（请求携带值） |
+| `started_at` / `finished_at` / `updated_at` | RFC3339 UTC；未结束 `finished_at` 为空串 |
+| `install_dir` | 安装目录绝对路径（供管理员核对替换范围） |
+| `message` | 成功为空串；失败为**已脱敏**的原因；回滚时为回滚原因 |
+| `rolled_back` | 是否已回滚到旧版（`status=rolled_back` 时为 `true`） |
+| `db_migrated` | 迁移是否已成功执行（回滚后据此判断「库已前进」的中间态，20.6.3） |
+| `log_tail` | `upgrade.log` 末尾 **最多 100 行**（每行按 500 字符截断），按时间正序 |
+| `log_truncated` | `log_tail` 是否被截断（行数或行长任一被截） |
+
+阶段（`phase`，`progress` 为该阶段完成时的百分比）：
+
+| phase | progress | 执行者 | 说明 |
+| --- | --- | --- | --- |
+| `preparing` | 5 | 主进程 | 前置检查通过后的收尾准备（清理陈旧 `.upgrade`、建任务目录、落盘状态） |
+| `downloading` | 20 | 主进程 | 下载发布包到 `.upgrade/<job>/` |
+| `verifying` | 35 | 主进程 | 计算并比对 sha256（20.7） |
+| `extracting` | 50 | 主进程 | 解包到 `.upgrade/<job>/staged/`（防路径穿越） |
+| `staging` | 60 | 主进程 | 校验包内结构与**新二进制自报版本**（20.6.2） |
+| `handing_off` | 65 | 主进程 | 落盘状态与交接文件、复制 helper、分离启动 helper、退出 |
+| `replacing` | 70 | helper | 备份旧文件（`.bak`）并替换二进制与 `dist/` |
+| `migrating` | 78 | helper | 用新包内的 `lyidc-migrate` 执行 `up` |
+| `restarting` | 85 | helper | 分离启动新 `lyidc-server` |
+| `health_check` | 92 | helper | 轮询 `/api/v1/health`（最长 60 秒） |
+| `done` | 100 | helper | 成功：清理备份与暂存目录 |
+| `failed` | — | 主进程/helper | 未发生替换即失败，或**回滚也失败**（需人工介入，`message` 说明） |
+| `rolled_back` | — | helper | 已还原备份并重新拉起旧版（旧版健康检查通过） |
+
+**陈旧任务**：`status=running` 且 `updated_at` 距今超过 **10 分钟**时，视为 helper 已异常消失（断电、被手动结束），读取接口把它落盘为 `status=failed`、`message="升级辅助进程已退出，任务中断；请检查 upgrade.log 与安装目录备份"`。服务启动时也做同一次判定，避免重启后页面永远停在「进行中」。
+
+### 20.5 状态落盘与日志
+
+1. **状态文件** `<安装目录>/upgrade-state.json`（同一时刻只保留**最近一次**任务；原子替换写入，权限 `0600`；内容即 20.4 的字段，另含 helper pid 与阶段时间）。
+2. **日志文件** `<安装目录>/upgrade.log`（追加写），主进程与 helper 共写，行格式 `时间 LEVEL 阶段 说明`。**日志不含 GitHub Token、不含任何密钥**（20.7）。
+3. **为什么用安装目录下的文件而不是数据库**（本批取舍）：升级会**重启进程**、替换二进制，并且**迁移可能改变库结构**；状态必须在新旧两个版本、迁移前后、库不可用时都能被读到，且 helper 不能依赖「新版本的库访问代码」。安装目录下的文件是唯一同时满足这些条件的载体。接口读取时再从文件组装视图（含日志尾部），因此**刷新页面、进程重启、升级完成或回滚之后都能看到同一份状态**。
+
+### 20.6 helper：交接、替换、迁移、拉起与回滚
+
+#### 20.6.1 交接（主进程）
+
+1. 落盘状态（`phase=handing_off`）；
+2. 写 `.upgrade/<job>/handoff.json`：安装目录、状态/日志文件路径、暂存目录、备份目录、目标版本、旧进程 pid、健康检查地址（由监听地址推导；`0.0.0.0` / `::` 探 `127.0.0.1`）、**旧进程的启动参数**（`os.Args[1:]`，保证 `--config` 等参数原样传给新进程）、各类超时；
+3. 把当前运行的 `lyidc-server[.exe]` **复制**到 `.upgrade/<job>/helper/`，以复制品为 helper 可执行文件（20.1 第 3 条）；
+4. **分离启动** helper（Windows：`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`，不继承控制台；Unix：`setsid`），stdout/stderr 追加到 `upgrade.log`，父进程不做 `Wait`；
+5. 返回 202 后退出（20.3）。
+
+helper 入口是同一二进制的**子命令**：`lyidc-server upgrade-helper <handoff.json>`（不读配置、不监听端口、不连库）。
+
+#### 20.6.2 helper 执行（分离进程）
+
+1. **等旧进程退出**：按 pid 轮询（最长 60 秒），pid 不可判定（权限不足等）时退化为**端口探测**（连接拒绝即视为已退出）；超时即失败（`失败：等待旧进程退出超时`）；
+2. **备份**：`lyidc-server[.exe]` → `.bak`、`lyidc-migrate[.exe]` → `.bak`、`dist/` → `dist.bak/`（同目录改名；已有旧备份先删除）。**三个对象必须都在安装目录里**，缺一即失败且**不做任何改动**（避免出现半套状态；前端托管在别处的部署请手工升级）；
+3. **替换**（阶段 `replacing`）：暂存目录里的两个二进制与 `dist/` 移入安装目录。Windows 上运行中的 `.exe` 不能覆盖，因此顺序固定为「**先改名旧文件、再移入新文件**」；
+4. **迁移**（阶段 `migrating`）：执行 `<安装目录>/lyidc-migrate[.exe] up`（cwd＝安装目录，继承原 `--config` 参数），stdout/stderr 进 `upgrade.log`，超时 10 分钟；成功后状态置 `db_migrated=true`；
+5. **启动新服务**（阶段 `restarting`）：分离启动 `<安装目录>/lyidc-server[.exe]`（cwd＝安装目录，沿用旧进程参数），日志同样进 `upgrade.log`；
+6. **健康检查**（阶段 `health_check`）：轮询 `http://<host>:<port>/api/v1/health`，间隔 1 秒、最长 60 秒，**HTTP 200 且 `code=0`** 才算通过（`503 degraded` 视为未通过）；
+7. **成功**（`status=done`）：删除 `.bak` / `dist.bak` 与 `.upgrade/<job>`（helper 自身的副本在 Windows 上删不掉时忽略，下一次升级的 `preparing` 会清理陈旧目录）；
+8. **失败则回滚**（见 20.6.3）。
+
+#### 20.6.3 迁移与替换的顺序、迁移不可逆的风险与缓解（本批定稿）
+
+- **顺序：先替换文件、后跑迁移、最后才启动新服务**。理由：迁移必须由**新包内的 `lyidc-migrate`** 执行（SQL 与二进制同版本），它随包解到暂存目录、替换后即可用；而新服务在迁移成功前**绝不启动**，因此对外不会出现「新进程 + 旧库结构」的组合。
+- **迁移不可逆**：`lyidc-migrate up` 不是事务性的，失败可能留下「部分前进 / dirty」的数据库；**回滚只还原二进制与 `dist`，不还原数据库**（本批**不做数据库备份**——库常在远程实例、helper 无 dump 工具与凭据，把生产库自动导出到安装目录还会带来磁盘与泄露风险）。
+- 缓解与取舍（明确接受「二进制回滚但迁移已前进」的中间态）：
+  1. 状态里显式给出 `db_migrated` 与失败原因，日志保留 `lyidc-migrate` 的原始输出，管理员可用 `lyidc-migrate up` / `version` 人工重试与核对；
+  2. 既有全部迁移都是**向前兼容**语义（加表 / 加列 / 扩枚举，不改写既有列语义），因此旧二进制在前进后的库上**仍可运行**——这是接受该中间态的根据；
+  3. 迁移失败时**不启动新服务**，立即回滚二进制并拉起旧版，避免半吊子服务对外提供。
+- 回滚步骤：结束新进程（若已启动）→ `.bak` / `dist.bak` 改回原名、移开新文件 → 分离启动旧版 → 健康检查旧版（最长 30 秒）→ 成功则 `status=rolled_back`、`rolled_back=true`、`message` 为失败原因；旧版也起不来则 `status=failed`，`message` 明确要求人工介入并指向 `upgrade.log`。
+
+### 20.7 安全要求
+
+1. **仅 admin**（20.9），升级期间不并发（进程内互斥 + 状态文件 `running`）。
+2. **sha256 必须校验**：`.sha256` 资产缺失即拒绝（20.2 第 8 条）；下载后计算 sha256 与文件内的 64 位十六进制摘要比对，**不匹配立即中止，绝不替换任何文件**；摘要文件为 `sha256sum` 格式（`<hex>  <文件名>`），也接受纯 hex，文件名与产物名不一致时拒绝。
+3. **资产下载不携带 GitHub Token**：`Authorization` 只用于 GitHub API（`api_base`），**绝不发给资产下载地址**（`download_base` 可被配置成任意主机，带上 Token 就是泄露）。
+4. **解包防路径穿越**：拒绝绝对路径、含 `..` 的条目、符号链接与硬链接；总解压上限 1 GiB、单文件上限 512 MiB；超限即失败。
+5. **版本一致性**：交接前用**暂存的新二进制**执行 `-version`（`cmd/server` 的既有开关），自报版本必须与 `target_version` 一致（忽略 `v` 前缀差异）；不一致即失败（防止把别的版本包当目标版本装上）。
+6. **日志与响应脱敏**：任何日志、状态文件与接口响应都**不含 Token**；升级日志中的 URL 保留主机与路径，不做凭据回显。
+7. **不暴露越权路径**：两个接口都挂 `requireAdminRole(RoleAdmin)`；发起接口要求二次确认与目标版本回显校验（防误触、防并发错版）。
+
+### 20.8 更新源注入（真机验证/镜像）
+
+1. 复用 19.5 的设置机制：`api_base` 指向任意 GitHub API 兼容服务（本地 mock、内网镜像），`download_base` 把资产下载重定向到镜像。二者仅 `admin` 可改，**改完立即生效，无需重启**。
+2. 下载地址换算：`download_base` 非空时，`下载地址 = download_base + url.Parse(download_url).EscapedPath()`；为空时原样使用 `download_url`。
+
+### 20.9 边界与本批未做
+
+1. **不支持降级与同版本重装**（20.2 第 6 条），也不支持指定历史版本升级。
+2. **不适用于容器部署**：容器内替换的是容器可写层，重启后回到镜像内容；容器部署请更新镜像（`docs/deploy.md`）。接口不额外检测容器环境。
+3. **不备份数据库**，也没有独立的「回滚按钮」（回滚只在失败时自动发生，见 20.6.3）。
+4. **不支持断点续传与多镜像回退**；单次下载失败即整任务失败（可重新发起）。
+5. **升级期间不冻结其他 API**：服务短暂中断由进程重启造成，前端只做提示与轮询，不锁死后台。
+6. **不校验发布包签名**：sha256 只保证「与更新源声明的一致」，等价于信任更新源（19.5 已登记该风险）。
+7. **helper 不感知旧版 `upgrade-state.json` 结构之外的东西**：状态文件是本批新增的运维资产，`.gitignore` 已忽略 `*.log`；`upgrade-state.json` 位于安装目录，**不属于仓库**。
+
+### 20.10 管理端界面（R13-B）
+
+1. 设置页「系统更新」卡片（19.7）在 `has_update=true` 且非开发构建时出现「**立即升级**」按钮；点击弹出**二次确认弹窗**：显示目标版本、将被替换的内容（`lyidc-server` / `lyidc-migrate` / `dist/`，不修改 `config.yaml`）、**「服务会短暂中断（进程会重启，期间接口不可用）」**的明确提示。
+2. 提交后卡片进入**阶段进度**展示（轮询 `GET /admin/updates/job`，间隔 2 秒）：阶段名 + 进度条 + 起止时间 + 日志尾部；轮询期间**容忍连接失败**（进程重启时请求会中断，继续按间隔重试，直到重新连上或达到上限）。
+3. 结束态：成功（`done`）→「已升级到 <目标版本>」，提示刷新页面；失败（`failed`）→ 失败原因；回滚（`rolled_back`）→ 失败原因 + 「**已自动回滚到 <原版本>，服务已恢复**」，并在 `db_migrated=true` 时补充「数据库迁移已执行，请用 `lyidc-migrate version` 核对」。
+4. **进入设置页即读一次任务状态**（`GET /admin/updates/job`）：刷新页面后仍能看到进行中 / 已完成 / 已回滚的任务（状态在服务端持久化，20.5）。进行中时「立即升级」按钮禁用并展示原因，不重复提交。
+5. 非 `admin` 角色不进入设置页，因此不发起任何升级相关请求（与 19.6 一致）。
+
+## 21. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-14 | v24 | R13-B 一键自动升级（**新增第 20 节；变更记录顺延为第 21 节；19.5 扩两个地址字段、19.6 矩阵补两行、19.8 改为指向第 20 节；本批无迁移**）：**① 新增 `POST /api/v1/admin/updates/apply`（20.3）**——二次确认 `{"confirm":true,"target_version":"v0.10.0"}`；`target_version` 必须等于缓存里的 `latest_version` 且严格高于当前版本（不降级、不错版），成功 **HTTP 202** 返回任务视图，已有进行中任务 **409**；**② 前置检查 12 条（20.2）**——开发构建拒绝、无有效检查结果拒绝、缺本平台产物 / 缺同名 `.sha256` 拒绝、安装目录可写、磁盘空间 ≥ `max(2×包大小, 512 MiB)`、同步拉取 `.sha256` 作为唯一出网预检（失败 40002 给出可读原因，不半路炸）；**③ 新增 `GET /api/v1/admin/updates/job`（20.4）**——阶段 / 进度 / 起止时间 / 目标版本 / 结果 / 失败原因 / 是否回滚 / `db_migrated` / 日志尾部，从未升级过返回 `data:null`；陈旧 `running`（>10 分钟）落盘为 `failed`；**④ 状态落盘定稿（20.5）**——`<安装目录>/upgrade-state.json`（0600 原子写）+ `upgrade.log`，**不用数据库**：升级会重启进程、替换二进制、迁移可能改库结构，状态必须跨版本/跨进程/库不可用时仍可读，helper 也不能依赖新版本的库访问代码；**⑤ helper 分离进程（20.6）**——主进程落盘 + 写 `handoff.json`（含旧 pid、健康检查地址、**旧进程启动参数**）+ **复制正在运行的二进制**当 helper（不新增发布产物、无自举问题、复制品不在替换范围内）+ 分离启动（Windows `DETACHED_PROCESS`、Unix `setsid`）+ 202 后 0.5 秒 `os.Exit(0)`；helper 入口是同一二进制的 `upgrade-helper` 子命令；**⑥ 顺序与不可逆风险（20.6.3，本批拍板）**——**先替换文件、后迁移、最后才启动新服务**（迁移用新包内的 `lyidc-migrate`，且新服务在迁移成功前绝不启动）；**不做数据库备份**，回滚只还原二进制与 `dist`，明确接受「二进制回滚但迁移已前进」的中间态（依据：既有迁移全部向前兼容，旧二进制在新库上仍可运行），并用状态里的 `db_migrated` + 日志里的 migrate 原始输出兜底；**⑦ 回滚（20.6.3）**——备份 `.bak` / `dist.bak`、失败时结束新进程 → 还原 → 拉起旧版 → 健康检查（30 秒）→ `rolled_back`；旧版也起不来则 `failed` 并要求人工介入；**⑧ 安全（20.7）**——sha256 必须校验（缺失即拒绝、不匹配绝不替换任何文件）、**资产下载不携带 GitHub Token**（`download_base` 可指向任意主机）、解包防路径穿越与符号链接（总 1 GiB、单文件 512 MiB）、交接前用新二进制 `-version` 自报版本校验、日志与响应不含 Token；**⑨ 更新源注入（19.5 / 20.8）**——`updates.github` 新增可选 `api_base`（缺省 `https://api.github.com`）与 `download_base`（非空时 `下载地址 = download_base + path`），仅 admin、改完立即生效，供镜像与**本地 mock 真机验证**；改 `repo` 或 `api_base` 同请求清空检查缓存；**⑩ 前端（20.10）**——「立即升级」按钮 + 二次确认弹窗（目标版本、替换内容、服务会短暂中断）+ 阶段进度轮询（2 秒，容忍重启期间的连接中断）+ 结束态（成功 / 失败原因 / 已回滚 + `db_migrated` 提示），进入设置页先读一次任务状态（刷新后可继续看到进行中或已结束的任务），进行中禁用按钮不重复提交，非 admin 不发越权请求；**⑪ 边界（20.9）**——不支持降级/同版本重装/指定历史版本、不适用于容器部署（容器内替换的是可写层）、不支持断点续传与多镜像回退、不校验发布包签名。**测试**：`go test ./...` 全量绿（486 → **528** 个 `func Test`，测试包 18 → 19：新增 `internal/upgrade` 包 41 个并补 `internal/router` 升级接口集成用例）；前端 `npm test` 全绿（**307** 例 / 40 文件，新增 `AdminSettingsUpgrade.test.tsx` 10 例）；**假部署真机验证三情形**全部通过——① 正常升级（替换后新二进制在跑、dist 已换、迁移 16→17 已执行、健康检查通过）② sha256 不匹配 → 拒绝且未替换任何文件、未产生备份 ③ 健康检查失败 → 自动回滚且旧服务恢复可用。 |
 | 2026-10-14 | v23 | R13-A 系统版本与更新检查（**新增第 19 节；变更记录顺延为第 20 节；本批无迁移**）：**① 版本号构建期注入（19.1）**——`buildinfo` 包导出 `Version` / `Commit` / `BuiltAt`，缺省 `dev` / `unknown`；`package.sh`、`release.yml`、`Dockerfile.backend` 同步注入，`cmd/server` 与 `cmd/migrate` 支持 `-version`；**② 语义化比较（19.2）**——预发布不提示为新版，开发构建 `compare=dev_build`；**③ 检查更新接口（19.3）**——`GET /api/v1/admin/updates/check`（实时）与 `GET /api/v1/admin/updates`（读缓存）同一形状，GitHub 侧失败走成功包装 + `status` / `message`，不走 HTTP 错误码；**④ 缓存与定时刷新（19.4）**——settings 键 `updates.check`，失败保留上次成功结果，启动后 60 秒补检、之后每 6 小时一次，失败只记日志（不记 Token）；**⑤ 更新源设置（19.5）**——`GET/PUT /api/v1/admin/settings/updates`，仓库缺省 `LangfordKuo/Lyidc_OEM`，GitHub Token 三态与掩码，修改仓库同请求清空缓存；**⑥ 权限（19.6）**——三个接口仅 `admin`；**⑦ 管理端（19.7）**——设置页「系统更新」卡片、侧栏「设置」与卡片标题红点（仅 `has_update=true`），说明纯文本展示，产物按服务器平台高亮；**⑧ 预留（19.8）**——`POST /api/v1/admin/updates/apply` 待 R13-B，本批未注册。 |
 | 2026-10-13 | v22 | R12 导入时按上游分组筛选 + 「上游分组 → 本地子分类」映射——**① 导入请求体（10.4，本批唯一既有接口形状变化，向后兼容）**：`POST /admin/products/import` 新增**可选**请求体 `{ "upstream_group_ids": [1,3,5] }`——省略请求体 / `{}` / `[]` / `null` = **全量导入**（与 R11 前完全一致，既有调用与测试不受影响）；传非空数组时**只抓取这些上游分组的商品**，`product_groups` 的 upsert 也只处理选中的分组；**非法值走统一错误码**：非数组 / 含 `0` 或负数 → `40001`，含不在本次上游目录中的分组 → `40002`（`上游分组不存在：…`，**不静默导入 0 个商品还报成功**）；响应**增量**补两个可选字段 `selected_groups`（选中的上游分组 ID，升序去重，全量时不出现）与 `map_fallback_group_ids`（映射目标失效而回落派生的分组，无则不出现），其余 `created/updated/unchanged/groups/failed/failed_pids` 不变；商品 `sort` 仍按上游目录顺序写入（选子集时沿用其原位置，排序稳定）。**② 迁移 0017（up/down 成对 + go:embed，不改 0001–0016）**——新表 `product_group_category_maps`：`id` / `upstream_group_id`（**UNIQUE**，对应 `product_groups.upstream_group_id`）/ `category_id`（**必须指向子分类**，即 `parent_id IS NOT NULL`）/ `created_at` / `updated_at`，**不建外键**（与既有表风格一致），附 `roundtrip_test.go` 的 up→down→up 往返断言。**③ 归类优先级定稿（10.1，本批核心语义）**——每导入一个商品依次判定：**manual（管理员手工改挂）一律不覆盖**（R7 规则不变，最高优先）→ **命中「上游分组 → 子分类」映射则归到该子分类，写入 `category_source=derived`**（取舍：映射是**导入规则的一部分**，改映射后重新导入会刷新这些商品的归属；只有管理端改分类才写 `manual`，两者语义不混淆）→ 无映射则走 R7 的 `category.Derive` 自动派生（行为不变）。**④ 映射目标失效的降级（10.1）**——映射指向的分类被删除、或（被外部改坏）指向了主分类时，导入**不报错**，仅对该分组回落自动派生，并在响应 `map_fallback_group_ids` 与导入日志中体现（不 500、不静默）；映射只作用于导入写入路径，与读时兜底 `EnsureProductCategories`（只补 `category_id=0`）无关；删除映射**不就地回退**，需重新导入该分组才回落（避免与 manual 手工归属混淆）。**⑤ 管理端映射接口（10.4 新增小节）**——`GET /admin/product-group-maps`（列表，含 `upstream_group_id` / `upstream_group_name` / `category_id` / `category_name` / `category_parent_name`，按 `upstream_group_id` 升序，几十条**不分页**；只返回已建立的映射，未映射分组由前端与 `GET /admin/product-groups` 对照展示；目标分类已被删除时两个名字字段为空串）、`PUT /admin/product-group-maps/:upstream_group_id`（upsert `{category_id}`；校验分类存在且**必须是子分类**，否则 `40002`；上游分组尚未导入本地亦 `40002`）、`DELETE /admin/product-group-maps/:upstream_group_id`（不存在 `404`）。**⑥ 上游分组清单复用既有端点**——**不新增** `GET /admin/upstream-groups`：`GET /api/v1/admin/product-groups`（10.4 既有，已含 `upstream_group_id` / `name` / `products{total,on,off}`）即所需的只读分组清单，导入弹窗与映射区块均以它为数据源。**⑦ 权限（10.5 矩阵同步）**——查看类（`GET /admin/product-group-maps`）三角色均可读；写操作（`PUT` / `DELETE`）沿用 `categories.write`（**仅 admin**，与分类写同一闸门），`finance` / `support` 一律 `403`，前端写入口按同一矩阵禁用并给原因、不发越权请求。**⑧ 前端**——「从上游导入商品」由二次确认改为**弹窗**：分组多选（默认全选；全选/无分组时省略 `upstream_group_ids`，部分选择时提交选中 ID，一个都不选时禁用确认并提示原因），结果区沿用既有计数展示；分类页签新增「上游分组映射」区块（表格 + 只列**已有子分类**的两级下拉 + 新增/修改/删除，不做弹窗内联新建分类）。**测试**：`go test ./...` 全量绿，新增覆盖——按分组筛选（只选 1 个 / 选 2 个 / 全选省略 = 全量）、非法值 `40001`（非数组 / 含 0 / 含负数）与 `40002`（分组不在上游目录）、映射命中后商品归到映射子分类且 `category_source=derived`、改映射后重导刷新、删除映射后重导回落派生、映射目标被删/被改成主分类时降级 + 响应体现、`manual` 商品不被映射覆盖、映射 CRUD（非法分类 / 主分类 / 分组不存在 / 重复 upsert / 删除不存在）与角色矩阵（三角色读、写仅 admin）；迁移往返 0017 up→down→up。 |
 

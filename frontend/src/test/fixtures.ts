@@ -28,6 +28,7 @@ import type {
   MemberCoupon,
   Ticket,
   TicketMessage,
+  UpdateJob,
   UpdateStatus,
 } from '@/api/types'
 import type { CyclePrices } from '@/lib/cycles'
@@ -622,6 +623,32 @@ export function makeUpdateStatus(overrides: Partial<UpdateStatus> = {}): UpdateS
     platform: 'linux-amd64',
     assets: [],
     checked_at: '2026-10-14T10:00:00Z',
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 一键升级（契约 20，R13-B）：默认任务为「进行中·下载发布包」。
+// ---------------------------------------------------------------------------
+
+export function makeUpdateJob(overrides: Partial<UpdateJob> = {}): UpdateJob {
+  return {
+    job_id: '20261014T101500Z-1a2b',
+    status: 'running',
+    phase: 'downloading',
+    phase_label: '下载发布包',
+    progress: 12,
+    from_version: 'v0.9.0',
+    target_version: 'v0.10.0',
+    started_at: '2026-10-14T10:15:00Z',
+    finished_at: '',
+    updated_at: '2026-10-14T10:15:20Z',
+    install_dir: '/opt/lyidc',
+    message: '',
+    rolled_back: false,
+    db_migrated: false,
+    log_tail: [],
+    log_truncated: false,
     ...overrides,
   }
 }

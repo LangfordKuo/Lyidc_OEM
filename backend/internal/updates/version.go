@@ -168,6 +168,32 @@ type versionComparison struct {
 	hasUpdate bool
 }
 
+// Compare 是 compareLatest 的对外形式（契约 19.2）：返回 compare 结论与 hasUpdate，
+// 供 R13-B 的升级前置检查复用同一套语义化比较口径。
+func Compare(current, latest string) (string, bool) {
+	result := compareLatest(current, latest)
+	return result.compare, result.hasUpdate
+}
+
+// ValidVersion 判断版本号是否可解析（契约 19.2）。
+func ValidVersion(raw string) bool {
+	_, ok := parseVersion(raw)
+	return ok
+}
+
+// IsDevBuild 判断是否为开发构建（`dev` / `dev-<sha>`，契约 19.1）。
+func IsDevBuild(version string) bool { return isDevBuild(version) }
+
+// SameVersion 比较两个版本号是否相等（忽略 v 前缀与构建元数据）；两者都不可解析时退化为文本比较。
+func SameVersion(a, b string) bool {
+	left, okLeft := parseVersion(a)
+	right, okRight := parseVersion(b)
+	if !okLeft || !okRight {
+		return strings.EqualFold(strings.TrimPrefix(a, "v"), strings.TrimPrefix(b, "v"))
+	}
+	return compareVersions(left, right) == 0
+}
+
 // compareLatest 按契约 19.2 得出比较结论；latest 为空表示尚未获取到最新版本。
 func compareLatest(current, latest string) versionComparison {
 	if isDevBuild(current) {

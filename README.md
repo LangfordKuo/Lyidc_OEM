@@ -3,7 +3,7 @@
 岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
 后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui。
-接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v14）。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v24）。
 
 ## 快速部署
 
@@ -34,7 +34,8 @@ docker compose up -d
   管理端暂停恢复同步、续费下单与自动续费、到期暂停扫描、操作审计
 - **运营**：站内通知 + 邮件（SMTP）、到期提醒、工单、后台设置（支付/上游/邮件等全部进库，改完即生效）
 - **部署**：浏览器安装向导、容器化交付（GHCR 双镜像）、Release 三平台包
-- **版本与更新**：构建期注入版本号（`-version` 可查）；管理端「系统更新」检查 GitHub 最新正式版，有新版本时红点提示（一键升级待后续批次）
+- **版本与更新**：构建期注入版本号（`-version` 可查）；管理端「系统更新」检查 GitHub 最新正式版并**一键自动升级**
+  （下载 → sha256 校验 → 替换二进制与 dist → 迁移 → 重启 → 健康检查，失败自动回滚）
 
 ## 目录结构
 
@@ -44,7 +45,8 @@ backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/ba
   cmd/migrate/           迁移命令（up / down n / version）
   internal/              config / db / install / auth / model / store / router / upstream /
                          payment / pricing / delivery / scheduler / notify / email / settings /
-                         buildinfo（构建期版本注入）/ updates（检查更新）
+                         buildinfo（构建期版本注入）/ updates（检查更新）/
+                         upgrade（一键自动升级：下载校验、helper 交接、替换迁移与回滚）
   migrations/            编号 SQL 迁移（go:embed 内嵌进二进制）
 frontend/                React 前端（src/api、src/app、src/pages、src/components…）
 deploy/                  compose 编排 + .env 示例 + 镜像内的 nginx/入口脚本模板
@@ -100,4 +102,4 @@ MySQL 不可达时整体跳过。
 安装向导 → 订单交付与自动开通 → 实例操作与续费 → 通知体系 → 管理后台 → 交付自动化
 （Release 包 + GHCR 镜像 + 部署文档）。前端（官网/会员区/管理后台）已在阶段 9 后整体
 重写为 shadcn/ui（R1–R3）。
-后续：实例终止流程收敛、`provisioning` 悬挂订单对账等。
+后续：容器形态的一键升级、实例终止流程收敛、`provisioning` 悬挂订单对账等。
