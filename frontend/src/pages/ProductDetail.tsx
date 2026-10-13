@@ -8,7 +8,6 @@ import { paths } from '@/app/paths'
 import { useAuth } from '@/auth/authContext'
 import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageState'
 import ConfigSelector from '@/components/product/ConfigSelector'
-import CyclePriceTable from '@/components/product/CyclePriceTable'
 import CycleSelector from '@/components/product/CycleSelector'
 import PriceBreakdownView from '@/components/product/PriceBreakdown'
 import { Badge } from '@/components/ui/badge'
@@ -146,6 +145,8 @@ export default function ProductDetail() {
 
   const hasConfig = data.config_groups.some((group) => group.options.length > 0)
   const outOfStock = data.stock_control === 1 && data.stock_qty <= 0
+  // R11：周期选择器只渲染可售周期（价格非 null），这里同步档数文案与全不可售降级。
+  const sellableCycles = availableCycles(data.prices)
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -182,19 +183,6 @@ export default function ProductDetail() {
               ) : null}
             </div>
             <h1 className="mt-3 text-2xl font-semibold text-foreground sm:text-3xl">{data.name}</h1>
-            {/* 配置速览（R5）：与商品卡同一份 description_lines，进入详情第一屏即可读配置。 */}
-            {data.description_lines.length > 0 ? (
-              <ul
-                className="mt-4 grid gap-x-8 gap-y-1.5 text-sm leading-relaxed text-muted-foreground sm:grid-cols-2"
-                data-testid="product-config-overview"
-              >
-                {data.description_lines.map((line, index) => (
-                  <li key={index} className="break-words">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
           </header>
 
           <section>
@@ -208,21 +196,17 @@ export default function ProductDetail() {
             </h2>
             <ConfigSelector groups={data.config_groups} selected={config} onChange={setConfigValue} />
           </section>
-
-          <section>
-            <h2 className="mb-3 text-base font-medium text-foreground">价格一览</h2>
-            <CyclePriceTable prices={data.prices} highlight={cycle} />
-            <p className="mt-2 text-xs text-muted-foreground">
-              价格为本地售价（含后台定价规则），最终以提交订单时的金额为准。
-            </p>
-          </section>
         </div>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <Card data-testid="product-summary">
             <CardHeader>
               <CardTitle className="text-base">选择计费周期</CardTitle>
-              <CardDescription>不可售周期已置灰，共 6 档可选周期</CardDescription>
+              <CardDescription>
+                {sellableCycles.length > 0
+                  ? `仅展示可售周期，共 ${sellableCycles.length} 档`
+                  : '该商品暂无可售周期'}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <CycleSelector prices={data.prices} value={cycle} onChange={setCycle} />

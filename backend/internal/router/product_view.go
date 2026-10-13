@@ -1,6 +1,8 @@
 package router
 
 import (
+	"sort"
+
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
@@ -16,6 +18,11 @@ type priceView map[string]*string
 // 数字输入控件；选项型恒为 0。
 // R7：Pricings 是该值六周期的**配置差价**（已按定价模式换算，数量型为单位差价），
 // null 表示该周期无差价数据（契约 10.3 第 8 条）。
+//
+// R11（v21）：数量型下这两个字段是**全部可见档位的并集**（只给数量控件定 min/max 与默认值，
+// 语义自 v20 起不变，向后兼容）。每档**真实区间**在 configOptionView.Tiers 里下发——
+// 前端挑档位、算可计费数量必须用 Tiers，不能用这里的并集反推（并集后每档区间都相同，
+// 按区间挑会永远命中第一档，见 10.2.1「档位区间怎么拿到」）。
 type configOptionValueView struct {
 	ID         int                `json:"id"`
 	Name       string             `json:"name"`
@@ -25,13 +32,28 @@ type configOptionValueView struct {
 	Pricings   map[string]*string `json:"pricings"`
 }
 
+// configTierView 是数量型配置一个价格档位的真实区间与单位差价（契约 10.3 第 6 条，v21/R11）。
+//
+// ValueID 对应 values[].id（同一子项 = 同一档位）；QtyMin/QtyMax 是上游 sub 的原始 qty 区间
+// （**不是**并集）；Pricings 与 values[].pricings 同形同口径。
+// 按 QtyMin 升序下发；会员端同样剔除 hidden != 0 的档位。
+type configTierView struct {
+	ValueID  int                `json:"value_id"`
+	QtyMin   int                `json:"qty_min"`
+	QtyMax   int                `json:"qty_max"`
+	Pricings map[string]*string `json:"pricings"`
+}
+
 // configOptionView 是一个可配置项；name 为上游客服文案原文（形如 `area|区域`，阶段 3a 不清洗）。
+//
+// Tiers 仅数量型下发（选项型 omitempty 不出现该键）：见 configTierView。
 type configOptionView struct {
 	ID         int                     `json:"id"`
 	Name       string                  `json:"name"`
 	Type       int                     `json:"type"`
 	UpstreamID int                     `json:"upstream_id"`
 	Values     []configOptionValueView `json:"values"`
+	Tiers      []configTierView        `json:"tiers,omitempty"`
 }
 
 // configGroupView 是可配置项分组。
@@ -329,6 +351,10 @@ type productConfigCache struct {
 //
 // R7：每个可选值带 `pricings`（六周期配置差价，已按定价模式换算）；
 // 数量型的取值区间是**全部可见档位的并集**（契约 10.3 第 6 条，避免多档位被锁死在下界）。
+//
+// R11（v21）：数量型在并集归一化**之前**把每档真实区间 + 单位差价抄进 `tiers`。
+// 并集只保留给控件取值范围（values[].qty_minimum/qty_maximum，语义不变、向后兼容），
+// 挑档位与算可计费数量一律以 tiers 为准——两者混用就是 v21 修掉的价格联动 bug。
 func newConfigGroupViews(cache productConfigCache, rule pricing.Rule, includeHidden bool) []configGroupView {
 	pricings := pricing.ParseConfigPricings(cache.RawJSON)
 	groups := make([]configGroupView, 0, len(cache.ConfigGroups))
@@ -340,22 +366,34 @@ func newConfigGroupViews(cache productConfigCache, rule pricing.Rule, includeHid
 			}
 			optionPricing := pricings.Option(option.ID)
 			values := make([]configOptionValueView, 0, len(option.Values))
+			var tiers []configTierView
 			for _, value := range option.Values {
 				if value.Hidden != 0 && !includeHidden {
 					continue
 				}
 				tier := optionPricing.TierByID(value.ID)
+				pricingView := tier.UnitView(rule)
 				values = append(values, configOptionValueView{
 					ID:         value.ID,
 					Name:       value.OptionName,
 					UpstreamID: value.UpstreamID,
 					QtyMinimum: value.QtyMinimum,
 					QtyMaximum: value.QtyMaximum,
-					Pricings:   tier.UnitView(rule),
+					Pricings:   pricingView,
 				})
+				if pricing.IsQuantityOptionType(option.OptionType) {
+					// 真实档位区间必须在下面的并集归一化之前抄下来。
+					tiers = append(tiers, configTierView{
+						ValueID:  value.ID,
+						QtyMin:   value.QtyMinimum,
+						QtyMax:   value.QtyMaximum,
+						Pricings: pricingView,
+					})
+				}
 			}
 			if pricing.IsQuantityOptionType(option.OptionType) && len(values) > 0 {
 				// 档位并集：把各值的区间收敛到同一个 [min, max]，前端按一个数量控件渲染。
+				// 只改控件范围；真实档位区间已在 tiers 里保留。
 				min, max := values[0].QtyMinimum, values[0].QtyMaximum
 				for _, value := range values[1:] {
 					if value.QtyMinimum < min {
@@ -369,6 +407,13 @@ func newConfigGroupViews(cache productConfigCache, rule pricing.Rule, includeHid
 					values[i].QtyMinimum = min
 					values[i].QtyMaximum = max
 				}
+				// 按档位下界升序，保证挑档位时区间判定稳定可预期。
+				sort.SliceStable(tiers, func(i, j int) bool {
+					if tiers[i].QtyMin != tiers[j].QtyMin {
+						return tiers[i].QtyMin < tiers[j].QtyMin
+					}
+					return tiers[i].ValueID < tiers[j].ValueID
+				})
 			}
 			options = append(options, configOptionView{
 				ID:         option.ID,
@@ -376,6 +421,7 @@ func newConfigGroupViews(cache productConfigCache, rule pricing.Rule, includeHid
 				Type:       option.OptionType,
 				UpstreamID: option.UpstreamID,
 				Values:     values,
+				Tiers:      tiers,
 			})
 		}
 		groups = append(groups, configGroupView{

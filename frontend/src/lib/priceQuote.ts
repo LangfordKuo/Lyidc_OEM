@@ -1,7 +1,8 @@
 import type {
   ConfigGroup,
   ConfigOption,
-  ConfigOptionValue,
+  ConfigTier,
+  ConfigValuePrices,
   PriceBreakdown,
   PriceDeltaLine,
 } from '@/api/types'
@@ -15,8 +16,11 @@ import { optionLabel } from './productText'
  * 成交价 = 基础价 + Σ 配置差价；差价已随商品定价模式换算（后端在 `values[].pricings`
  * 里下发的是**已调整**的单位差价），前端只做累加，**不重套定价规则**。
  *
- * 数量型差价 = 单位差价 × 可计费数量，可计费数量 = 数量 − 低一档的 qty_maximum
+ * 数量型差价 = 单位差价 × 可计费数量，可计费数量 = 数量 − 低一档的 qty_max
  * （无低一档时为 0）。单档位时即退化为「单位差价 × 数量」。
+ *
+ * R11：数量型多档位必须按 **tiers 的真实区间**挑档位。`values[].qty_minimum/qty_maximum`
+ * 是全部档位的**并集**（只给数量控件定 min/max），拿它反推档位会永远命中第一档。
  *
  * 全程整数分，与后端逐分一致；展示价只是预览，下单仍以服务端为准。
  */
@@ -47,35 +51,62 @@ export function fromCents(cents: number): string {
 }
 
 /**
- * 数量型的可计费数量：数量 − 低一档的 qty_maximum。
- * 档位区间取自该配置项全部值的 qty_minimum/qty_maximum（后端下发的并集）。
+ * 数量型的档位列表（R11，契约 10.3 第 6 条）：优先用接口下发的 `tiers`（真实区间）。
+ *
+ * 缺省时（旧夹具 / 未升级数据）从 `values` 的 qty 区间派生——那种数据尚未被并集归一化，
+ * 各值区间就是真实档位区间，派生结果与 tiers 等价。
  */
-export function billableQuantity(
-  option: ConfigOption,
-  selectedValue: ConfigOptionValue | undefined,
-  qty: number,
-): number {
-  if (!selectedValue) {
-    return 0
+export function quantityTiers(option: ConfigOption): ConfigTier[] {
+  if (option.tiers && option.tiers.length > 0) {
+    return option.tiers
   }
-  // 低一档上限 = 所有「上界 < 当前档下界」的档位的最大上界；无低一档时为 0。
-  let floor = 0
-  const currentMin = selectedValue.qty_minimum ?? 0
-  for (const value of option.values) {
-    const max = value.qty_maximum ?? 0
-    if (max < currentMin && max > floor) {
-      floor = max
-    }
-  }
-  return Math.max(0, qty - floor)
+  return option.values.map((value) => ({
+    value_id: value.id,
+    qty_min: value.qty_minimum ?? 0,
+    qty_max: value.qty_maximum ?? 0,
+    pricings: value.pricings,
+  }))
 }
 
-/** 取某配置值在某周期的单位差价；无差价数据返回 null。 */
+/** 数量落在哪个档位（按真实区间）；找不到返回 undefined（异常数据，按无差价数据降级）。 */
+export function tierFor(option: ConfigOption, qty: number): ConfigTier | undefined {
+  return quantityTiers(option).find((tier) => qty >= tier.qty_min && qty <= tier.qty_max)
+}
+
+/**
+ * 档位的计费起点（后端 `tierFloor` 同口径）：低一档的 `qty_max`；无低一档时为 0。
+ */
+export function tierFloor(option: ConfigOption, tier: ConfigTier | undefined): number {
+  if (!tier) {
+    return 0
+  }
+  let floor = 0
+  for (const other of quantityTiers(option)) {
+    if (other.qty_max < tier.qty_min && other.qty_max > floor) {
+      floor = other.qty_max
+    }
+  }
+  return floor
+}
+
+/** 数量型的可计费数量：数量 − 低一档的 qty_max（后端 quantityLine 同口径）。 */
+export function billableQuantity(
+  option: ConfigOption,
+  tier: ConfigTier | undefined,
+  qty: number,
+): number {
+  if (!tier) {
+    return 0
+  }
+  return Math.max(0, qty - tierFloor(option, tier))
+}
+
+/** 取某配置值/档位在某周期的单位差价；无差价数据返回 hasData=false。 */
 export function unitDelta(
-  value: ConfigOptionValue | undefined,
+  source: { pricings?: ConfigValuePrices } | undefined,
   cycle: BillingCycle,
 ): { cents: number; hasData: boolean } {
-  const raw = value?.pricings?.[cycle]
+  const raw = source?.pricings?.[cycle]
   if (raw === null || raw === undefined) {
     return { cents: 0, hasData: false }
   }
@@ -115,11 +146,9 @@ export function quotePrice(
         if (!Number.isFinite(qty) || qty < 0) {
           continue
         }
-        // 档位按 qty 落点选取；找不到（异常数据）按无差价数据降级。
-        const tier =
-          option.values.find(
-            (value) => qty >= (value.qty_minimum ?? 0) && qty <= (value.qty_maximum ?? 0),
-          ) ?? option.values[0]
+        // R11：按 tiers 的真实区间挑档位（并集字段不能用来挑档）；
+        // 找不到（异常数据）按无差价数据降级。
+        const tier = tierFor(option, qty)
         const { cents, hasData } = unitDelta(tier, cycle)
         const billable = billableQuantity(option, tier, qty)
         const amount = cents * billable
@@ -128,7 +157,7 @@ export function quotePrice(
           option_id: option.id,
           option_name: label,
           kind: 'quantity',
-          value_id: tier?.id,
+          value_id: tier?.value_id,
           qty,
           unit: fromCents(hasData ? cents : 0),
           billable,

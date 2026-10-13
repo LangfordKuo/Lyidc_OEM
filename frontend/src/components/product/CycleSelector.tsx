@@ -3,8 +3,11 @@ import { formatCycleLabel, formatMoney, monthlyEquivalent } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 /**
- * 六周期选择器：不可售周期（价格 null，契约 10.2）置灰不可选。
- * 用按钮组实现（radiogroup 语义），保留键盘可达性。
+ * 周期选择器：**只渲染可售周期**（价格非 null，契约 10.2）。
+ *
+ * R11：不可售周期直接不显示（此前是置灰）。结算页与商品详情页共用本控件。
+ * 全部不可售时降级为空态提示，不渲染空的 radiogroup。
+ * 按钮组实现保留 radiogroup 语义与键盘可达性。
  */
 export default function CycleSelector({
   prices,
@@ -17,12 +20,33 @@ export default function CycleSelector({
   onChange: (cycle: BillingCycle) => void
   className?: string
 }) {
+  const sellable = BILLING_CYCLES.filter(
+    (cycle) => prices[cycle] !== null && prices[cycle] !== undefined,
+  )
+
+  if (sellable.length === 0) {
+    return (
+      <div
+        className={cn(
+          'rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground',
+          className,
+        )}
+        data-testid="cycle-selector-empty"
+      >
+        暂无可售的计费周期
+      </div>
+    )
+  }
+
   return (
-    <div role="radiogroup" aria-label="计费周期" className={cn('grid grid-cols-2 gap-2 sm:grid-cols-3', className)}>
-      {BILLING_CYCLES.map((cycle) => {
+    <div
+      role="radiogroup"
+      aria-label="计费周期"
+      className={cn('grid grid-cols-2 gap-2 sm:grid-cols-3', className)}
+    >
+      {sellable.map((cycle) => {
         const amount = prices[cycle]
-        const disabled = amount === null || amount === undefined
-        const active = cycle === value && !disabled
+        const active = cycle === value
         const perMonth = amount ? monthlyEquivalent(amount, cycle) : null
 
         return (
@@ -31,29 +55,22 @@ export default function CycleSelector({
             type="button"
             role="radio"
             aria-checked={active}
-            disabled={disabled}
             onClick={() => onChange(cycle)}
             className={cn(
               'flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
               'focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-              disabled
-                ? 'cursor-not-allowed border-border bg-muted/40 opacity-60'
-                : active
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                  : 'border-border bg-background hover:border-primary/40 hover:bg-muted/40',
+              active
+                ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                : 'border-border bg-background hover:border-primary/40 hover:bg-muted/40',
             )}
           >
             <span className={cn('text-sm font-medium', active ? 'text-primary' : 'text-foreground')}>
               {formatCycleLabel(cycle)}
             </span>
-            {disabled ? (
-              <span className="text-xs text-muted-foreground">不可售</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {formatMoney(amount)}
-                {perMonth && cycle !== 'monthly' ? ` · 约 ¥${perMonth}/月` : ''}
-              </span>
-            )}
+            <span className="text-xs text-muted-foreground">
+              {formatMoney(amount)}
+              {perMonth && cycle !== 'monthly' ? ` · 约 ¥${perMonth}/月` : ''}
+            </span>
           </button>
         )
       })}

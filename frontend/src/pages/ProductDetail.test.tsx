@@ -19,7 +19,7 @@ function mockDetail() {
 }
 
 describe('商品详情页', () => {
-  it('渲染商品信息、配置速览、配置项与六周期价格表（不再展示商品说明）', async () => {
+  it('渲染商品信息与配置项；不再展示配置速览与价格一览', async () => {
     mockDetail()
     renderApp(['/products/1'])
 
@@ -27,19 +27,16 @@ describe('商品详情页', () => {
     // R9-C：「商品说明」区块已移除，接口 description 不再渲染
     expect(screen.queryByRole('heading', { name: '商品说明' })).not.toBeInTheDocument()
     expect(screen.queryByText('该商品暂无描述。')).not.toBeInTheDocument()
-    // 顶部配置速览（R5）：直接渲染接口下发的 description_lines
-    const overview = screen.getByTestId('product-config-overview')
-    expect(within(overview).getByText('CPU:2核心')).toBeInTheDocument()
-    expect(within(overview).getByText('内存:1G')).toBeInTheDocument()
-    expect(within(overview).getByText('带宽:20M')).toBeInTheDocument()
-    // 配置项（上游文案去前缀）
+    // R11：「配置速览」（description_lines 清单）不再进详情页——那是给外面的人看的。
+    // 商品卡（列表页）的配置简介不动，接口 description_lines 仍下发。
+    expect(screen.queryByTestId('product-config-overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('CPU:2核心')).not.toBeInTheDocument()
+    // R11：「价格一览」删除（选择计费周期处已有价格）
+    expect(screen.queryByRole('heading', { name: '价格一览' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    // 配置项（上游文案去前缀）仍在
     expect(screen.getByRole('heading', { name: '配置项' })).toBeInTheDocument()
     expect(screen.getByText('区域')).toBeInTheDocument()
-    // 价格表六个周期都在（两年付/三年付不可售）
-    expect(screen.getByRole('heading', { name: '价格一览' })).toBeInTheDocument()
-    const priceTable = screen.getByRole('table')
-    expect(within(priceTable).getAllByText('两年付').length).toBeGreaterThan(0)
-    expect(within(priceTable).getAllByText('不可售')).toHaveLength(2)
   })
 
   it('默认选中最低价周期（月付），切换周期后价格与月均联动', async () => {
@@ -57,12 +54,48 @@ describe('商品详情页', () => {
     expect(within(summary).getByText(/折合约 ¥18.33 \/ 月/)).toBeInTheDocument()
   })
 
-  it('不可售周期（两年付）禁用不可选', async () => {
+  it('不可售周期（两年付/三年付）直接不渲染', async () => {
     mockDetail()
     renderApp(['/products/1'])
 
-    const biennial = await screen.findByRole('radio', { name: /两年付/ })
-    expect(biennial).toBeDisabled()
+    await screen.findByRole('heading', { level: 1, name: '香港二区 CN2 A型' })
+    // R11：不可售周期不显示（此前是置灰），只渲染 4 个可售周期。
+    expect(screen.queryByRole('radio', { name: /两年付/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /三年付/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('不可售')).not.toBeInTheDocument()
+    // 配置项横条也是 radio，这里只数周期选择器内的档位。
+    const cycles = within(screen.getByRole('radiogroup', { name: '计费周期' }))
+    expect(cycles.getAllByRole('radio')).toHaveLength(4)
+    // 档数文案与新行为一致
+    expect(screen.getByText('仅展示可售周期，共 4 档')).toBeInTheDocument()
+  })
+
+  it('全部周期不可售时出空态并禁用下单（极端数据降级）', async () => {
+    installFetchMock((url) => {
+      if (url.pathname === '/api/v1/products/1') {
+        return ok(
+          makeProductDetail({
+            prices: {
+              monthly: null,
+              quarterly: null,
+              semiannual: null,
+              annual: null,
+              biennial: null,
+              triennial: null,
+            },
+          }),
+        )
+      }
+      return undefined
+    })
+    renderApp(['/products/1'])
+
+    expect(await screen.findByTestId('cycle-selector-empty')).toHaveTextContent('暂无可售的计费周期')
+    // 空态取代整个周期控件，不留空的 radiogroup。
+    expect(screen.queryByRole('radiogroup', { name: '计费周期' })).not.toBeInTheDocument()
+    const buy = screen.getByRole('button', { name: /当前周期不可售/ })
+    expect(buy).toBeDisabled()
+    expect(screen.getByText('该商品暂无可售周期')).toBeInTheDocument()
   })
 
   it('未登录点「立即购买」先跳登录并带 redirect 回跳', async () => {

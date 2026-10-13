@@ -6,7 +6,9 @@ import {
   billableQuantity,
   fromCents,
   nonZeroDeltaCount,
+  quantityTiers,
   quotePrice,
+  tierFor,
   toCents,
 } from './priceQuote'
 
@@ -153,13 +155,159 @@ describe('quotePrice 数量型差价', () => {
     })
     const groups = catalog(opt)
 
-    expect(billableQuantity(opt, opt.values[1], 30)).toBe(10)
-    expect(billableQuantity(opt, opt.values[1], 21)).toBe(1)
-    expect(billableQuantity(opt, opt.values[0], 20)).toBe(20)
+    const tiers = quantityTiers(opt)
+    expect(billableQuantity(opt, tiers[1], 30)).toBe(10)
+    expect(billableQuantity(opt, tiers[1], 21)).toBe(1)
+    expect(billableQuantity(opt, tiers[0], 20)).toBe(20)
 
     const quote = quotePrice(groups, { '12': '30' }, 'monthly', '0.00')
     expect(quote.deltas[0]).toMatchObject({ billable: 10, unit: '1.00', amount: '10.00' })
     expect(quote.total).toBe('10.00')
+  })
+})
+
+/**
+ * R11（v21）：数量型多档位的价格联动修复 + 前后端同口径对照。
+ *
+ * 这里的夹具是**接口真实形状**——`values[].qty_minimum/qty_maximum` 已被后端归一成并集，
+ * 每档真实区间只在 `tiers[]` 里（见契约 10.3 第 6 条）。算例与
+ * backend/internal/router/product_view_test.go 的同名用例逐条一致，改一处必须同步另一处。
+ */
+describe('quotePrice 档位区间（R11 tiers）', () => {
+  /** 商品 2「香港二区 CN2 B型」数据盘：并集 values + 真实区间 tiers（后端视图实际下发形状）。 */
+  function bTypeDataDisk(): ConfigOption {
+    return {
+      id: 27,
+      name: 'data_disk_size|数据盘',
+      type: 19,
+      upstream_id: 0,
+      values: [
+        // 并集 30~256：两档都被拉平，拿它挑档位会永远命中第一档（旧 bug 的根因）。
+        value(88, '数据盘', {
+          qty_minimum: 30,
+          qty_maximum: 256,
+          pricings: prices({ monthly: '0.00', quarterly: '0.00', annual: '0.00' }),
+        }),
+        value(10664, '数据盘', {
+          qty_minimum: 30,
+          qty_maximum: 256,
+          pricings: prices({ monthly: '0.50', quarterly: '1.50', annual: '6.00' }),
+        }),
+      ],
+      tiers: [
+        {
+          value_id: 88,
+          qty_min: 30,
+          qty_max: 30,
+          pricings: prices({ monthly: '0.00', quarterly: '0.00', annual: '0.00' }),
+        },
+        {
+          value_id: 10664,
+          qty_min: 31,
+          qty_max: 256,
+          pricings: prices({ monthly: '0.50', quarterly: '1.50', annual: '6.00' }),
+        },
+      ],
+    }
+  }
+
+  /** 商品 1「香港二区 CN2 A型」数据盘：单档位 [0-256 @0.50]。 */
+  function aTypeDataDisk(): ConfigOption {
+    return {
+      id: 10,
+      name: 'data_disk_size|数据盘',
+      type: 14,
+      upstream_id: 0,
+      values: [
+        value(37, '数据盘', {
+          qty_minimum: 0,
+          qty_maximum: 256,
+          pricings: prices({ monthly: '0.50' }),
+        }),
+      ],
+      tiers: [
+        {
+          value_id: 37,
+          qty_min: 0,
+          qty_max: 256,
+          pricings: prices({ monthly: '0.50' }),
+        },
+      ],
+    }
+  }
+
+  it('多档位 B 型：按 tiers 真实区间挑档（30 → 0.00 / 31 → 0.50 / 50 → 10.00）', () => {
+    const opt = bTypeDataDisk()
+    const groups = catalog(opt)
+
+    // 验收算例（与后端 Quote 一致）：qty=30 落免费档、31 起每 GB 0.50。
+    const at30 = quotePrice(groups, { '27': '30' }, 'monthly', '25.00')
+    expect(at30.deltas[0]).toMatchObject({
+      value_id: 88,
+      billable: 30,
+      unit: '0.00',
+      amount: '0.00',
+    })
+    expect(at30.total).toBe('25.00') // 差价 0.00，只剩基础价
+
+    const at31 = quotePrice(groups, { '27': '31' }, 'monthly', '25.00')
+    expect(at31.deltas[0]).toMatchObject({
+      value_id: 10664,
+      billable: 1,
+      unit: '0.50',
+      amount: '0.50',
+    })
+    expect(at31.total).toBe('25.50')
+
+    const at50 = quotePrice(groups, { '27': '50' }, 'monthly', '25.00')
+    expect(at50.deltas[0]).toMatchObject({
+      value_id: 10664,
+      billable: 20,
+      unit: '0.50',
+      amount: '10.00', // (50 − 30) × 0.50
+    })
+    expect(at50.total).toBe('35.00')
+  })
+
+  it('多档位 B 型：用并集字段挑档会命中免费档（钉住旧 bug，防止回退）', () => {
+    const opt = bTypeDataDisk()
+    // 并集后两档区间都是 30~256，按区间 find 必然命中第一档 → 加量不加价。
+    const naive = opt.values.find(
+      (item) => 50 >= (item.qty_minimum ?? 0) && 50 <= (item.qty_maximum ?? 0),
+    )
+    expect(naive?.id).toBe(88) // 免费档——这正是修掉的错误结果
+    // 正确路径（tiers）挑到计费档。
+    expect(tierFor(opt, 50)?.value_id).toBe(10664)
+  })
+
+  it('单档位 A 型回归：billable = 数量（0 → 0.00 / 50 → 25.00）', () => {
+    const opt = aTypeDataDisk()
+    const groups = catalog(opt)
+
+    const at0 = quotePrice(groups, { '10': '0' }, 'monthly', '22.00')
+    expect(at0.deltas[0]).toMatchObject({ billable: 0, amount: '0.00' })
+    expect(at0.total).toBe('22.00')
+
+    const at50 = quotePrice(groups, { '10': '50' }, 'monthly', '22.00')
+    expect(at50.deltas[0]).toMatchObject({ billable: 50, unit: '0.50', amount: '25.00' })
+    expect(at50.total).toBe('47.00')
+  })
+
+  it('tiers 缺省时从 values 派生（旧夹具/未升级数据不回归）', () => {
+    const legacy = option({
+      id: 12,
+      name: 'bw|带宽',
+      type: 11,
+      values: [
+        value(121, '带宽', { qty_minimum: 20, qty_maximum: 20, pricings: prices({ monthly: '0.00' }) }),
+        value(122, '带宽', { qty_minimum: 21, qty_maximum: 100, pricings: prices({ monthly: '1.00' }) }),
+      ],
+    })
+    expect(quantityTiers(legacy)).toEqual([
+      { value_id: 121, qty_min: 20, qty_max: 20, pricings: legacy.values[0].pricings },
+      { value_id: 122, qty_min: 21, qty_max: 100, pricings: legacy.values[1].pricings },
+    ])
+    expect(quotePrice(catalog(legacy), { '12': '30' }, 'monthly', '0.00').total).toBe('10.00')
   })
 })
 

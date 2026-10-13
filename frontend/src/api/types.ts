@@ -124,10 +124,27 @@ export interface ConfigOptionValue {
   id: number
   name: string
   upstream_id: number
-  /** 数量型配置（契约 10.3 备注）：取值下界与上界；选项型为 0。 */
+  /** 数量型配置（契约 10.3 备注）：取值下界与上界；选项型为 0。
+   *  R11 起数量型这两个字段是**全部档位的并集**（只给数量控件定 min/max 与默认值）；
+   *  挑档位请用 ConfigOption.tiers。 */
   qty_minimum?: number
   qty_maximum?: number
   /** R7：该值六周期配置差价（已按定价模式换算）；数量型为**单位差价** */
+  pricings?: ConfigValuePrices
+}
+
+/**
+ * 数量型配置的一个价格档位（R11，契约 10.3 第 6 条）。
+ *
+ * `qty_min`/`qty_max` 是**该档真实区间**（不是并集）；数量落在哪一档就用哪一档的
+ * `pricings`（单位差价），可计费数量 = 数量 − 低一档的 `qty_max`。
+ * 仅数量型下发；选项型不出现 `tiers` 键。
+ */
+export interface ConfigTier {
+  /** 对应 values[].id（同一子项 = 同一档位） */
+  value_id: number
+  qty_min: number
+  qty_max: number
   pricings?: ConfigValuePrices
 }
 
@@ -138,6 +155,8 @@ export interface ConfigOption {
   type: number
   upstream_id: number
   values: ConfigOptionValue[]
+  /** R11：数量型的真实档位区间（按 qty_min 升序）。挑档位的唯一依据。 */
+  tiers?: ConfigTier[]
 }
 
 export interface ConfigGroup {

@@ -66,19 +66,21 @@ service.go[DA8S]: F:实例操作服务骨架：上游客户端获取、统一审
 
 ===D:/Project/Lyidc_OEM/backend/internal/model/===
 admin.go[PI7T]: F:admins 表 GORM 模型 | R:code:backend/internal/model/status.go | A:Admin | S:created_at/updated_at/last_login_at 均按 UTC 读写，接口层再按 RFC3339 输出
-coupon.go[PB7T]: F:coupons 表 GORM 模型与优惠码状态枚举 | R:code:backend/internal/model/money.go | A:Coupon,IsValidCouponStatus | S:code 大小写不敏感靠列 COLLATE utf8mb4_general_ci；Value 对 percent 是百分比、对 fixed 是减免金额
+coupon.go[PB7T]: F:coupons 表 GORM 模型与优惠码状态枚举 | R:code:backend/internal/model/money.go | A:Coupon,IsValidCouponStatus | S:code 大小写不敏感靠列 COLLATE utf8mb4_general_ci；owner_member_id=0 是平台券、非 0 是邀请人自建券；Value 对 percent 是百分比、对 fixed 是减免金额
 instance.go[PD8S]: F:instances 表 GORM 模型与实例/取消状态机常量 | R:code:backend/internal/model/instance_log.go | A:Instance,IsInstanceCancellable,IsInstanceOperable,IsInstanceRenewable | S:cancelled 枚举不再写入，取消在途以 cancel_status=pending 表达且 status 保持原值；cancel_status 等字段的 default 标签保证 ENUM 零值走库默认
 instance_log.go[PO7T]: F:instance_operation_logs 表模型与操作审计枚举 | R:code:backend/internal/model/instance.go | A:InstanceOperationLog | S:Message 为脱敏结果说明绝不含密码与密钥；系统自动操作 actor_id 恒为 0
-ledger.go[PB8T]: F:ledger 表 GORM 模型与余额流水枚举（只增不改） | R:code:backend/internal/model/money.go | A:Ledger,IsValidLedgerType | S:Amount 为有符号金额（入账正/出账负）且恒满足 BalanceAfter=BalanceBefore+Amount
-member.go[PI7T]: F:members 表 GORM 模型 | R:code:backend/internal/model/money.go,code:backend/internal/model/status.go | A:Member | S:Balance 为 Money 定点字符串；时间列均按 UTC 语义读写
+ledger.go[PB8T]: F:ledger 表 GORM 模型与余额流水枚举（只增不改） | R:code:backend/internal/model/money.go | A:Ledger,IsValidLedgerType | S:Amount 为有符号金额（入账正/出账负）且恒满足 BalanceAfter=BalanceBefore+Amount；type=referral_rebate 的 BalanceBefore/After 记的是 rebate_balance 前后值而非消费余额；凡动 rebate_balance 的账目一律该类型，转余额的消费侧用 adjust
+member.go[PI7T]: F:members 表 GORM 模型 | R:code:backend/internal/model/money.go,code:backend/internal/model/status.go | A:Member | S:Balance（消费余额）与 RebateBalance（邀请返现余额，可为负）完全独立互不算账；InviterID 首绑永久生效、InviteCode 惰性生成；时间列均按 UTC 语义读写
 money.go[CB8T]: F:DECIMAL(14,2) 定点金额类型与 SQL/JSON 编解码 | R:- | A:Money,ZeroMoney | S:Go 侧与 JSON 均用字符串形式避免浮点误差；空值一律归一为 0.00，禁止写入空串
 notification.go[PM7T]: F:notifications 与 email_logs 表模型及通知事件枚举 | R:- | A:Notification,EmailLog | S:同一事件按 recipient_type 区分语义（ticket_replied 双向）；EmailLog.ErrorText 已脱敏绝不含 SMTP 密码
 order.go[PB9S]: F:orders 表 GORM 模型与订单状态/类型枚举 | R:code:backend/internal/model/money.go,code:backend/internal/model/product.go | A:Order,IsValidOrderStatus,IsOrderSettled,IsValidOrderType | S:IsOrderSettled 是支付入账幂等锚点，重复回调不重复入账也不重复触发交付；ConfigJSON 快照交付时原样拼装上游 configoption
-product.go[PB8S]: F:products/product_groups/product_categories 表模型与分类归属来源 | R:code:backend/internal/model/money.go | A:Product,ProductCategory,ProductCategoryInput | S:导入只覆盖上游字段，PricingJSON/Status/Sort 等本地字段不覆盖；category_source=manual 时分类归属不被导入改写
+product.go[PB8S]: F:products/product_groups/product_categories 表模型与分类归属来源 | R:code:backend/internal/model/money.go | A:Product,ProductCategory,ProductCategoryInput | S:导入只覆盖上游字段，PricingJSON/Status/Sort/RebatePercent/RebateDisabled 等本地字段不覆盖；category_source=manual 时分类归属不被导入改写；RebateDisabled=1 压过一切返佣比例
 recharge.go[PB7T]: F:recharges 表 GORM 模型与充值单状态枚举 | R:code:backend/internal/model/money.go | A:Recharge,IsValidRechargeStatus | S:paid 是幂等锚点，重复回调直接答复 success；closed 本阶段不产生，回调命中只告警不处理
 setting.go[PC8T]: F:settings 表 GORM 模型：后台可设置项键值存储 | R:- | A:Setting | S:密钥类字段只存本表，任何日志、接口响应与错误信息都不得包含明文，接口返回掩码
 status.go[CI8T]: F:账号状态与管理员角色枚举定义 | R:- | A:StatusActive,StatusDisabled,RoleAdmin,RoleFinance,RoleSupport,IsValidAdminRole | S:disabled 账号登录与携带 token 的请求一律 403；support 角色只能查看，改状态类接口拒绝
 ticket.go[PB7S]: F:tickets/ticket_messages 表模型与工单状态枚举 | R:code:backend/internal/model/instance.go | A:Ticket,TicketMessage,IsTicketOpen,IsValidTicketStatus | S:InstanceID 非空时必须是该会员自己的实例防越权关联；Internal 内部备注仅管理端可见，会员端接口一律过滤
+referral_payout.go[PB8T]: F:referral_payouts 表 GORM 模型：提现/转余额申请与状态机枚举 | R:code:backend/internal/model/money.go | A:ReferralPayout,IsValidPayoutKind,IsValidPayoutStatus,IsValidPayoutChannel | S:withdraw 走 pending→approved→paid、convert 只到 approved；rejected/paid 为终态；ReviewedAt/PaidAt 首写后不覆盖，重复审核/打款只回 already；AccountName/AccountNo 库内存原文、接口日志审计一律脱敏
+referral_rebate.go[PB8T]: F:referral_rebates 表 GORM 模型与返佣比例来源/状态枚举 | R:code:backend/internal/model/money.go | A:ReferralRebate,IsValidRebateStatus | S:OrderID 唯一是发放幂等锚点；BaseAmount/DiscountAmount/RatioPercent/RatioSource 为发放时快照，事后改比例不影响已发放；RebateAmount 恒 ≥ 0；granted→rolled_back 只发生一次
 
 ===D:/Project/Lyidc_OEM/backend/internal/notify/===
 service.go[AM8L]: F:通知体系事件分发：站内通知落库与通知邮件发送 | R:code:backend/internal/notify/texts.go,code:backend/internal/email/email.go,code:backend/internal/settings/settings.go,code:backend/internal/store/store.go | A:Service,OrderDelivered,OrderFailed,TicketCreated | S:事件提交后调用且通知失败绝不回滚业务；入口无返回值只记日志；SMTP 与开关每次事件重读，改完立即生效
@@ -93,41 +95,47 @@ configdelta.go[KB8L]: F:配置差价索引：解析档位单价并按定价规�
 discount.go[KB7T]: F:优惠码折扣的整数分纯计算 | R:code:backend/internal/pricing/pricing.go | A:CouponDiscount,couponDiscountCents,ParseCouponValue | S:折扣封顶到售价 final 不为负；percent 折扣值上限 100.00 防 int64 乘法溢出
 pricing.go[KB9M]: F:商品本地定价规则：上游价/加价/固定价的解析校验与六周期计算 | R:code:backend/internal/pricing/upstream_prices.go | A:Rule,Parse,Normalize,Prices,UpstreamCycle,ParseAmount | S:全链路整数分避免浮点误差；上游 -1.00 表示该周期不售，无固定价覆盖时对外输出 null
 upstream_prices.go[KD7T]: F:上游价格缓存 JSON 的解析与序列化 | R:code:backend/internal/pricing/pricing.go | A:UpstreamPrices,ParseUpstreamPrices | S:Prices 键是本地周期名（去 -ly），与上游行字段名 annually 等不同，勿混用
+referral.go[KB8T]: F:返佣比例解析与返佣金额的整数分纯计算 | R:code:backend/internal/pricing/pricing.go | A:ParseSignedAmount,ParsePercent,FormatPercent,ComputeRebateCents | S:返佣 = max(订单原价×生效比例 − 本单优惠券减免, 0) 下取整到分，公式自带地板永不为负；比例内部按「百分之 ×100 整数」表示（20.00→2000）；ParseSignedAmount 专供可为负的 rebate_balance，消费余额仍走 ParseAmount
 
 ===D:/Project/Lyidc_OEM/backend/internal/response/===
 codes.go[CG8S]: F:统一业务错误码表与缺省提示 | R:code:backend/internal/response/response.go | A:Message,HTTPStatus,CodeSuccess | S:500xx 为服务端具体故障且提示已脱敏不含密钥；50301 专用于未安装场景
 response.go[CG8T]: F:统一 JSON 响应包与写出助手 | R:code:backend/internal/response/codes.go | A:Envelope,Success,Fail,Abort,JSON | S:HTTP 状态码由 HTTPStatus(code) 推导；Abort 写出失败响应并终止后续处理链
 
 ===D:/Project/Lyidc_OEM/backend/internal/router/===
-admin_handler.go[EI7S]: F:管理端登录、资料与会员列表/状态管理接口 | R:code:backend/internal/router/middleware.go,code:backend/internal/router/view.go,code:backend/internal/store/admin.go | A:login,profile,listMembers,updateMemberStatus | S:support 角色只能查看，改状态类接口一律 403
+admin_handler.go[EI7M]: F:管理端登录、资料与会员列表/状态管理及会员特批比例接口 | R:code:backend/internal/router/middleware.go,code:backend/internal/router/view.go,code:backend/internal/store/admin.go,code:backend/internal/router/referral_rule.go | A:login,profile,listMembers,updateMemberStatus,updateMember | S:support 角色只能查看，改状态类接口一律 403；rebate_percent_override 走三态（键缺席不改/null 清空/字符串设值），全空提交 40001
 category_handler.go[EB6M]: F:管理端商品分类列表与改挂接口 | R:code:backend/internal/store/category.go,code:backend/internal/model/product.go | A:listCategories,updateCategory | S:改挂仅对子分类合法；parent_id 必须指向存在的主分类，指 0 表示取消父级会被拒绝
-coupon_handler.go[EB8L]: F:优惠码创建、列表、更新与校验接口 | R:code:backend/internal/router/coupon_rule.go,code:backend/internal/pricing/discount.go,code:backend/internal/store/coupon.go | A:createCoupon,updateCoupon,validateCoupon | S:校验接口只返回固定 5 个 reason 枚举；停用取代删除，本阶段不提供 DELETE
+coupon_handler.go[EB8L]: F:优惠码创建、列表、更新、详情与校验接口 | R:code:backend/internal/router/coupon_rule.go,code:backend/internal/pricing/discount.go,code:backend/internal/store/coupon.go,code:backend/internal/router/referral_rule.go | A:createCoupon,updateCoupon,validateCoupon,getCoupon | S:校验接口只返回固定 5 个 reason 枚举；停用取代删除不提供 DELETE；自建券（owner_member_id 非 0）折扣上限由邀请人生效返佣比例决定且 value/owner 创建后不可改
 coupon_rule.go[DB7M]: F:优惠码字段校验与失效原因判定纯逻辑 | R:code:backend/internal/model/coupon.go,code:backend/internal/pricing/discount.go | A:validateCouponCode,validateCouponValue,couponInvalidReason,normalizeCouponCycles | S:格式类错误回 40001、规则类错误回 40002；max_uses 为 0 表示不限次数
-finance_handler.go[EB8M]: F:充值发起、余额与流水查询接口（会员端/管理端） | R:code:backend/internal/router/finance_rule.go,code:backend/internal/payment/payment.go,code:backend/internal/store/store.go | A:createRecharge,listLedger,getBalance | S:充值金额边界 1.00~50000.00；渠道 out_trade_no 直接复用本地单号（R 前缀）
+finance_handler.go[EB8M]: F:充值发起、余额与流水查询接口（会员端/管理端） | R:code:backend/internal/router/finance_rule.go,code:backend/internal/payment/payment.go,code:backend/internal/store/store.go | A:createRecharge,listLedger,getBalance,listRecharges,listAdminLedger | S:充值金额边界 1.00~50000.00；渠道 out_trade_no 直接复用本地单号（R 前缀）；会员端余额流水恒排除 type=referral_rebate（那类动的是返现余额），管理端可按类型对账
 finance_rule.go[DB6T]: F:财务参数校验纯逻辑与金额边界 | R:code:backend/internal/pricing/pricing.go | A:parseMoneyBounds,truncateRunes | S:格式类错误回 40001、规则类错误回 40002；支付标题超 64 字符按 rune 截断防切坏多字节
 health.go[EO7T]: F:健康检查接口：数据库探测与降级应答 | R:code:backend/internal/db/db.go | A:healthHandler | S:数据库不可用返回 HTTP 503 且 data 标记 degraded，供容器 HEALTHCHECK 与前端判活
 helpers.go[CG7T]: F:路由层通用绑定、错误应答与分页参数解析 | R:code:backend/internal/response/response.go | A:bindJSON,failDB,failInternal,pagingParams | S:分页口径全站统一 page/page_size 缺省 1/20、上限 100
 instance_handler.go[EI7M]: F:实例列表与详情接口（会员端/管理端） | R:code:backend/internal/store/store.go,code:backend/internal/model/instance.go | A:listMyInstances,getMyInstance,listAdminInstances | S:非本人实例对外统一 404 实例不存在防越权探测；主机密码仅会员本人详情可见
 instance_ops_handler.go[EI8L]: F:实例操作接口：电源/重装/改密/续费/取消与管理端暂停恢复同步 | R:code:backend/internal/instanceops/service.go,code:backend/internal/delivery/delivery.go,code:backend/internal/model/instance.go | A:powerInstance,renewInstance,cancelInstance,adminSyncInstance | S:有在途取消申请时不可续费，须在 handler 层单独判定不能只看 status；操作失败按分类错误码映射
-member_handler.go[EI7M]: F:会员注册、登录、资料与改密接口 | R:code:backend/internal/auth/token.go,code:backend/internal/auth/password.go,code:backend/internal/router/validate.go | A:register,login,updateMe,changePassword | S:用户名限定 3-32 位字母数字下划线；改密需验旧密码且新密码走 8-72 字节口径
+member_handler.go[EI7M]: F:会员注册、登录、资料与改密接口 | R:code:backend/internal/auth/token.go,code:backend/internal/auth/password.go,code:backend/internal/router/validate.go,code:backend/internal/router/referral_rule.go | A:register,login,me,updateMe,changePassword | S:用户名限定 3-32 位字母数字下划线；改密需验旧密码且新密码走 8-72 字节口径；注册带 invite_code 时非法/不存在/自邀一律 40002 明确报错不静默忽略
 middleware.go[MS8S]: F:会员与管理员 JWT 鉴权中间件与角色限制 | R:code:backend/internal/auth/token.go,code:backend/internal/model/status.go | A:requireMember,requireAdmin,requireAdminRole | S:账号禁用立即生效无需等 token 过期（403）；鉴权失败文案统一不区分具体原因
 notification_handler.go[EM7M]: F:站内通知列表、未读数与已读接口（双受众） | R:code:backend/internal/store/store.go,code:backend/internal/model/notification.go | A:listMyNotifications,readAll,unreadCount | S:会员与管理端共用同一套 list/read 实现，仅 recipient_type 与 id 的解释不同
-order_handler.go[EB9L]: F:下单、支付、取消与管理员重试交付接口 | R:code:backend/internal/router/order_rule.go,code:backend/internal/payment/payment.go,code:backend/internal/delivery/delivery.go,code:backend/internal/pricing/pricing.go | A:createOrder,payOrder,payOrderWithBalance,retryDelivery | S:优惠码下单时校验并快照、支付成功才计数，取消无需回退；重复支付按 IsOrderSettled 幂等锚点处理
+order_handler.go[EB9L]: F:下单、支付、取消与管理员重试交付接口 | R:code:backend/internal/router/order_rule.go,code:backend/internal/payment/payment.go,code:backend/internal/delivery/delivery.go,code:backend/internal/pricing/pricing.go | A:createOrder,payOrder,payOrderWithBalance,cancelOrder,retryDelivery | S:优惠码下单时校验并快照、支付成功才计数；重复支付按 IsOrderSettled 幂等锚点；邀请人自建券只给未绑定客户用且下单同事务首绑，已绑定则拒券不改绑
 order_rule.go[DB8M]: F:下单配置快照校验与优惠码应用纯逻辑 | R:code:backend/internal/pricing/configdelta.go,code:backend/internal/model/coupon.go,code:backend/internal/model/order.go | A:validateOrderConfig,encodeOrderConfig,applyCoupon | S:数量型配置传数量而非子项 id；config_json 快照上限 1024 字节对应列宽
 payment_handler.go[EI9M]: F:易支付回调处理：验签、对账入账与同步跳转 | R:code:backend/internal/payment/epay.go,code:backend/internal/store/store.go,code:backend/internal/model/order.go | A:epayNotify,applyOrderPayment,applyRechargePayment,epayReturn | S:回调应答纯文本 success/fail；金额不一致只告警不入账；重复回调按已入账幂等答复 success
 product_description.go[KD6T]: F:商品简介 HTML 解析为展示行数组 | R:- | A:descriptionLines | S:先做一次 HTML 实体反转义以兼容两种存量写法；空简介返回空数组而非 nil 保证 JSON 输出 []
-product_handler.go[EB8L]: F:商品列表、详情、上下架与分组管理接口 | R:code:backend/internal/pricing/pricing.go,code:backend/internal/store/store.go,code:backend/internal/category/category.go | A:listProducts,updateProduct,listMemberProducts,getMemberProduct | S:定价/上下架/排序等本地字段不被导入覆盖；无任何可售价的商品拒绝上架
+product_handler.go[EB8L]: F:商品列表、详情、上下架与分组管理接口 | R:code:backend/internal/pricing/pricing.go,code:backend/internal/store/store.go,code:backend/internal/category/category.go | A:listProducts,updateProduct,listMemberProducts,getMemberProduct | S:定价/上下架/排序/返佣字段等本地字段不被导入覆盖；无任何可售价的商品拒绝上架；rebate_percent 三态（缺省不改/null 清空/字符串设值）
 product_import.go[EI8M]: F:上游商品批量导入：拉取详情、派生分类并落库 | R:code:backend/internal/upstream/upstream.go,code:backend/internal/category/category.go,code:backend/internal/pricing/upstream_prices.go | A:importProducts,fetchProductDetails,buildUpstreamPrices | S:导入只创建不覆盖本地字段；category_source=manual 的分类归属不改写；description 需 HTML 反转义后再存
-product_view.go[AU7M]: F:商品与配置项的对外视图组装（管理端/会员端） | R:code:backend/internal/pricing/configdelta.go,code:backend/internal/router/product_description.go | A:newMemberProductView,newAdminProductView,newConfigGroupViews | S:价格 null 表示该周期不可售；hidden 配置值不下发会员端；差价视图已按定价规则换算
+product_view.go[AU7L]: F:商品与配置项的对外视图组装（管理端/会员端） | R:code:backend/internal/pricing/configdelta.go,code:backend/internal/router/product_description.go | A:newMemberProductView,newAdminProductView,newConfigGroupViews | S:价格 null=该周期不可售；hidden 不下发会员端；values[].qty_* 是并集只定控件范围，真实档位区间在 tiers[]，用并集挑档会命中首档；差价已按定价规则换算
 providers.go[CI8T]: F:支付渠道与上游客户端的动态工厂装配 | R:code:backend/internal/settings/settings.go,code:backend/internal/payment/payment.go,code:backend/internal/upstream/upstream.go | A:newPaymentRegistry,newUpstreamProvider | S:每次取用按当前设置重建实例；设置指纹变化时丢弃旧 JWT 缓存保证下次调用用新参数
-router.go[EA9L]: F:HTTP 路由集中注册与中间件装配 | R:code:backend/internal/router/middleware.go,code:backend/internal/response/response.go,code:backend/internal/scheduler/scan.go | A:New,Options,DeliveryTrigger | S:本引擎只服务已安装态，未安装请求由 Supervisor 分发；EnableDueScan 在生产开启到期扫描
-settings_handler.go[EC8L]: F:后台管理设置接口：易支付/上游/SMTP/通知开关 | R:code:backend/internal/settings/settings.go,code:backend/internal/settings/epay.go,code:backend/internal/settings/email.go,code:backend/internal/settings/upstream.go | A:updateEpaySettings,updateUpstreamSettings,updateEmailSMTPSettings,sendTestEmail | S:密钥字段三态语义（缺席不变/新值替换/空串清空）；对外一律掩码；改完立即生效无需重启
+router.go[EA9L]: F:HTTP 路由集中注册与中间件装配 | R:code:backend/internal/router/middleware.go,code:backend/internal/response/response.go,code:backend/internal/scheduler/scan.go | A:New,Options,DeliveryTrigger | S:本引擎只服务已安装态，未安装请求由 Supervisor 分发；EnableDueScan 在生产开启到期扫描；referral 审核与打款接口挂 requireAdminRole(RoleAdmin)，查看类额外放行 finance
+settings_handler.go[EC8L]: F:后台管理设置接口：易支付/上游/SMTP/通知开关与返佣 | R:code:backend/internal/settings/settings.go,code:backend/internal/settings/epay.go,code:backend/internal/settings/email.go,code:backend/internal/settings/referral.go | A:updateEpaySettings,updateUpstreamSettings,updateEmailSMTPSettings,getReferralSettings,updateReferralSettings | S:密钥字段三态语义（缺席不变/新值替换/空串清空）；对外一律掩码；改完立即生效无需重启；返佣设置仅 admin，两比例须 0.00-100.00
 ticket_handler.go[EB8L]: F:工单全链路接口：提单、回复、关闭与管理端处理 | R:code:backend/internal/router/ticket_rule.go,code:backend/internal/store/store.go,code:backend/internal/notify/service.go | A:createTicket,replyMyTicket,adminReplyTicket,adminCloseTicket | S:未关闭工单数参与 20 单上限；内部备注不改变工单状态且会员端过滤；关联实例必须是本人的
 ticket_rule.go[DB6T]: F:工单字段约束与归一化纯逻辑 | R:code:backend/internal/model/ticket.go | A:validateTicketSubject,validateTicketContent,normalizeTicketText | S:标题 5-100、正文 1-5000 字符按 rune 计，先裁剪首尾空白再校验
 trade_no.go[CG8T]: F:本地单号生成与唯一键冲突重试 | R:code:backend/internal/store/store.go | A:createWithTradeNo,newTradeNo | S:前缀 O/R/T 区分单据并作为渠道 out_trade_no；唯一键冲突换号最多重试 5 次
 upstream_handler.go[EO6S]: F:上游探活接口与错误文案翻译 | R:code:backend/internal/upstream/upstream.go | A:upstreamHealthHandler,upstreamProbeError | S:上游未配置时不发起请求，直接返回固定文案
 validate.go[CS7T]: F:账号字段格式校验（用户名/邮箱/昵称/手机） | R:- | A:validateUsername,validateEmail,validateNickname,validatePhone | S:邮箱上限 128 字节、昵称 32 字符，与契约认证章节列宽一致
-view.go[AU7T]: F:会员/管理员对外视图组装（剔除密码哈希） | R:code:backend/internal/model/member.go,code:backend/internal/model/admin.go | A:newMemberView,newAdminView,formatTime | S:视图绝不包含 password_hash；时间统一按 RFC3339 UTC 输出
+view.go[AU7S]: F:会员/管理员对外视图组装（剔除密码哈希） | R:code:backend/internal/model/member.go,code:backend/internal/model/admin.go | A:newMemberView,newAdminView,formatTime | S:视图绝不包含 password_hash；rebate_percent_override 原样输出为 string|null；时间统一按 RFC3339 UTC 输出
+referral_coupon_handler.go[EB8M]: F:邀请人自建券的创建、列表与更新接口（会员端） | R:code:backend/internal/router/referral_rule.go,code:backend/internal/store/coupon.go,code:backend/internal/settings/settings.go | A:createReferralCoupon,listReferralCoupons,updateReferralCoupon | S:自建券只允许 type=percent 且 value/code/owner 创建后不可改；折扣上限只在创建时判定，事后收紧设置不回收既有券；不可叠加其它券、不参与平台券叠加活动
+referral_handler.go[EI8M]: F:邀请返现概览、返佣流水与被邀请人查询接口 | R:code:backend/internal/store/referral.go,code:backend/internal/settings/settings.go,code:backend/internal/router/referral_rule.go | A:getReferral,updateReferral,listRebates,listInvitees | S:首次开通返现才惰性生成 8 位邀请码（唯一冲突换码重试 5 次）；概览 effective_percent 在总开关关闭时恒 0.00；邀请码解析到自邀（同用户名或同邮箱）拒绝
+referral_payout_handler.go[EB8L]: F:提现与转余额申请、列表与管理端审核/打款接口 | R:code:backend/internal/store/payout.go,code:backend/internal/router/referral_payout_rule.go,code:backend/internal/router/middleware.go | A:createWithdrawal,createConversion,listMyWithdrawals,listMyConversions,reviewWithdrawal,markWithdrawalPaid | S:审核与打款仅 admin，查看类 admin/finance 可读；账号姓名/号码接口一律脱敏；重复审核或重复打款返回 200+already=true 不产生第二次资金动作；kind 与状态机不符的流转被拒
+referral_payout_rule.go[DB7S]: F:提现/转余额申请的字段校验、脱敏与状态冲突文案纯逻辑 | R:code:backend/internal/model/referral_payout.go | A:validatePayoutAmount,validatePayoutAccount,validatePayoutRemark,validatePayoutChannel,maskAccountName,maskAccountNo | S:金额恒 > 0 且最多两位小数；AccountName/AccountNo 脱敏规则不可逆，原值只存库不进日志；convert 不接受 channel/账号字段
+referral_rule.go[DB7S]: F:邀请码、返佣比例与自建券折扣上限的校验纯逻辑 | R:code:backend/internal/settings/referral.go,code:backend/internal/model/coupon.go | A:validateInviteCodeShape,validateRebatePercentInput,buildInviteLink,resolveCouponCap | S:比例格式非法 40001、越界 40002；rebate_percent_override 三态由 memberRebateOverrideFromRaw 区分「缺席/清空/设值」，全空不写；自建券上限取 max_coupon_percent 与邀请人生效比例的较小者
 
 ===D:/Project/Lyidc_OEM/backend/internal/scheduler/===
 scan.go[AW8L]: F:后台扫描：到期暂停、终止收敛与到期提醒 | R:code:backend/internal/instanceops/cancel.go,code:backend/internal/instanceops/admin.go,code:backend/internal/notify/service.go | A:Scanner,Start,ScanOnce,suspendDueInstances,convergeCancels | S:有在途取消申请的实例排除出到期暂停；提醒用 expiry_reminded_due 原子认领去重；上游自行暂停或删除不在扫描范围
@@ -140,24 +148,27 @@ notification.go[CM7S]: F:通知开关与到期提醒天数设置 | R:code:backen
 settings.go[CR8S]: F:设置读取、按内容失效与密钥掩码工具 | R:code:backend/internal/store/store.go,code:backend/internal/model/setting.go | A:Reader,NewReader,MaskSecret,KeyPaymentEpay,KeyUpstream | S:每次使用都读一次 settings 表，内容变化立即重建没有缓存窗口；对外密钥输出只走 MaskSecret
 site.go[CC7T]: F:站点信息设置：名称、地址与管理员邮箱 | R:- | A:Site,Validate,KeySite | S:URL 非空须为带主机名的 http(s) 地址且不带结尾斜杠；站点名 1-64 字符
 upstream.go[CI8S]: F:上游对接参数设置：地址、账号、APIKey 与超时 | R:code:backend/internal/upstream/upstream.go | A:Upstream,UpstreamUpdate,Apply,Validate | S:username 必须是注册手机号（上游 4-20 字符校验）；APIKey 是 12 位随机串不是登录密码；超时 1-120 秒缺省 5
+referral.go[CR8S]: F:邀请返佣设置的取值、校验与更新合并 | R:code:backend/internal/pricing/referral.go | A:Referral,DefaultReferralSettings,ReferralUpdate,Apply,Validate | S:缺省是总开关关闭、比例 0.00、自建券折扣上限 100.00；格式非法 ErrFormat(40001)、越界 ErrRule(40002)；每次使用都读一次 settings 表无缓存窗口；MaxCouponPercent 供自建券上限判定
 
 ===D:/Project/Lyidc_OEM/backend/internal/store/===
 admin.go[PI7T]: F:管理员查询与登录时间落库 | R:code:backend/internal/model/admin.go | A:AdminByID,AdminByUsername,TouchAdminLogin | S:TouchAdminLogin 用 UpdateColumn 避免刷新 updated_at（登录不算资料变更）；用户名查询大小写不敏感
 category.go[PB7M]: F:商品分类查询、改挂与导入 find-or-create | R:code:backend/internal/model/product.go | A:ListProductCategories,UpdateProductCategory,EnsureProductCategories,SubCategoryByID | S:改挂仅子分类合法且目标必须是存在的主分类；key 为派生稳定键创建后不可改
-coupon.go[PB7S]: F:优惠码增删改查落库 | R:code:backend/internal/model/coupon.go | A:CreateCoupon,UpdateCoupon,CouponByCode,ListCoupons | S:时间字段用 CouponTimeUpdate 三态（Set=true 才生效，Value=nil 表示清空为立即生效/永不过期）
+coupon.go[PB7M]: F:优惠码增删改查落库 | R:code:backend/internal/model/coupon.go | A:CreateCoupon,UpdateCoupon,CouponByCode,ListCoupons,CouponByIDForMember | S:时间字段用 CouponTimeUpdate 三态（Set=true 才生效，Value=nil 表示清空为立即生效/永不过期）；CouponByIDForMember 强制 owner_member_id=本人，他人券与不存在统一 ErrNotFound 防越权
 delivery.go[PD9M]: F:订单交付行锁认领与交付结果落库 | R:code:backend/internal/model/order.go,code:backend/internal/model/instance.go | A:BeginDelivery,CompleteDelivery,CompleteRenewDelivery,FailDelivery | S:认领仅限 paid 或允许重试的 failed，认领即置 provisioning 防并发重复开通；provision_error 按 500 字符截断留列宽余量
 email.go[PO6T]: F:邮件发送留痕落库 | R:code:backend/internal/model/notification.go | A:AppendEmailLog | S:本表不参与任何业务事务，写失败只记服务日志不得拖垮业务结果
-finance.go[PB8M]: F:充值单与余额流水落库、充值入账事务 | R:code:backend/internal/model/recharge.go,code:backend/internal/model/ledger.go,code:backend/internal/model/money.go | A:CreateRecharge,CompleteRechargePayment,ListLedger,lockRecharge | S:入账在行锁下执行，paid 幂等返回 AlreadyPaid 不重复加余额；余额变动与流水写入同一事务
+finance.go[PB8M]: F:充值单与余额流水落库、充值入账事务 | R:code:backend/internal/model/recharge.go,code:backend/internal/model/ledger.go,code:backend/internal/model/money.go | A:CreateRecharge,CompleteRechargePayment,ListLedger,lockRecharge | S:入账在行锁下执行，paid 幂等返回 AlreadyPaid 不重复加余额；余额变动与流水写入同一事务；LedgerFilter 支持 ExcludeType 供会员端滤掉 referral_rebate
 install.go[PI8S]: F:安装向导管理员写入与默认管理员判定 | R:code:backend/internal/model/admin.go,code:backend/internal/settings/install.go | A:EnsureInstallerAdmin,AdminStats,InstallerAdmin | S:DefaultAdminPasswordHash 是「未修改默认管理员」唯一判据（bcrypt 加盐无法复刻）；装完要求库内不再存在该哈希的行
 instance.go[PD8M]: F:实例查询、同步字段更新与状态条件收敛 | R:code:backend/internal/model/instance.go | A:ListInstances,UpdateInstanceSync,UpdateInstanceStatus,MarkInstanceTerminated | S:状态更新用 from→to 条件更新，并发下只有一个生效；MarkInstanceTerminated 幂等，重复收敛不重复写
 instance_log.go[PO6T]: F:实例操作审计写入与分页查询 | R:code:backend/internal/model/instance_log.go | A:AppendInstanceLog,ListInstanceLogs | S:message 按 500 字符截断对应列宽；审计写入不参与业务事务
 member.go[PI7M]: F:会员创建、资料/密码/状态更新与分页查询 | R:code:backend/internal/model/member.go,code:backend/internal/model/money.go | A:CreateMember,UpdateMemberProfile,UpdateMemberPassword,ListMembers | S:Phone 指向空串表示清空写 NULL；用户名/邮箱唯一键冲突翻译为哨兵错误供 409
 notification.go[PM7S]: F:站内通知落库、未读统计与已读标记 | R:code:backend/internal/model/notification.go | A:CreateNotification,CreateNotifications,MarkNotificationRead,CountUnreadNotifications | S:一行等于一个接收方的一条通知；管理员通知按 ListAdminRecipients 扇出给 admin 与 support
-order.go[PB9L]: F:订单落库、余额支付与在线支付入账事务 | R:code:backend/internal/model/order.go,code:backend/internal/model/ledger.go,code:backend/internal/model/money.go | A:CreateOrder,PayOrderWithBalance,CompleteOrderPayment,CancelOrder | S:PaymentOutcome 区分已入账与状态冲突；扣余额与写流水同事务在行锁下完成，重复回调幂等不重复入账
-product.go[PB8L]: F:商品目录导入、本地字段更新与分页查询 | R:code:backend/internal/model/product.go,code:backend/internal/category/category.go | A:ImportCatalog,importProducts,UpdateProduct,ListProducts | S:导入只写 productUpstreamColumns 显式列出的上游列，防误覆盖定价/上下架；分类按稳定键 find-or-create
+order.go[PB9L]: F:订单落库、余额支付与在线支付入账事务 | R:code:backend/internal/model/order.go,code:backend/internal/model/ledger.go,code:backend/internal/model/money.go,code:backend/internal/store/referral.go | A:CreateOrder,PayOrderWithBalance,CompleteOrderPayment,CancelOrder | S:PaymentOutcome 区分已入账与状态冲突；扣余额与写流水同事务在行锁下完成；BindInviterID 非 0 时同事务首绑邀请人，已绑定返回 ErrInviterAlreadyBound 且订单不落库；入账后同事务发放返佣
+product.go[PB8L]: F:商品目录导入、本地字段更新与分页查询 | R:code:backend/internal/model/product.go,code:backend/internal/category/category.go | A:ImportCatalog,importProducts,UpdateProduct,ListProducts | S:导入只写 productUpstreamColumns 显式列出的上游列，防误覆盖定价/上下架/返佣字段；分类按稳定键 find-or-create；rebate_percent 空串表示清空为 NULL
 settings.go[PC7T]: F:设置键值读写与条件插入 | R:code:backend/internal/model/setting.go | A:Setting,UpsertSetting,InsertSettingIfAbsent,DeleteSetting | S:UpsertSetting 记录 updatedBy 供审计；InsertSettingIfAbsent 幂等用于安装标记写入
-store.go[CS8S]: F:持久化层 Store 骨架、哨兵错误与冲突翻译 | R:code:backend/internal/model/member.go | A:Store,New,mapDuplicateError,escapeLike | S:MySQL 1062 按冲突列翻译为 ErrUsernameTaken 等哨兵；LIKE 关键字转义防注入
+store.go[CS8S]: F:持久化层 Store 骨架、哨兵错误与冲突翻译 | R:code:backend/internal/model/member.go | A:Store,New,mapDuplicateError,escapeLike | S:MySQL 1062 按冲突列翻译为 ErrUsernameTaken 等哨兵；LIKE 关键字转义防注入；ErrInsufficientRebate/ErrRebateNegative 供提现与转余额判定，负返现余额只禁这两类操作
 ticket.go[PB7M]: F:工单与消息落库：创建、回复、关闭 | R:code:backend/internal/model/ticket.go | A:CreateTicketWithMessage,AppendTicketReply,CloseTicket,CountOpenTickets | S:工单与首条消息同事务写入保证结构完整；includeInternal=false 时会员端过滤内部备注
+payout.go[PB8L]: F:提现/转余额申请落库、冻结与审核打款事务 | R:code:backend/internal/model/referral_payout.go,code:backend/internal/model/ledger.go,code:backend/internal/store/store.go | A:CreatePayout,ListPayouts,PayoutByID,ReviewPayout,MarkPayoutPaid,SetMemberRebateOverride | S:withdraw 提交即冻结返现余额、reject 退回；convert 审核通过才换算（返现减+消费加+两端各一条 ledger），reject 不动钱；可用余额=rebate_balance−在途 convert 且在行锁下校验；reviewed_at/paid_at 首写不覆盖，重复动作回 already=true
+referral.go[PB8L]: F:邀请码生成、邀请绑定、返佣发放/回滚与返现余额事务 | R:code:backend/internal/model/referral_rebate.go,code:backend/internal/model/ledger.go,code:backend/internal/pricing/referral.go | A:EnsureInviteCode,MemberByInviteCode,BindInviter,RollbackReferralRebate,ListReferralRebates,ReferralSummary | S:返佣挂在入账口不挂在交付，referral_rebates.order_id 唯一为幂等锚点；不发放条件（总开关关/未绑邀请人/商品禁用/结果为 0）一律返回 nil 不阻断入账；rebate_balance 可为负且变动时不校验余额不足；首绑不改
 
 ===D:/Project/Lyidc_OEM/backend/internal/upstream/===
 actions.go[IL8L]: F:上游主机模块操作：电源/重装/改密/暂停与开通续费 | R:code:backend/internal/upstream/client.go,code:backend/internal/upstream/types.go | A:CreateHost,RenewHost,Reinstall,ResetPassword,Suspend,Unsuspend | S:上游受理即返回属异步语义；func 参数名取自上游 v3.7.5 ProvisionController，升级上游须核对方法名
@@ -198,6 +209,10 @@ types.go[IN7M]: F:上游响应包与业务数据结构定义 | R:code:backend/in
 0014_create_product_categories.down.sql[PB3T]: F:回滚商品分类表 | R:code:backend/migrations/0014_create_product_categories.up.sql | A:- | S:-
 0014_create_product_categories.up.sql[PB6T]: F:建立商品两级分类表 product_categories | R:code:backend/internal/model/product.go,code:backend/internal/category/category.go | A:- | S:不给 product_groups 加 parent_id——子分类与上游组是多对多，单表父子列表达不了
 embed.go[CP6T]: F:以 embed 内嵌全部 SQL 迁移文件 | R:code:backend/cmd/migrate/main.go,code:backend/internal/install/migrate.go | A:FS | S:go:embed *.sql 使安装向导与 cmd/migrate 共用同一套迁移，不复制 SQL
+0015_add_referral_rebate.down.sql[PB3T]: F:回滚邀请返佣相关的列、表与 ledger 枚举 | R:code:backend/migrations/0015_add_referral_rebate.up.sql | A:- | S:先删 referral_rebate 流水再收窄 type 枚举，否则残留非法枚举值
+0015_add_referral_rebate.up.sql[PB7T]: F:建立邀请返佣数据面：邀请关系列、返佣流水表与 ledger 枚举扩展 | R:code:backend/internal/model/referral_rebate.go,code:backend/internal/model/member.go | A:- | S:referral_rebates.order_id 唯一是发放幂等锚点；rebate_balance 与 balance 完全独立且可为负；返佣公式与三级比例优先级固化在列注释，改口径必须同步契约 18.2
+0016_create_referral_payouts.down.sql[PB3T]: F:回滚提现/转余额申请表 | R:code:backend/migrations/0016_create_referral_payouts.up.sql | A:- | S:不扩 ledger 枚举；回滚不收窄 type；动返现余额用 referral_rebate
+0016_create_referral_payouts.up.sql[PB7T]: F:建立提现与转余额申请表 referral_payouts | R:code:backend/internal/model/referral_payout.go | A:- | S:提现与转余额共表用 kind 分流，避免复制一套状态机；account_name/account_no 库内存原文、对外一律脱敏；本迁移不扩 ledger.type 枚举，转换消费侧用既有 adjust
 
 ===D:/Project/Lyidc_OEM/deploy/===
 .env.example[OV6T]: F:docker compose 环境变量示例 | R:code:deploy/docker-compose.yml | A:- | S:.env 已 gitignore 绝不提交；安装向导第 2 步的数据库口令必须与 MYSQL_ROOT_PASSWORD 一致
@@ -209,7 +224,7 @@ nginx-default.conf.template[OV7T]: F:前端 nginx 站点配置模板（envsubst 
 
 ===D:/Project/Lyidc_OEM/docs/===
 RELEASE.md[SO6S]: F:发版流程、tag 命名规则与发布后核对清单 | R:code:.github/workflows/release.yml | A:- | S:tag 必须 v 前缀才会触发流水线；latest 镜像 tag 仅在 v* tag 上更新，分支构建不会覆盖
-api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码，评审以本文档为准；界面页签/路由合并属页面结构、接口不变时不升版只补变更记录（当前最新 v18）
+api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码，评审以本文档为准；界面页签/路由合并属页面结构、接口不变时不升版只补变更记录（当前最新 v21）
 deploy.md[SO7S]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种方式收尾都走同一个浏览器安装向导；compose 向导第 2 步数据库主机必须填 mysql 而不是 127.0.0.1
 
 ===D:/Project/Lyidc_OEM/docs/references/upstream/===
@@ -250,11 +265,11 @@ main.tsx[EA5T]: F:前端应用挂载入口 | R:code:frontend/src/App.tsx,code:fr
 adminAuth.ts[EI6T]: F:管理端登录与资料接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:loginAdmin,fetchAdminProfile | S:api 层不写存储，token 由 AdminAuthProvider 落库；登录开放其余接口带 admin token
 adminCategories.ts[EB5T]: F:管理端商品分类接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchCategories,updateCategory | S:分类写操作仅 admin，界面按 categories.write 隐藏入口且服务端仍独立 403
 adminInstances.ts[EI6S]: F:管理端实例查询与操作接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchAdminInstances,suspendInstance,syncInstance,cancelInstance | S:暂停需 reason；取消区分 immediate 与 end_of_billing 两种口径
-adminMembers.ts[EI6S]: F:管理端会员与财务查询接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchMembers,updateMemberStatus,fetchAdminLedger | S:改会员状态类接口 support 角色 403，界面按角色矩阵禁用
+adminMembers.ts[EI6T]: F:管理端会员与财务查询接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchMembers,updateMemberStatus,fetchAdminLedger | S:改会员状态类接口 support 角色 403，界面按角色矩阵禁用；rebate_percent_override 三态（键缺席不改/null 清空/字符串设值）
 adminNotifications.ts[EM5T]: F:管理端站内通知接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchAdminNotifications,markAdminRead | S:-
 adminOrders.ts[EB6S]: F:管理端订单查询与重试交付接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchAdminOrders,fetchAdminOrder,retryDelivery | S:列表与详情三角色均可读；重试交付仅 admin/finance
 adminProducts.ts[EB6S]: F:管理端商品与导入接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchAdminProducts,updateProduct,importProducts | S:导入是覆盖上游字段的批量操作，本地定价与上下架不受影响
-adminSettings.ts[EC7S]: F:后台设置读写与测试邮件接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchEpaySettings,updateEpaySettings,updateSMTPSettings,sendTestEmail | S:密钥字段三态（undefined 不改、字符串替换、空串清空）；接口返回掩码不可回填明文
+adminSettings.ts[EC7S]: F:后台设置读写与测试邮件接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchEpaySettings,updateEpaySettings,updateSMTPSettings,sendTestEmail,fetchReferralSettings | S:密钥三态（undefined 不改、字符串替换、空串清空）；接口返回掩码不可回填明文；返佣设置仅 admin 可调
 adminTickets.ts[EB6S]: F:管理端工单处理接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchAdminTickets,adminReplyTicket,adminCloseTicket | S:内部备注与公开回复是不同入参，内部备注不改变工单状态
 auth.ts[EI6T]: F:会员认证接口封装（注册/登录/资料） | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:registerMember,loginMember,fetchMe | S:api 层不写存储，token 由 AuthProvider 落库
 client.ts[CI8S]: F:统一 fetch 封装：响应包解包、鉴权注入与超时 | R:code:frontend/src/api/tokens.ts,code:docs/api-contract.md | A:http,ApiError,onUnauthorized | S:会员与管理端 token 作用域互不通用；401 触发 onUnauthorized 登出，业务错误抛 ApiError 保留 code
@@ -266,7 +281,9 @@ orders.ts[EB6S]: F:会员订单与支付接口封装 | R:code:frontend/src/api/c
 products.ts[EB5T]: F:商品目录公开接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchProductCatalog,fetchProductDetail | S:只暴露已上架商品且不含任何上游 ID
 tickets.ts[EB6S]: F:会员工单接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:createTicket,fetchMyTickets,replyTicket,closeTicket | S:标题 5-100、正文 1-5000 字符；未关闭工单上限 20
 tokens.ts[CS8T]: F:会员/管理端 token 与资料缓存的本地存取 | R:code:frontend/src/api/client.ts | A:getMemberToken,setMemberToken,getAdminToken,clearAdminToken | S:两类 token 存储键完全分离互不覆盖；token 只注入 Authorization 头不写日志
-types.ts[CG8L]: F:前后端契约响应类型的前端映射 | R:code:docs/api-contract.md,code:backend/internal/response/response.go | A:Paged,Member,ProductSummary,Order | S:类型与契约响应包 examples 一一对应，改契约须同步本文件
+types.ts[CG8L]: F:前后端契约响应类型的前端映射 | R:code:docs/api-contract.md,code:backend/internal/response/response.go | A:Paged,Member,ProductSummary,Order | S:类型与契约响应包 examples 一一对应，改契约须同步本文件；ConfigOption.tiers 是数量型挑档位的唯一依据，values[].qty_* 是并集只供控件定范围
+adminReferral.ts[EB7T]: F:管理端返佣管理接口封装（提现/转余额审核与打款） | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:listAdminWithdrawals,listAdminConversions,reviewAdminWithdrawal,markAdminWithdrawalPaid,reviewAdminConversion | S:审核与打款仅 admin 调用、查看类 admin/finance；返回的账号信息已脱敏，禁止在界面二次还原或写日志
+referral.ts[EB7S]: F:会员邀请返现与自建券/提现/转余额接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchReferral,updateReferral,listReferralRebates,listReferralInvitees,createReferralCoupon | S:全部要求会员 token 且只能操作本人数据；金额一律定点小数字符串勿转 number 计算；开通返现会惰性生成邀请码，概览返回的 invite_link 直接展示不再拼接
 
 ===D:/Project/Lyidc_OEM/frontend/src/app/===
 paths.ts[AU6T]: F:全站路由路径常量与导航配置 | R:code:frontend/src/app/routes.tsx | A:paths,siteNavItems,consoleNavItems,adminNavItems | S:管理端商品与分类合并为单一入口，分类用 ?tab=categories 页签表示；adminCategories 常量只是旧地址重定向源，不得再加回独立「分类」导航项
@@ -331,9 +348,8 @@ SiteLayout.tsx[AU5T]: F:官网公共布局：顶栏+内容+页脚 | R:code:front
 UserMenu.tsx[IS6S]: F:顶栏用户菜单：余额展示与登出 | R:code:frontend/src/api/finance.ts,code:frontend/src/auth/authContext.ts | A:UserMenu | S:余额实时拉取，登录态里的余额仅作占位
 
 ===D:/Project/Lyidc_OEM/frontend/src/components/product/===
-ConfigSelector.tsx[KB8M]: F:商品配置项矩阵选择控件（下拉/单选横条/系统两级下拉/数量步进） | R:code:frontend/src/api/types.ts,code:frontend/src/lib/configControl.ts,code:frontend/src/lib/priceQuote.ts,code:frontend/src/pages/Checkout.tsx | A:ConfigSelector | S:数量型提交数量而非子项 id；详情页与结算页共用本控件，改 OsField 会同时影响两页；切换操作系统时当前值属新大类则保持否则落该大类首个版本；差价随选择实时联动计价
-CyclePriceTable.tsx[KB5T]: F:六周期价格表格 | R:code:frontend/src/lib/cycles.ts | A:CyclePriceTable | S:null 价格表示该周期不可售，须置灰而非显示 0
-CycleSelector.tsx[KB6S]: F:六周期选择器 | R:code:frontend/src/lib/cycles.ts | A:CycleSelector | S:不可售周期置灰不可选；按钮组实现保留 radiogroup 语义与键盘可达性
+ConfigSelector.tsx[KB8M]: F:商品配置项矩阵选择控件（下拉/单选横条/系统两级下拉/数量步进） | R:code:frontend/src/api/types.ts,code:frontend/src/lib/configControl.ts,code:frontend/src/lib/priceQuote.ts,code:frontend/src/pages/Checkout.tsx | A:ConfigSelector | S:数量型提交数量而非子项 id；详情页与结算页共用本控件；OsField 两个下拉的 aria-label 是 label 与「label 版本」，不得拼成「操作系统操作系统」；差价随选择实时联动计价
+CycleSelector.tsx[KB6T]: F:计费周期选择器（只渲染可售周期） | R:code:frontend/src/lib/cycles.ts | A:CycleSelector | S:价格为 null 的周期直接不渲染（不是置灰）；全部不可售时降级为空态提示而非空的 radiogroup；按钮组保留 radiogroup 语义与键盘可达性
 PriceBreakdown.tsx[KB6S]: F:成交价差价明细折叠展示 | R:code:frontend/src/lib/priceQuote.ts | A:PriceBreakdownView | S:无差价数据的周期标注 NoteNoPricingData 而不是显示 0 元
 ProductCard.tsx[EB6S]: F:商品卡片：周期价与配置列表展示 | R:code:frontend/src/lib/cycles.ts,code:frontend/src/app/paths.ts | A:ProductCard | S:取最便宜可售周期作起价；无可售周期的商品不出购买入口
 
@@ -369,13 +385,13 @@ useAsync.ts[CS6S]: F:轻量数据加载 hook：加载/错误/竞态取消 | R:co
 useUnreadCount.ts[EM5S]: F:会员未读通知计数的模块级 store | R:code:frontend/src/api/notifications.ts | A:useUnreadCount,refreshUnreadCount,setUnreadCount | S:用 useSyncExternalStore 承载跨页共享状态，避免引入 Context
 
 ===D:/Project/Lyidc_OEM/frontend/src/lib/===
-adminRoles.ts[MS8S]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,permissionHint,canAccessAdminPage,AdminPermission,AdminPage | S:无权限入口隐藏或禁用且不发无权限请求，服务端仍独立 403，本文件只描述谁能做什么；商品与分类合并页只有一个页面键 products，分类写仍走 categories.write（仅 admin）
+adminRoles.ts[MS8S]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,permissionHint,canAccessAdminPage,AdminPermission,AdminPage | S:无权限入口隐藏或禁用且不发无权限请求，服务端仍独立 403；商品与分类合并页只有一个页面键 products；referral.read=admin/finance、referral.review=仅 admin
 checkout.ts[KB6S]: F:下单草稿与最近订单的会话存储 | R:code:frontend/src/lib/storage.ts | A:saveCheckoutDraft,readCheckoutDraft,rememberOrder | S:存 sessionStorage 关标签页即失效；草稿键带 product_id 防互相覆盖
 clipboard.ts[CS4T]: F:剪贴板复制兜底封装 | R:- | A:copyText | S:navigator.clipboard 在非安全上下文缺失，失败返回 false 不抛错
 configControl.ts[KB8L]: F:配置项控件形态判定与数量取值规则 | R:code:frontend/src/api/types.ts | A:configControl,isQuantityOption,quantityRange,defaultConfigValue | S:option_type 到控件的映射来自上游 159 个商品实测；数量型传数量而非子项 id，与后端口径一致
 cycles.ts[KB7S]: F:六计费周期定义、显示名与价格辅助 | R:code:docs/api-contract.md | A:BILLING_CYCLES,CYCLE_LABELS,availableCycles,cheapestCycle | S:本地周期名去 -ly（semiannual/annual），与上游字段名不同勿混用；null 价表示不可售
 expiry.ts[DR5S]: F:到期时间展示与临期判断 | R:- | A:daysUntil,expiryState,expiryText | S:7 天临期阈值是固定展示口径，不影响任何业务判定（会员端不下发提醒天数设置）
-financeText.ts[PB4T]: F:充值单与流水的文案和色调映射 | R:code:frontend/src/lib/orderStatus.ts | A:RECHARGE_STATUS_LABELS,LEDGER_TYPE_LABELS | S:-
+financeText.ts[PB4T]: F:充值单与流水的文案和色调映射 | R:code:frontend/src/lib/orderStatus.ts | A:RECHARGE_STATUS_LABELS,LEDGER_TYPE_LABELS | S:LEDGER_TYPE_LABELS 含 referral_rebate；会员端余额流水不展示该类型，管理端对账才用到
 format.ts[CS6S]: F:时间与金额的展示格式化 | R:code:frontend/src/lib/cycles.ts | A:formatDateTime,formatMoney,formatAmount,monthlyEquivalent | S:金额一律按定点字符串展示，不参与浮点计算；时间用 zh-CN 本地化渲染 UTC 输入
 instanceStatus.ts[PD7S]: F:实例状态、取消标记与电源操作文案 | R:code:frontend/src/lib/orderStatus.ts | A:INSTANCE_STATUS_LABELS,POWER_ACTIONS,instanceActionLabel | S:cancelled 态已不再写入但保留文案；硬操作标记高风险供二次确认
 memberText.ts[PI3T]: F:会员状态文案与色调 | R:code:frontend/src/lib/orderStatus.ts | A:MEMBER_STATUS_LABELS | S:-
@@ -384,7 +400,7 @@ orderConfig.ts[KB5S]: F:订单配置快照的可读化翻译 | R:code:frontend/s
 orderStatus.ts[PB7S]: F:订单六态状态机的文案与色调 | R:code:docs/api-contract.md | A:ORDER_STATUS_LABELS,ORDER_STATUS_TONES,StatusTone | S:StatusTone 是全站状态色的类型基础，新增色调先改 statusTone.ts
 pagination.ts[AU5T]: F:分页计算与各端每页条数常量 | R:- | A:totalPages,pageWindow,PRODUCT_PAGE_SIZE | S:会员区与管理端每页 20 与后端缺省一致；商品目录前端切分每页 12
 pay.ts[IB6T]: F:支付方式口径与收银台跳转 | R:code:frontend/src/api/types.ts | A:PAY_METHODS,EPAY_TYPES,gotoPayurl | S:在线支付仅易支付（支付宝/微信）+ 余额支付两路；payurl 由渠道返回原样跳转
-priceQuote.ts[KB8S]: F:配置差价联动计价的前端试算 | R:code:frontend/src/lib/configControl.ts,code:frontend/src/lib/cycles.ts | A:quotePrice,billableQuantity,unitDelta,toCents | S:成交价=基础价+Σ配置差价；无差价数据按 0 计并标注 NoteNoPricingData；试算结果仅供展示，成交以后端为准
+priceQuote.ts[KB8S]: F:配置差价联动计价的前端试算 | R:code:frontend/src/lib/configControl.ts,code:frontend/src/lib/cycles.ts | A:quotePrice,billableQuantity,quantityTiers,tierFor,toCents | S:成交价=基础价+Σ配置差价；数量型挑档位必须用 tiers 真实区间，values[].qty_* 是并集——用它挑会命中首档；无差价数据按 0 计并标注；试算仅供展示，成交以后端为准
 productText.ts[LB6S]: F:上游配置项文案的展示化处理 | R:- | A:optionLabel,valueLabel,valueDisplayName | S:name 是上游原文形如 area|区域，只做去前缀展示，不改动提交给后端的 id
 redirect.ts[MS7T]: F:登录回跳参数处理 | R:- | A:safeRedirect,buildLoginUrl,buildAdminLoginUrl | S:只接受单个 / 开头的站内路径，拒绝 //evil.com 与绝对 URL 防开放重定向
 secret.ts[MS7T]: F:密钥三态语义定义与载荷转换 | R:code:docs/api-contract.md | A:SecretState,SECRET_KEEP,secretPayload | S:省略=不变、给值=替换、空串=清空；keep 状态必须发 undefined 而不是空串
@@ -393,7 +409,8 @@ statusTone.ts[AU5T]: F:状态语义色 class 的唯一出口 | R:code:frontend/s
 storage.ts[CS6S]: F:浏览器存储的安全封装 | R:- | A:localStore,sessionStore,StorageAdapter | S:隐私模式或禁用存储时读写失败不抛错，返回 null/兜底值
 ticketStatus.ts[PB5T]: F:工单状态与分类文案映射 | R:code:frontend/src/lib/orderStatus.ts | A:TICKET_STATUS_LABELS,TICKET_CATEGORY_LABELS | S:-
 utils.ts[CZ2T]: F:cn 类名合并工具再导出 | R:- | A:cn | S:-
-validate.ts[CS7S]: F:表单校验 schema：登录注册与账号字段 | R:code:docs/api-contract.md | A:loginSchema,registerSchema,byteLength | S:密码长度按 UTF-8 字节数算（8-72 字节）与后端 bcrypt 口径一致，中文密码 3 字即 9 字节
+validate.ts[CS7M]: F:表单校验 schema 与各业务字段校验纯逻辑 | R:code:docs/api-contract.md | A:loginSchema,registerSchema,byteLength,validateRechargeAmount,validatePayoutAmount | S:密码长度按 UTF-8 字节数算（8-72 字节）与后端 bcrypt 口径一致；充值 1.00~50000.00 与后端边界一致；registerSchema 收选填 invite_code（≤32 字符）
+referralText.ts[PB6T]: F:返佣出账与返佣流水的文案和色调映射 | R:code:frontend/src/lib/orderStatus.ts | A:PAYOUT_STATUS_LABELS,PAYOUT_KIND_LABELS,payoutStatusLabel,referralRebateStatusLabel,ratioSourceLabel | S:未知状态/类型原样回退返回入参不抛错；StatusTone 缺省归 pending
 
 ===D:/Project/Lyidc_OEM/frontend/src/pages/===
 Checkout.tsx[EB8L]: F:下单结算页：配置确认、优惠码试算与支付发起 | R:code:frontend/src/lib/checkout.ts,code:frontend/src/api/orders.ts,code:frontend/src/components/checkout/PayDialog.tsx | A:Checkout | S:优惠码校验通过不代表下单一定成功，下单接口会重新判定；下单成功后取消入口仅限 pending
@@ -409,26 +426,28 @@ Home.tsx[EB6M]: F:官网首页：产品展示与功能介绍 | R:code:frontend/s
 Login.tsx[IS6S]: F:会员登录页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts,code:frontend/src/lib/redirect.ts | A:Login | S:登录成功后按 safeRedirect 回跳，拒绝外站重定向
 NotFound.tsx[AU3T]: F:404 兜底页 | R:code:frontend/src/app/paths.ts | A:NotFound | S:-
 PayResult.tsx[IB7M]: F:支付结果页：回调跳转后的订单状态确认 | R:code:frontend/src/api/orders.ts,code:frontend/src/lib/checkout.ts | A:PayResult | S:同步跳转不代表已入账，以订单查询结果为准；pending 时可继续支付或取消
-ProductDetail.tsx[EB8M]: F:商品详情页：配置速览、配置矩阵选择与计价 | R:code:frontend/src/api/products.ts,code:frontend/src/components/product/ConfigSelector.tsx,code:frontend/src/lib/checkout.ts,code:frontend/src/lib/priceQuote.ts | A:ProductDetail | S:选择结果写入 sessionStorage 草稿以支持登录回跳；差价联动展示仅供试算，成交以后端为准；接口 description 仍下发但本页不再展示商品说明区块（R9-C）
+ProductDetail.tsx[EB8M]: F:商品详情页：配置矩阵选择、计费周期与成交价预览 | R:code:frontend/src/api/products.ts,code:frontend/src/components/product/ConfigSelector.tsx,code:frontend/src/lib/checkout.ts,code:frontend/src/lib/priceQuote.ts | A:ProductDetail | S:选择结果写入 sessionStorage 草稿以支持登录回跳；差价联动仅供试算，成交以后端为准；配置速览与价格一览已移除，description_lines 仍下发供商品卡使用
 Products.tsx[EB6M]: F:商品目录页：分类浏览与搜索 | R:code:frontend/src/api/products.ts,code:frontend/src/lib/cycles.ts | A:Products | S:目录一次拉全量上架商品由前端切页；不可售周期不出购买入口
-Register.tsx[IS6S]: F:会员注册页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts | A:Register | S:密码校验按 8-72 字节口径与后端一致，中文密码按字节计
+Register.tsx[IS6S]: F:会员注册页 | R:code:frontend/src/auth/authContext.ts,code:frontend/src/lib/validate.ts | A:Register | S:密码校验按 8-72 字节口径与后端一致；邀请码选填，从 /register?invite=XXXX 进入时自动预填且用户可改
+ConsoleReferral.tsx[EB8L]: F:会员邀请返现中心：邀请码/链接、自建券、提现与转余额申请、返佣与邀请记录 | R:code:frontend/src/api/referral.ts,code:frontend/src/lib/referralText.ts,code:frontend/src/lib/validate.ts | A:ConsoleReferral | S:开通返现后才生成邀请码，PUT /referral 成功就地覆盖概览不整页重拉；金额一律定点字符串展示不转 number；自建券 value/code/owner 创建后不可改
 
 ===D:/Project/Lyidc_OEM/frontend/src/pages/admin/===
 AdminDashboard.tsx[EB6M]: F:管理后台仪表盘：指标卡与快捷入口 | R:code:frontend/src/lib/adminRoles.ts,code:frontend/src/app/paths.ts | A:AdminDashboard | S:无权限指标不发起请求，卡片显示占位而非编造数字
 AdminInstanceDetail.tsx[DU8L]: F:管理端实例详情：同步、暂停恢复与终止收敛 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/lib/adminRoles.ts | A:AdminInstanceDetail | S:同步发现上游已删除会走终止收敛；暂停必须填原因，恢复仅 suspended 可用
 AdminInstances.tsx[DU6M]: F:管理端实例列表页 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminInstances | S:-
 AdminLogin.tsx[IS6S]: F:管理端登录页 | R:code:frontend/src/auth/adminAuthContext.ts,code:frontend/src/lib/redirect.ts | A:AdminLogin | S:登录后回跳地址走 safeRedirect 校验防开放重定向
-AdminMembers.tsx[EI7L]: F:管理端会员管理：列表、状态与财务查询 | R:code:frontend/src/api/adminMembers.ts,code:frontend/src/lib/adminRoles.ts | A:AdminMembers | S:改会员状态仅 admin/finance，support 只读；禁用立即生效使已发 token 失效
+AdminMembers.tsx[EI7L]: F:管理端会员管理：列表、状态、财务查询与返佣特批 | R:code:frontend/src/api/adminMembers.ts,code:frontend/src/lib/adminRoles.ts | A:AdminMembers | S:改会员状态仅 admin/finance，support 只读；禁用立即生效使已发 token 失效；特批比例写走 members.rebate 权限点且三态提交
 AdminNotifications.tsx[EM6S]: F:管理端站内通知页 | R:code:frontend/src/api/adminNotifications.ts,code:frontend/src/hooks/useAdminUnreadCount.ts | A:AdminNotifications | S:-
 AdminOrderDetail.tsx[EB7M]: F:管理端订单详情：交付重试与明细 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/lib/adminRoles.ts | A:AdminOrderDetail | S:重试交付仅限 failed 订单，认领失败说明已在交付中或已完成
 AdminOrders.tsx[EB6M]: F:管理端订单列表页 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminOrders | S:三角色均可读列表与详情，便于客服协助查询
 AdminProducts.tsx[EB8L]: F:管理端商品与分类页：商品导入/定价/上下架/改分类与分类树维护（页内两页签） | R:code:frontend/src/api/adminProducts.ts,code:frontend/src/api/adminCategories.ts,code:frontend/src/components/admin/CategoriesPanel.tsx,code:frontend/src/lib/adminRoles.ts | A:AdminProducts | S:导入覆盖上游字段不覆盖本地定价，无任何可售价的商品拒绝上架；商品写 products.write 与分类写 categories.write 是两个权限点各自闸门不发越权请求；分类页签由 ?tab=categories 表示，旧地址由路由层重定向
-AdminSettings.tsx[EC9L]: F:后台设置页：易支付/上游/SMTP/通知开关 | R:code:frontend/src/api/adminSettings.ts,code:frontend/src/components/admin/SecretInput.tsx | A:AdminSettings | S:密钥只回掩码永不回显明文，更新走三态语义；仅 admin 可进本页，其余角色整页 NoPermission
+AdminSettings.tsx[EC9L]: F:后台设置页：易支付/上游/SMTP/通知开关与返佣 | R:code:frontend/src/api/adminSettings.ts,code:frontend/src/components/admin/SecretInput.tsx | A:AdminSettings | S:密钥只回掩码永不回显明文，更新走三态语义；仅 admin 可进本页；返佣两比例 0.00-100.00，改完下一笔支付即用新值
 AdminTicketDetail.tsx[EB7M]: F:管理端工单详情：公开回复、内部备注与关闭 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/lib/adminRoles.ts | A:AdminTicketDetail | S:内部备注不改变工单状态且会员不可见；公开回复后状态转 replied
 AdminTickets.tsx[EB6M]: F:管理端工单列表页 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminTickets | S:-
+AdminReferral.tsx[EI8L]: F:管理端返佣管理：提现/转余额审核、打款与返佣流水对账 | R:code:frontend/src/api/adminReferral.ts,code:frontend/src/lib/referralText.ts,code:frontend/src/lib/adminRoles.ts | A:AdminReferral | S:查看类 referral.read=admin/finance、审核打款 referral.review=仅 admin，按钮按权限禁用并给原因；返佣流水复用 GET /admin/ledger?type=referral_rebate 对账
 
 ===D:/Project/Lyidc_OEM/frontend/src/test/===
-fixtures.ts[TG6L]: F:前端测试的契约数据夹具 | R:code:frontend/src/api/types.ts,code:docs/api-contract.md | A:fixtures | S:夹具形状必须与契约响应包一致，改契约须同步夹具否则测试失真
+fixtures.ts[TG6L]: F:前端测试的契约数据夹具 | R:code:frontend/src/api/types.ts,code:docs/api-contract.md | A:fixtures,makeProductDetail,makeReferralOverview | S:夹具形状必须与契约响应包一致，改契约须同步夹具否则测试失真；多档位数量型夹具须同时给并集 values 与真实 tiers
 harness.tsx[TG6S]: F:测试渲染 harness：真实路由表与 Provider | R:code:frontend/src/app/routes.tsx,code:frontend/src/app/providers.tsx | A:renderApp,mockFetch | S:用 createMemoryRouter 复用真实路由，mock 只替换 fetch 不改组件结构
 setup.ts[TQ5T]: F:测试环境 setup：jsdom 浏览器 API 补齐 | R:- | A:- | S:Radix 组件在 jsdom 依赖 scrollIntoView/pointer capture，缺失会直接抛错
 

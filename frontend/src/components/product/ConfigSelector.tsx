@@ -202,7 +202,9 @@ function OsField({
       {/* 同一排两个下拉；窄屏（<sm）退化为上下堆叠，保证每个下拉仍够宽可读。 */}
       <div className="grid gap-2 sm:grid-cols-2">
         <Select value={activeGroup || undefined} onValueChange={selectGroup}>
-          <SelectTrigger id={`${selectId}-os`} className="w-full" aria-label={`${label}操作系统`}>
+          {/* aria-label 不复读 label 本身：label 已是「操作系统」，拼成「操作系统操作系统」
+              会让读屏念两遍（R11）。大类用 label，版本用 `${label} 版本`，两者唯一且不重复。 */}
+          <SelectTrigger id={`${selectId}-os`} className="w-full" aria-label={label}>
             <SelectValue placeholder="请选择操作系统" />
           </SelectTrigger>
           <SelectContent>
@@ -221,7 +223,7 @@ function OsField({
           <SelectTrigger
             id={`${selectId}-version`}
             className="w-full"
-            aria-label={`${label}系统版本`}
+            aria-label={`${label} 版本`}
           >
             <SelectValue
               placeholder={activeGroup ? '请选择系统版本' : '请先选择操作系统'}

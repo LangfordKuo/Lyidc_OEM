@@ -2,7 +2,7 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v20（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v21（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
@@ -10,7 +10,8 @@
 > R6 配置控件矩阵 + 数量型取值口径 + 系统二级选择；
 > R7 配置差价联动计价 + 商品两级分类（主分类 / 子分类）；R9-A 商品分类管理；R9-B 商品与分类合并页；
 > R10-A 邀请返佣：契约 + 迁移 + 绑定与返佣结算核心；
-> **R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理**）
+> R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理；
+> **R11 数量型档位区间下放（`tiers`）+ 商品详情页展示调整**）
 
 ## 1. 通用约定
 
@@ -1033,6 +1034,12 @@ R7 首次导入会因 `category_id` 从 `0` 变为派生值而计一次 `updated
 档位只影响计价，不影响提交。数量的合法区间取该配置项**全部可见档位的并集**
 （`min(档位.qty_minimum)` ~ `max(档位.qty_maximum)`），不得只取首个档位。
 
+**档位区间怎么拿到（v21 / R11）**：服务端**不改写**各档位的 `qty_minimum`/`qty_maximum` 语义来源——
+会员端视图里 `values[].qty_minimum`/`qty_maximum` 仍是**并集**（只用于数量控件取值范围），
+每档的**真实区间**由 `options[].tiers[]` 下发（`qty_min`/`qty_max` + 该档 `pricings`，见 10.3 第 6 条）。
+前端挑档位、算 `billable` 必须用 `tiers`，**不得**用并集字段反推档位（并集后每档区间都相同，
+按区间挑会永远命中第一档——正是 v21 修复的联动 bug）。
+
 **无差价数据的降级**：子项无 `pricings`、无 CNY/首行、或该周期字段缺失/非法/为负
 （上游以 `-1.00` 表示不适用）时，该配置项差价按 **`0.00`** 计，明细里 `note:"无差价数据"`，
 **不阻断下单**。
@@ -1176,6 +1183,8 @@ R7 起 `groups[]` 的语义从「上游产品组」演进为「**子分类**」�
           {
             "id": 7, "name": "bw|带宽", "type": 11, "upstream_id": 0,
             "values": [ { "id": 34, "name": "带宽", "upstream_id": 0, "qty_minimum": 20, "qty_maximum": 100,
+              "pricings": { "monthly": "0.50", "quarterly": "1.50", "semiannual": "3.00", "annual": "6.00", "biennial": "0.00", "triennial": "0.00" } } ],
+            "tiers": [ { "value_id": 34, "qty_min": 20, "qty_max": 100,
               "pricings": { "monthly": "0.50", "quarterly": "1.50", "semiannual": "3.00", "annual": "6.00", "biennial": "0.00", "triennial": "0.00" } } ]
           }
         ]
@@ -1225,6 +1234,26 @@ R7 起 `groups[]` 的语义从「上游产品组」演进为「**子分类**」�
    `min(值.qty_minimum)` ~ `max(值.qty_maximum)`，默认值取该下界，步进 1；选项型的这两个字段恒为 0。
    （R7 修正：此前只取**首个**值的范围，遇到多档位数量型——如商品 2 数据盘 `[30-30]`/`[31-256]`——
    会被锁死在 30 无法加盘；档位结构见 10.2.1。）下单校验见 12.4。
+   **v21 / R11 起数量型另下发 `options[].tiers[]`**（仅数量型有此项，选项型不出现该键）：
+
+   ```json
+   "tiers": [
+     { "value_id": 88,    "qty_min": 30, "qty_max": 30,  "pricings": { "monthly": "0.00", "...": "..." } },
+     { "value_id": 10664, "qty_min": 31, "qty_max": 256, "pricings": { "monthly": "0.50", "...": "..." } }
+   ]
+   ```
+
+   | 字段 | 说明 |
+   | --- | --- |
+   | `value_id` | 对应 `values[].id`（同一子项 = 同一价格档位），便于回查值名 |
+   | `qty_min` / `qty_max` | **该档真实区间**（上游 `sub.qty_minimum`/`qty_maximum` 原值，**不是**并集） |
+   | `pricings` | 该档六周期**单位差价**，形状与口径同 `values[].pricings`（第 8 条） |
+
+   `tiers[]` 按 `qty_min` 升序，与 `values[]` 同源同过滤（会员端同样剔除 `hidden != 0`）。
+   **语义分工（向后兼容）**：`values[].qty_minimum`/`qty_maximum` **继续是并集**（数量控件的
+   min/max 与默认值，旧客户端行为不变）；`tiers[]` **才是挑档位的唯一依据**——数量落在哪一档
+   就用哪一档的 `pricings`，`billable = qty − 低一档的 qty_max`（见 10.2.1）。
+   用并集字段反推档位会永远命中第一档（每档区间被并集拉平），v21 之前的价格联动 bug 即源于此。
 7. 值名里的 `^` 前是「大类」（如 `15|Debian^Debian-10.3.3-x64` 的 `Debian`、
    `1|HK^香港` 的 `HK`），二级选择以它为大类分组依据（按值出现顺序去重）；
    `^` 后是具体显示名。
@@ -1233,6 +1262,8 @@ R7 起 `groups[]` 的语义从「上游产品组」演进为「**子分类**」�
    六个键**始终存在**；`null` 表示该周期**无差价数据**（按 `0.00` 计，明细标注「无差价数据」，见 10.2.1）。
    数量型的 `pricings` 是**单位差价**（成交时乘可计费数量，见 10.2.1）。
    `base` 类价格字段不在值上——基础价仍看商品级 `prices`。
+   （v21 / R11：数量型的 `tiers[].pricings` 与本条同形同口径，是**按档位**取单价的权威来源；
+   `values[].pricings` 对数量型而言与 `tiers` 同源，保留是为了旧客户端不破。）
 9. **成交价实时重算**：前端在配置/周期变化时按 `基础价(cycle) + Σ 配置差价(cycle)` 重算
    （数量型乘可计费数量），并展示可展开明细；**服务端下单时仍以同一公式为准**，
    前端展示价只是预览（10.3 结尾既有声明「最终以提交订单时的金额为准」继续有效）。
@@ -4562,6 +4593,7 @@ PUT 局部更新（至少提供一个字段），改完**下一笔支付即用�
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-13 | v21 | R11 数量型档位区间下放 + 商品详情页展示调整——**① 数量型多档位价格联动修复（10.2.1 / 10.3 第 6 条，本批唯一接口形状变化）**：根因是 R7 的「档位并集归一化」把每档 `qty_minimum`/`qty_maximum` 统一改写成并集（商品 2 数据盘 `[30-30 @0.00]` + `[31-256 @0.50]` 两档都变成 `30~256`），前端按「qty 落在哪个档位区间」挑档位时永远命中第一档（免费档），加量不加价。**修法（方案 A，向后兼容）**：`values[].qty_minimum`/`qty_maximum` **语义不变、继续是并集**（只用于数量控件 min/max 与默认值，旧客户端行为不变），数量型配置项**新增 `options[].tiers[]`**（`{value_id, qty_min, qty_max, pricings}`，按 `qty_min` 升序、与 `values[]` 同源同 hidden 过滤），`qty_min`/`qty_max` 是**该档真实区间**、`pricings` 是该档单位差价；**挑档位与算 `billable` 一律以 `tiers` 为唯一依据**（`billable = qty − 低一档 qty_max`），选项型不下发 `tiers`。后端 `pricing.Quote`/`quantityLine` 本就按 `TierFor(qty)` + `tierFloor` 正确计费，本批不改计费口径，只把真实档位区间补回接口。**算例（前后端同口径，入测试）**：商品 2 数据盘 qty=30 → 差价 `0.00`；qty=31 → `0.50`；qty=50 → `(50−30)×0.50 = 10.00`；商品 1 单档 `[0-256 @0.50]` 回归 qty=0 → `0.00`、qty=50 → `25.00`。**② 纯前端展示调整（接口不变）**：商品详情页删除「配置速览」（`description_lines` 清单）与「价格一览」（六周期表格），接口仍下发 `description_lines`（列表页商品卡仍在用）；计费周期选择器**直接不渲染不可售周期**（价格 `null`），不再置灰，全部不可售时出空态并禁用下单。 |
 | 2026-10-13 | v20 | R10-B 邀请返佣（二）：自建券 + 提现/转余额（含审核）+ 管理端返佣管理——**① 折扣上限（18.5，核心风控，口径写死）**——`上限 = min(settings.referral.max_coupon_percent, 邀请人的生效返佣比例)`，其中「生效返佣比例」= 会员级 `rebate_percent_override` 优先、否则全局 `default_percent`（即 18.2 三级的**前两级**，**商品级不参与**——券跨商品通用，绑不到商品比例）；含义是「返还 20% 的人最多发 8 折券」，此时 `返佣 = max(原价×20% − 券减免, 0) = 0` 恰好归零，叠加公式地板保证**任何情况下返佣不为负**；生效比例为 `0.00` 时上限也是 `0.00`，任何自建券被拒（message 含当前上限值与两个来源）；上限**只在创建时判定**，事后收紧设置不回收既有券（运营走停用）。**② 自建券接口（18.5）**——`POST /api/v1/referral/coupons`（前置：`referral_enabled=1` 否则 `40002`；`owner_member_id` 强制 = 调用者；**`type` 本批只允许 `percent`**，`fixed` 是绝对金额减免、无法用一个比例卡住倒挂，故不做；`code`/`cycles`/`starts_at`/`expires_at`/`max_uses`/`comment` 沿用 11.1 校验口径）、`GET /api/v1/referral/coupons`（我创建的券分页）、`PUT /api/v1/referral/coupons/:id`（**只能改自己的券**，他人券与平台券一律 `404`；**仅允许改 `status` 与 `expires_at`**，`value`/`code`/`owner`/`type` 出现在请求体即 `40001` 明确拒绝不静默忽略——杜绝绕过上限与挖客）；管理端 `GET /admin/coupons` 视图补 `owner_member_id` 与派生 `source`（`platform`/`member`）区分平台券与自建券，管理端 `PUT` **拒绝改自建券的 `value`**（`40002`「自建券的折扣值不可修改」）。**③ 迁移 0016（up/down 成对 + go:embed，不改 0001–0015）**——新表 `referral_payouts`（**提现与转余额共用一张申请表，`kind` 区分 `withdraw`/`convert`**；取舍：字段与审核动作几乎一致，拆两表会复制状态机与幂等锚点；表名取中性 `payouts` 因 convert 不是提现），字段 `id`/`kind`/`member_id`/`amount`/`channel`(`wechat`/`alipay`)/`account_name`/`account_no`(**敏感**)/`status`(`pending`/`approved`/`rejected`/`paid`)/`remark`/`review_note`/`reviewed_by`/`reviewed_at`/`paid_at`/`created_at`/`updated_at` + 两个索引；**不新增 `ledger.type` 枚举**（避免 0016 再扩 ENUM 与 `IsValidLedgerType` 双处同步）。**④ 状态机与幂等（18.1.1）**——`withdraw: pending→approved→paid`、`pending→rejected`；`convert: pending→approved|rejected`；`rejected`/`paid` 为终态不可再流转（`40002`）；**重复审核/重复打款幂等**（对 `approved` 再 approve、对 `rejected` 再 reject、对 `paid` 再 mark-paid 一律 `200+already=true`，不重复产生资金动作、**不覆盖**首次 `reviewed_at`/`paid_at`）；非法流转 `40002`。**⑤ 账务口径定稿（18.1.1，两类不同）**——**提现「提交即冻结」**：提交时 `rebate_balance` 立即扣减 + 写返现侧 ledger（负），approve 只改状态，**reject 退回冻结额**（加回 + 正向 ledger），mark-paid 只记 `paid_at`；取舍是「钱要出系统」，冻结保证重复申请不超额、线下打款前资金已锁定，与既有返佣冲回同一套账务模式。**转换「审核通过时才换算」**：提交**只登记不动钱**，approve 在**同一事务**里 `rebate_balance` 减 + `balance` 加 + **两端各一条 ledger**（返现侧 `referral_rebate` 负向、消费侧 `adjust` 正向），幂等锚点是 `status: pending→approved` 的条件更新；**reject 不动余额**（提交时就没扣过）；取舍是「钱不离开系统」，不必提前冻结。**可用余额公式**（两类共用，行锁下校验）：`可用 = rebate_balance − Σ(kind=convert 且 status=pending 的 amount)`，在途 withdraw 不必再减（已冻结）。**⑥ ledger 口径扩写（18.3）**——凡动 `rebate_balance` 的账目（发放/冲回/提现冻结/退回/转出）一律 `type=referral_rebate`（有符号），靠 `ref_type` 区分（`referral_rebate`/`referral_withdrawal`/`referral_conversion`）；转换的消费侧用 **`adjust`**（正，`ref_type=referral_conversion`）——既有预留的「人工调整」类型，语义即非充值非订单支付的余额变动，用 `recharge`/`order_pay` 会污染那两类对账口径；会员端余额流水继续过滤 `referral_rebate`（故提现冻结/退回不出现），转换的 `adjust` 那条**会出现**（正确）。**⑦ 负数口径（18.1.1）**——`rebate_balance < 0` 时**禁止**提现与转换（`40002` 明确提示），登录/下单/充值/邀请/建券不受影响。**⑧ 敏感数据脱敏（18.5）**——`account_name`/`account_no` 对齐 SMTP 口令「只进库、对外一律掩码」口径：接口回显 `account_name` 姓氏保留 + `**`、`account_no` 前 2 后 2 中间 `****`（不足 6 位留首尾各 1、不足 2 位整体 `****`）；提交回执同脱敏不回显原文；日志/审计/备注一律脱敏；库内存原文供线下打款核对。**⑨ 会员级特批比例写入口（6.3，补 18.7 第 1 条）**——新增 `PUT /api/v1/admin/members/:id`（本批只承载 `rebate_percent_override`，**三态**：缺省不改 / `null` 清空 / 字符串设值 `0.00`–`100.00` 两位小数，非法 `40001` 越界 `40002`；权限沿用 `members.status` 口径 admin/finance）；管理端会员视图输出 `rebate_percent_override` 供页面显示「已特批 x%」；设值后下一笔支付即生效，已发放流水不受影响（快照）。**⑩ 提现/转换接口（18.5）**——会员端 `POST/GET /api/v1/referral/withdrawals`、`POST/GET /api/v1/referral/conversions`（仅本人，校验金额格式/`>0`/负数余额/可用余额，账号字段 1–64 字符非空）；管理端 `GET /api/v1/admin/referral/withdrawals`、`GET /api/v1/admin/referral/conversions`（筛选 `status`/`member_id`，分页，带会员概要，**admin/finance**）、`POST /api/v1/admin/referral/withdrawals/:id/review`（approve/reject + `review_note`）、`POST .../mark-paid`（线下已打款 → `paid` + `paid_at`）、`POST /api/v1/admin/referral/conversions/:id/review`——**审核与打款仅 admin**，查看 admin/finance（财务域口径）。**⑪ 同步**：6.4 矩阵补 `PUT /admin/members/:id`；11.1 补 `owner_member_id`/`source`；11.3 补自建券 `value` 不可代改；12.7 矩阵补 7 行；18.6 矩阵补 6 行；18.7 边界重写（特批比例影响范围、自建券只 percent/不可改值/上限只在创建时、提现线下打款无自动超时、退款联动未做）。**测试**：`go test ./...` 全量绿（改前 411 个 `func Test`）；新增覆盖——自建券：未开通返现者建券被拒、`percent` 超上限被拒（「上限 = min(设置, 生效比例)」两种来源各一例）、建券成功后 `owner_member_id` 正确、`type=fixed` 被拒、`value`/`code` 不可改、他人券 404；自建券使用规则回归（未绑定→首绑、已绑定→拒绝、自用→拒绝、平台券不受限）；提现：余额不足/为负/金额非法被拒、提交→审核通过→标记打款全链、驳回退回（断言 `rebate_balance` 加回 + 正向 ledger）、重复审核/重复打款幂等（`already=true` 且不覆盖 `paid_at`）；转换：审核通过才换算（两端余额与两条 ledger 一致）、驳回不动余额、重复审核只生效一次、负数余额禁止；管理端会员特批比例：三态（不改/null/设值）与非法值拒绝、特批后发放比例随之变化 |
 | 2026-10-13 | v19 | R10-A 邀请返佣（一）：契约 + 迁移 + 绑定与返佣结算核心——**新增第 18 节「邀请返佣」**（数据模型 / 公式与比例优先级 / 参与与不参与 / 发放幂等与回滚 / 接口 / 角色矩阵 / 边界），变更记录移至第 19 节。**① 钱的口径（18.2，不得改动）**——`返佣 = max(订单原价 × 生效比例 − 本单优惠券减免, 0)`，**下取整到分**、结果恒 ≥ 0（公式自带地板，永远不会负返佣）；「订单原价」= `orders.amount`（基础价 + Σ 配置差价，不含券减免），「本单优惠券减免」= `orders.discount_amount`；四个验证例子入契约与测试（原价 100、比例 20% → 返 20；用券实付 90（减 10）→ 返 10；20% 比例下 8 折券（减 20）→ 返 **0**；9 折券 → 返 10）。**② 生效比例三级优先（18.2）**——商品级 `products.rebate_percent` > 会员级 `members.rebate_percent_override`（邀请人本人特批）> 全局默认 `referral.default_percent`，取第一个非空命中；`products.rebate_disabled=1` **压过一切**（该商品完全不返佣）；比例 `0.00`–`100.00` 两位小数，非法值一律拒绝。**③ 返现余额独立且可负（18.3）**——发放目标是**邀请返现余额** `members.rebate_balance`（**不是**消费余额 `balance`），两个账户完全独立；**可为负**（已提现后客户退款 → 扣成负），负值时只禁止提现与转余额，不影响登录/下单/充值；`ledger.type` 扩枚举 `referral_rebate`（正=发放、负=冲回），该类型流水的 `balance_before`/`after` 记的是 `rebate_balance` 前后值，会员端余额流水过滤掉本类型（动的不是消费余额）、管理端可按类型对账。**④ 参与与不参与（18.3）**——**返**：新购 `new` 与续费 `renew`，**含用充值余额支付**（余额支付与渠道回调两条入账路径都返）；**不返**：**充值**（`recharges` 入账路径绝不挂返佣）、未绑定邀请人（`inviter_id=0`）、商品禁用返佣、总开关关闭、公式结果为 0（券减免吃满比例时不发放也不写流水）。**⑤ 发放与幂等（18.4）**——**支付成功即发**且与入账**同事务**，挂在 `store.PayOrderWithBalance`（余额）与 `store.CompleteOrderPayment`（渠道回调）两处入账口，**不挂在交付**；`referral_rebates.order_id` **唯一约束**为发放幂等锚点，重复回调由 `model.IsOrderSettled` 闸门挡住（不重复入账/不重复发放），唯一约束是第二道防线。**⑥ 回滚（18.4）**——订单取消（`status=cancelled`）回滚该笔返佣：写负向 `ledger(referral_rebate)` + `rebate_balance` 冲回 + `referral_rebates.status` 置 `rolled_back`，**再次回滚不重复**；当前取消接口只允许 `pending`（从未发放过返佣），故钩子在现有取消路径上是**防御性**的（`CancelOrder` 已改为取消成功后同事务调用同一钩子），一旦出现「已支付取消/退款」路径复用即可；系统当前无退款接口，若后续出现其他「钱退回买家」路径按同一钩子接入。**⑦ 首绑不改（18.4）**——`members.inviter_id` 一旦非 `0` 永久生效，绑定只发生在注册带邀请码、或下单用邀请人自建券且尚未绑定两处。**⑧ 迁移 0015**（up/down 成对 + go:embed，不改 0001–0014）——`members` 加 `inviter_id`/`invite_code`（唯一键，惰性生成）/`referral_enabled`/`rebate_balance`/`rebate_percent_override`；`coupons` 加 `owner_member_id`（0=平台券 / 非 0=邀请人自建券）；`products` 加 `rebate_percent`/`rebate_disabled`；新表 `referral_rebates`（`order_id` 唯一 + inviter/buyer 索引）；`ledger.type` **MODIFY 扩枚举** `referral_rebate`（down 先删该类型流水再收窄枚举，保证回滚干净）。**⑨ 接口（18.5）**——`POST /auth/register` 扩**可选** `invite_code`（按 `members.invite_code` 精确匹配解析，非法/不存在/**自邀**（同用户名或同邮箱）一律 `40002` 明确报错、不静默忽略，解析成功写 `inviter_id`）；`GET/PUT /api/v1/referral`（概览 / 开通关闭，**首次开通惰性生成唯一邀请码**：8 位 base32 去 `0/O/1/I`、`crypto/rand` + 唯一冲突换码重试 5 次、已生成则复用不换码；概览含 `invite_link`（域名取站点设置）/`rebate_balance`/`effective_percent`（总开关关闭时恒 `0.00`）/已邀请人数/累计返佣）；`GET /api/v1/referral/rebates`（返佣流水分页）、`GET /api/v1/referral/invitees`（被邀请人分页 + 消费/贡献返佣统计）；`GET/PUT /api/v1/admin/settings/referral`（总开关 + 全局默认比例 + 自建券折扣上限，**仅 admin**，复用 12.1 设置机制，改完下一笔支付即生效）；`PUT /admin/products/:id` 扩 `rebate_percent`（三态：缺省不改/`null` 清空/字符串设值）与 `rebate_disabled`，管理端商品视图同步输出两字段。**⑩ 邀请人自建券绑定规则（18.5，本批只落地使用规则，建券接口留 R10-B）**——买家用 `owner_member_id` 非 `0` 的券：未绑定 → **下单同事务首绑**到 `owner_member_id`；已绑定 → **拒绝用券** `40002`「该优惠码仅限未绑定邀请关系的客户使用」且**不改绑**（首绑不改）；邀请人用自己自建券 → 拒绝（否则自邀）；平台券（owner=0）任何人可用、不触发绑定。**⑪ 同步**：12.1 设置键补 `referral`、12.7 与 10.5 矩阵同步（`/api/v1/referral*` 仅本人、`/admin/settings/referral` 仅 admin、`PUT /admin/products/:id` 含返佣字段）、6.2 注册请求体补 `invite_code`。**测试**：`go test ./...` 全量绿（411 个 `func Test`，此前 393）；新增纯计算四例逐一断言 + 下取整/地板/边界、三级优先级与 `rebate_disabled` 压过一切、新购/续费/余额支付都返而**充值不返**、重复回调只发一次、回滚冲回 + 状态翻转 + 重复回滚不重复、`CancelOrder` 回滚钩子接线、注册邀请码合法绑定/非法/空/自邀拒绝、自建券绑定与首绑不改、概览与流水/邀请列表、管理端设置与 finance 403、会员端余额流水不含返佣而管理端可按类型对账 |
 | 2026-10-13 | v18 | R9-A 管理端分类界面：**① 商品视图补分类字段（10.4，本批唯一后端读路径改动）**——`GET /admin/products` 与 `GET /admin/products/:id` 的列表项新增 `category_id`（所属**子分类** ID，`0`=未归类）/ `category_name` / `category_parent`（所属主分类 `{id,name}`，形状对齐会员端 `group.parent`）；三键**始终存在**（未归类输出 `0` / `""` / `{id:0,name:""}`，不省略键），与 `group_id`/`group_name` 并列下发、互不替代，未归类**不回退**组名（会员端 `group` 的组名兜底不适用于管理端）；**② 管理端页面（10.4 新增小节）**——`/admin/categories` 分类管理页（两级树 + 商品计数；改名 / 改排序 / 子分类改挂主分类，写操作**仅 admin**，`finance`/`support` 只读视图）与 `/admin/products` 的「分类」列 + 「改分类」弹窗（目标为**子分类**或「未归类」`0`，提交 `category_id`，成功提示「已改挂，后续导入不再覆盖该商品分类」，即 `category_source=manual` 语义）+ 按分类筛选（`GET /admin/products` 新增查询参数 `category_id`，`0` = 只看未归类，非 0 必须是存在的子分类，否则 `404 分类不存在`）；除该过滤参数外**不新增端点**，界面只消费 10.4 既有接口；**③ 权限点定稿**——分类管理页写操作走新权限点 `categories.write`（**仅 admin**，与商品写 `products.write`（admin/finance）不是同一个权限点），商品改挂分类沿用 `products.write`；10.5 / 12.7 矩阵已含 `GET /admin/categories`（三角色只读）与 `PUT /admin/categories/:id`（仅 admin），本批核对一致、无改动；**④ 前端**：新增 `AdminCategories` 页（沿用 `ProductGroupsPanel` 的改名/改排序弹窗范式与校验口径：名称去首尾空格 1-128 字、sort `-999999`~`999999`）、侧栏「分类」入口（「商品」之后）、`adminRoles.ts` 增补 `AdminPage` 键 `categories` 与权限点 `categories.write`；`UpdateProductInput` 扩 `category_id`；**测试**：后端商品视图分类字段 + 按分类过滤（含 `0` 未归类、`40001`/`404` 负例）用例，前端分类管理页（树渲染/改名/改排序/改挂/无变化不发请求）与权限（`finance`/`support` 只读、禁用 + 原因文案、不发无权限请求）、商品分类列 / 改挂请求体 / 分类筛选请求参数用例 |
