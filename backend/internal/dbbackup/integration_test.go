@@ -308,8 +308,9 @@ func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 	exec(t, gdb, `INSERT INTO members (username,email,password_hash,nickname,status,balance,created_at,updated_at)
 		VALUES ('old-schema','old@example.com','$2a$10$hash','低版本库','active','0.00',NOW(),NOW())`)
 
-	// 回滚一步（0017 down 会删掉 product_group_category_maps），再备份 → 低版本备份。
-	migrateSteps(t, dsn, -1)
+	// 回滚两步（0018 down 删 downstream_token 列并收起枚举、0017 down 删掉
+	// product_group_category_maps 表），再备份 → 低版本备份（缺表也缺列）。
+	migrateSteps(t, dsn, -2)
 	record, err := service.Create(ctx, "admin")
 	if err != nil {
 		t.Fatalf("备份低版本库失败: %v", err)
@@ -318,12 +319,12 @@ func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取最新版本失败: %v", err)
 	}
-	if record.SchemaVersion != int64(latest)-1 {
-		t.Fatalf("备份版本 = %d，期望 %d", record.SchemaVersion, latest-1)
+	if record.SchemaVersion != int64(latest)-2 {
+		t.Fatalf("备份版本 = %d，期望 %d", record.SchemaVersion, latest-2)
 	}
 
 	// 把库推回最新并制造差异，再恢复低版本备份。
-	migrateSteps(t, dsn, 1)
+	migrateSteps(t, dsn, 2)
 	exec(t, gdb, `INSERT INTO members (username,email,password_hash,nickname,status,balance,created_at,updated_at)
 		VALUES ('new-schema','new@example.com','$2a$10$hash','高版本库','active','0.00',NOW(),NOW())`)
 	exec(t, gdb, `INSERT INTO product_group_category_maps (upstream_group_id, category_id, created_at, updated_at)
@@ -343,10 +344,18 @@ func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 		t.Fatalf("低版本备份里没有的表应被删掉，实际 %v", result.DroppedTables)
 	}
 
-	// 迁移应把 0017 的表重建出来，且库版本追平。
+	// 迁移应把 0017 的表与 0018 的列都重建出来，且库版本追平。
 	counts := tableCounts(t, gdb)
 	if _, ok := counts["product_group_category_maps"]; !ok {
 		t.Fatalf("迁移后 product_group_category_maps 应被重建")
+	}
+	var downstreamColumns int64
+	if err := gdb.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() " +
+		"AND table_name = 'instances' AND column_name = 'downstream_token'").Scan(&downstreamColumns).Error; err != nil {
+		t.Fatalf("查询 instances 列失败: %v", err)
+	}
+	if downstreamColumns != 1 {
+		t.Fatalf("迁移后 instances.downstream_token 应被重建（实际 %d 列）", downstreamColumns)
 	}
 	var version int64
 	if err := gdb.Raw("SELECT version FROM schema_migrations LIMIT 1").Scan(&version).Error; err != nil {

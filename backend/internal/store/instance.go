@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 )
@@ -32,6 +35,9 @@ func (s *Store) ListInstances(ctx context.Context, filter InstanceFilter) ([]mod
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
 	}
+	// R16：交付在途的实例（status=provisioning）是上游开通前落库的内部行，一律不出现在列表里
+	// （会员端/管理端同口径，契约 14.2 / 22.2）；status 查询参数的合法取值仍是既有四态。
+	query = query.Where("status <> ?", model.InstanceStatusProvisioning)
 
 	var total int64
 	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -85,6 +91,63 @@ func (s *Store) InstanceByOrderID(ctx context.Context, orderID uint64) (*model.I
 	return instanceBy(db, "order_id = ?", orderID)
 }
 
+// PendingInstanceInput 是「交付在途实例行」首建时的输入（R16，契约 22.2）。
+type PendingInstanceInput struct {
+	// Hostname 是本次开通提交给上游的主机名（写进 instances.name）。
+	Hostname string
+	// DownstreamToken 是上游回推鉴权串（32 位十六进制）；**仅在首次落库时写入**。
+	DownstreamToken string
+}
+
+// EnsurePendingInstance 返回该订单的「交付在途实例行」（不存在则创建）——R16 起交付流程
+// **先落实例、再调上游**，目的是把 instances.id 与 downstream_token 先确定下来交给上游做回推登记
+// （契约 22.2）：
+//
+//   - 首建：status=provisioning、host_id=-订单号 占位（见 model.PlaceholderHostID）、
+//     订单快照字段（member/order/product/主机名/周期）+ downstream_token；
+//   - 已存在（同一订单重试）：原样返回既有行，**不重新生成 token、不重置占位**（幂等）；
+//   - 并发/重复触发撞唯一键（uk_instances_order）：回读既有行返回，仍是幂等结果。
+//
+// 订单 ↔ 实例一对一由 uk_instances_order 保证，因此本方法对同一订单多次调用是安全的。
+func (s *Store) EnsurePendingInstance(ctx context.Context, order *model.Order, in PendingInstanceInput) (*model.Instance, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := instanceBy(db, "order_id = ?", order.ID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	instance := model.Instance{
+		MemberID:        order.MemberID,
+		OrderID:         order.ID,
+		HostID:          model.PlaceholderHostID(order.ID),
+		ProductID:       order.ProductID,
+		ProductName:     order.ProductName,
+		Name:            in.Hostname,
+		BillingCycle:    order.Cycle,
+		Status:          model.InstanceStatusProvisioning,
+		DownstreamToken: in.DownstreamToken,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&instance).Error; err != nil {
+		mapped := mapDuplicateError(err)
+		if errors.Is(mapped, ErrDuplicate) {
+			// 并发交付/重复触发已建行：回读既有行（幂等，沿用其 token 与占位）。
+			return instanceBy(db, "order_id = ?", order.ID)
+		}
+		return nil, mapped
+	}
+	return &instance, nil
+}
+
 // InstanceSyncInput 是实例上游同步字段的落库输入（阶段 5b）。
 //
 // 语义：**调用方提供完整快照**（未回读到的字段由调用方保留旧值后传入），
@@ -124,6 +187,131 @@ func (s *Store) UpdateInstanceSync(ctx context.Context, id uint64, in InstanceSy
 		return err
 	}
 	return nil
+}
+
+// HostSyncInput 是一次上游回推（POST /api/host/sync）的落库输入（R16，契约 22.3）。
+//
+// 语义：**nil 表示该字段未出现在推送里，不改动**；非 nil（含指向空串 / 0 的指针）表示按原文写入。
+// Password 是敏感字段：本类型只落库，**绝不进日志、绝不进审计描述**。
+type HostSyncInput struct {
+	UpstreamStatus *string
+	NextDueDate    *time.Time
+	DedicatedIP    *string
+	AssignedIPs    *string
+	Port           *int
+	Username       *string
+	Password       *string
+}
+
+// HostSyncOutcome 是一次上游回推的落库结果（供调用方决定是否写审计）。
+type HostSyncOutcome struct {
+	// Changed 表示本次是否有任何字段（含状态）真的发生了变化。
+	Changed bool
+	// Fields 是发生变化的中文栏目名（供审计描述；**只有栏目名，没有任何字段值**）。
+	Fields []string
+	// Status 是本次同步后的本地状态（无变化时即当前状态）。
+	Status string
+	// Terminated 表示该实例已是终态 terminated——终态不被任何推送改写（见下）。
+	Terminated bool
+}
+
+// hostSyncStatuses 是上游回推**允许写入**的本地状态集合（其余一律拒绝，防脏值落库）。
+var hostSyncStatuses = map[string]bool{
+	model.InstanceStatusActive:     true,
+	model.InstanceStatusSuspended:  true,
+	model.InstanceStatusCancelled:  true,
+	model.InstanceStatusTerminated: true,
+}
+
+// ApplyHostSync 应用一次上游回推：单事务行锁实例行 → **只写发生变化的列** → 无变化时完全不写库。
+//
+// targetStatus 是 `domainstatus` 映射出的本地状态（空串表示本次不改状态，契约 22.3 映射表）。
+// 两条额外保护：
+//  1. **终态不可逆**：实例已是 terminated 时，任何推送都不再改状态（`Deleted` 是终态，
+//     迟到的 `Cancelled`/`Active` 推送不得把它「复活」）；
+//  2. 目标状态不在可写集合内时返回错误（脏值不落库）。
+//
+// 返回的 Changed=false 是「本次推送是纯读」的信号，调用方据此**不写审计**（契约 22.3 幂等口径）。
+func (s *Store) ApplyHostSync(ctx context.Context, instanceID uint64, in HostSyncInput, targetStatus string) (*HostSyncOutcome, error) {
+	if targetStatus != "" && !hostSyncStatuses[targetStatus] {
+		return nil, fmt.Errorf("上游回推的目标状态非法：%q", targetStatus)
+	}
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	outcome := &HostSyncOutcome{}
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var current model.Instance
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", instanceID).Take(&current).Error; err != nil {
+			return notFoundIfNeeded(err)
+		}
+		outcome.Status = current.Status
+		outcome.Terminated = current.Status == model.InstanceStatusTerminated
+
+		fields := map[string]any{}
+		changed := make([]string, 0, 8)
+		record := func(column, label string, value any) {
+			fields[column] = value
+			changed = append(changed, label)
+		}
+
+		if in.UpstreamStatus != nil && *in.UpstreamStatus != current.UpstreamStatus {
+			record("upstream_status", "上游状态", *in.UpstreamStatus)
+		}
+		if in.NextDueDate != nil && !sameDueDate(current.NextDueDate, in.NextDueDate) {
+			record("next_due_date", "到期时间", *in.NextDueDate)
+		}
+		if in.DedicatedIP != nil && *in.DedicatedIP != current.DedicatedIP {
+			record("dedicated_ip", "主 IP", *in.DedicatedIP)
+		}
+		if in.AssignedIPs != nil && *in.AssignedIPs != current.AssignedIPs {
+			record("assigned_ips", "附加 IP", *in.AssignedIPs)
+		}
+		if in.Port != nil && *in.Port != current.Port {
+			record("port", "端口", *in.Port)
+		}
+		if in.Username != nil && *in.Username != current.Username {
+			record("username", "登录账号", *in.Username)
+		}
+		if in.Password != nil && *in.Password != current.Password {
+			record("password", "登录密码", *in.Password)
+		}
+		if targetStatus != "" && !outcome.Terminated && targetStatus != current.Status {
+			record("status", "本地状态", targetStatus)
+			outcome.Status = targetStatus
+		}
+
+		if len(fields) == 0 {
+			// 状态与字段都没变：不写库（调用方也不写审计）——同一份推送重复到达是纯读操作。
+			return nil
+		}
+		fields["updated_at"] = time.Now().UTC()
+		if err := tx.Model(&model.Instance{}).Where("id = ?", instanceID).Updates(fields).Error; err != nil {
+			return err
+		}
+		outcome.Changed = true
+		outcome.Fields = changed
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return outcome, nil
+}
+
+// sameDueDate 比较两个到期时间是否表示同一时刻（nil 与 nil 视为相同）。
+func sameDueDate(current, incoming *time.Time) bool {
+	switch {
+	case current == nil && incoming == nil:
+		return true
+	case current == nil || incoming == nil:
+		return false
+	default:
+		return current.Equal(*incoming)
+	}
 }
 
 // UpdateInstanceStatus 条件更新实例状态（from → to）；实例不存在返回 ErrNotFound，

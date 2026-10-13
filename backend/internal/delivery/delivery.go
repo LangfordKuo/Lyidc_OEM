@@ -17,6 +17,7 @@ package delivery
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
@@ -92,6 +94,9 @@ type Service struct {
 	upstream upstream.Provider
 	logger   *slog.Logger
 	notifier Notifier
+	// settingsReader 读后台设置（R16）：交付时取「站点对外地址」（settings.site.url）作为
+	// 上游回推的下游地址。每次使用都读一次（主键查询），后台改完立即生效。
+	settingsReader *settings.Reader
 
 	async   bool
 	timeout time.Duration
@@ -108,12 +113,13 @@ func New(st *store.Store, provider upstream.Provider, opts Options) *Service {
 		timeout = defaultTimeout
 	}
 	return &Service{
-		store:    st,
-		upstream: provider,
-		logger:   logger,
-		notifier: opts.Notifier,
-		async:    opts.Async,
-		timeout:  timeout,
+		store:          st,
+		upstream:       provider,
+		logger:         logger,
+		notifier:       opts.Notifier,
+		settingsReader: settings.NewReader(st),
+		async:          opts.Async,
+		timeout:        timeout,
 	}
 }
 
@@ -141,9 +147,13 @@ func (s *Service) notifyRenewed(orderID uint64) {
 
 // Trigger 是支付成功后的自动交付入口（契约 14.3）：在入账事务提交后调用，
 // 不阻塞调用方（默认异步；同步模式用于测试确定性）。重复触发是安全的（认领失败即返回）。
-func (s *Service) Trigger(orderID uint64) {
+//
+// ctx 用于携带**请求侧基地址**（`WithRequestBase`，R16）：默认异步交付在后台 goroutine 里跑，
+// 届时 HTTP 请求已结束，所以地址必须在请求线程内先解析好再传进来。
+func (s *Service) Trigger(ctx context.Context, orderID uint64) {
+	base := RequestBase(ctx)
 	run := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+		ctx, cancel := context.WithTimeout(WithRequestBase(context.Background(), base), s.timeout)
 		defer cancel()
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -269,6 +279,21 @@ func (s *Service) provision(ctx context.Context, order *model.Order) (*store.Ins
 		return nil, fmt.Errorf("生成主机密码失败：%v", err)
 	}
 
+	// R16（契约 22.2）：先落实例、再调上游——把 instances.id 与 downstream_token 先确定下来，
+	// 作为 downstream_url / downstream_token / downstream_id 交给上游做回推登记。
+	// 同一订单重试会复用既有行（同一个 id 与 token，不重新生成，幂等）。
+	downstreamToken, err := NewDownstreamToken()
+	if err != nil {
+		return nil, fmt.Errorf("生成下游回推鉴权串失败：%v", err)
+	}
+	pending, err := s.store.EnsurePendingInstance(ctx, order, store.PendingInstanceInput{
+		Hostname:        hostname,
+		DownstreamToken: downstreamToken,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("交付在途实例落库失败：%v", err)
+	}
+
 	result, err := client.CreateHost(ctx, upstream.CreateHostRequest{
 		ProductID:     product.UpstreamPID,
 		BillingCycle:  pricing.UpstreamCycle(order.Cycle),
@@ -276,6 +301,10 @@ func (s *Service) provision(ctx context.Context, order *model.Order) (*store.Ins
 		Password:      password,
 		Quantity:      order.Qty,
 		ConfigOptions: configOptions,
+
+		DownstreamURL:   s.downstreamBaseURL(ctx),
+		DownstreamToken: pending.DownstreamToken,
+		DownstreamID:    int(pending.ID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("上游开通失败：%v", err)
@@ -333,6 +362,52 @@ func (s *Service) fail(orderID uint64, reason string) (*model.Order, error) {
 // "oem-" + 本地单号小写（如 oem-o20261008143015k7q2zp，全局唯一且可回溯订单）。
 func HostnameFor(tradeNo string) string {
 	return "oem-" + strings.ToLower(tradeNo)
+}
+
+// DownstreamTokenLength 是上游回推鉴权串的长度：上游要求 `downstream_token` **恰好 32 个字符**。
+const DownstreamTokenLength = 32
+
+// NewDownstreamToken 生成上游回推鉴权串（R16，契约 22.2）：16 字节 `crypto/rand` → 32 位十六进制。
+// 一个实例只在首次落库时生成一次，之后任何重试/同步都不改写（幂等）。
+func NewDownstreamToken() (string, error) {
+	buf := make([]byte, DownstreamTokenLength/2)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// requestBaseKey 是「触发本次交付的请求侧基地址」在 context 里的键（R16）。
+type requestBaseKey struct{}
+
+// WithRequestBase 把请求侧基地址（`scheme://host`）放进 ctx（R16）。
+//
+// 默认异步交付在后台 goroutine 里执行，届时 HTTP 请求已结束、拿不到 Host，
+// 因此 router 必须在**请求线程内**先解析好地址再传进来（契约 22.2）。
+func WithRequestBase(ctx context.Context, base string) context.Context {
+	return context.WithValue(ctx, requestBaseKey{}, base)
+}
+
+// RequestBase 读取 ctx 里的请求侧基地址（未设置时返回空串）。
+func RequestBase(ctx context.Context) string {
+	base, _ := ctx.Value(requestBaseKey{}).(string)
+	return base
+}
+
+// downstreamBaseURL 解析本次开通要登记给上游的回推基地址（R16，契约 22.2）：
+//
+//  1. 「站点对外地址」（后台设置 `site.url`）已配置 → 一律用它；
+//  2. 否则用触发本次交付的请求推断出的 `scheme://host`（由 router 经 ctx 传入）；
+//  3. 都取不到 → 空串（本次不登记下游地址，开通本身不受影响）。
+func (s *Service) downstreamBaseURL(ctx context.Context) string {
+	state, err := s.settingsReader.Site(ctx)
+	switch {
+	case err != nil:
+		s.logger.Warn("读取站点对外地址失败，改用触发请求推断的地址（契约 22.2）", "error", err)
+	case strings.TrimSpace(state.Value.URL) != "":
+		return strings.TrimRight(strings.TrimSpace(state.Value.URL), "/")
+	}
+	return strings.TrimRight(RequestBase(ctx), "/")
 }
 
 // ParseConfigOptions 把订单配置项快照 {"<配置项 id>": "<所选值 id>"}

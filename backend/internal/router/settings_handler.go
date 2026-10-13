@@ -18,6 +18,10 @@ import (
 
 // settingsHandler 处理后台管理设置接口（仅 admin 角色，含读取）。
 //
+// 本文件承载 payment.epay / upstream / email.smtp / notifications / referral / updates.github；
+// 备份目录（db_backup）见 settings_backup_handler.go，站点对外地址（site.url，R16）见
+// settings_site_handler.go。
+//
 // 密钥口径（契约 12.1）：key / api_key / SMTP 口令写入后**绝不回显明文**，GET 只给
 // `*_configured` 布尔与掩码（前 4 位 + `****`）；日志同样不含明文。
 type settingsHandler struct {
@@ -760,9 +764,18 @@ func settingMeta(setting *model.Setting) settings.Meta {
 
 // recommendedNotifyURL 按当前请求推导推荐的回调地址（供管理端界面直接复制）。
 func recommendedNotifyURL(c *gin.Context) string {
+	return requestBaseURL(c) + "/api/v1/payments/epay/notify"
+}
+
+// requestBaseURL 按当前请求推导本站基地址 `scheme://host`（契约 22.2 / 22.4）：
+// scheme 取 `X-Forwarded-Proto`（反向代理场景，本仓库的 nginx 模板会带上）或请求是否 TLS。
+//
+// 用途有三处，口径必须一致：支付回调推荐地址、站点对外地址的推荐值、以及交付时登记给上游的
+// `downstream_url`（R16，未配置站点对外地址时的回退值）。
+func requestBaseURL(c *gin.Context) string {
 	scheme := "http"
 	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
-	return scheme + "://" + c.Request.Host + "/api/v1/payments/epay/notify"
+	return scheme + "://" + c.Request.Host
 }

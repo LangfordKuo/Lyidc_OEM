@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -83,8 +84,13 @@ func (s *Store) BeginDelivery(ctx context.Context, orderID uint64, allowFailed b
 	return claimed, order, nil
 }
 
-// CompleteDelivery 交付成功落库：单事务内锁订单 → 插入实例 → 订单置 active
+// CompleteDelivery 交付成功落库：单事务内锁订单 → 更新该订单的实例行 → 订单置 active
 // （写 host_id / delivered_at、清空 provision_error）。
+//
+// R16 起实例行**在调上游之前就已存在**（EnsurePendingInstance 预落，status=provisioning、
+// host_id 为负数占位）：这里把同一行改为 active 并写入真实 host_id 与回读字段，
+// **downstream_token / created_at / id 原样保留**（不重新生成、不换行，契约 22.2）。
+// 行不存在时按旧口径插入一行兜底（不该发生；保证交付结果照样落库）。
 //
 // 订单不处于 provisioning 时返回 ErrStateConflict 且不写任何数据
 // （状态被外力改动的极端场景：宁可留痕人工核对，也不静默覆盖）。
@@ -106,27 +112,57 @@ func (s *Store) CompleteDelivery(ctx context.Context, orderID uint64, in Instanc
 		}
 
 		now := time.Now().UTC()
-		instance := model.Instance{
-			MemberID:       current.MemberID,
-			OrderID:        current.ID,
-			HostID:         in.HostID,
-			ProductID:      in.ProductID,
-			ProductName:    in.ProductName,
-			Name:           in.Name,
-			BillingCycle:   in.BillingCycle,
-			NextDueDate:    in.NextDueDate,
-			Status:         model.InstanceStatusActive,
-			UpstreamStatus: in.UpstreamStatus,
-			DedicatedIP:    in.DedicatedIP,
-			AssignedIPs:    in.AssignedIPs,
-			Port:           in.Port,
-			Username:       in.Username,
-			Password:       in.Password,
-			CreatedAt:      now,
-			UpdatedAt:      now,
+		sync := map[string]any{
+			"host_id":         in.HostID,
+			"next_due_date":   in.NextDueDate,
+			"upstream_status": in.UpstreamStatus,
+			"dedicated_ip":    in.DedicatedIP,
+			"assigned_ips":    in.AssignedIPs,
+			"port":            in.Port,
+			"username":        in.Username,
+			"password":        in.Password,
+			"updated_at":      now,
 		}
-		if err := tx.Create(&instance).Error; err != nil {
-			return mapDuplicateError(err)
+
+		var instance model.Instance
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("order_id = ?", current.ID).Take(&instance).Error
+		switch {
+		case err == nil:
+			// 状态只在仍是「交付在途」时改写：期间若上游推送把该行收敛为 terminated（终态），
+			// 交付完成不得把它复活（契约 22.3 终态不可逆）。
+			if instance.Status == model.InstanceStatusProvisioning {
+				sync["status"] = model.InstanceStatusActive
+			}
+			if err := tx.Model(&model.Instance{}).Where("id = ?", instance.ID).Updates(sync).Error; err != nil {
+				return mapDuplicateError(err)
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// 兜底（不该发生）：没有预落实例行时按旧口径插入，交付结果不因预落缺失而丢。
+			fallback := model.Instance{
+				MemberID:       current.MemberID,
+				OrderID:        current.ID,
+				HostID:         in.HostID,
+				ProductID:      in.ProductID,
+				ProductName:    in.ProductName,
+				Name:           in.Name,
+				BillingCycle:   in.BillingCycle,
+				NextDueDate:    in.NextDueDate,
+				Status:         model.InstanceStatusActive,
+				UpstreamStatus: in.UpstreamStatus,
+				DedicatedIP:    in.DedicatedIP,
+				AssignedIPs:    in.AssignedIPs,
+				Port:           in.Port,
+				Username:       in.Username,
+				Password:       in.Password,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			if err := tx.Create(&fallback).Error; err != nil {
+				return mapDuplicateError(err)
+			}
+		default:
+			return err
 		}
 
 		hostID := in.HostID

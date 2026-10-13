@@ -44,6 +44,33 @@ func TestGeneratePassword(t *testing.T) {
 	}
 }
 
+// TestNewDownstreamToken 验证上游回推鉴权串（R16，契约 22.2）：
+// **长度恒为 32**、十六进制、每次生成都不重复（随机性）。
+func TestNewDownstreamToken(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 50; i++ {
+		token, err := NewDownstreamToken()
+		if err != nil {
+			t.Fatalf("生成鉴权串失败: %v", err)
+		}
+		if len(token) != DownstreamTokenLength {
+			t.Fatalf("鉴权串长度 = %d（%q），期望 %d", len(token), token, DownstreamTokenLength)
+		}
+		if strings.ToLower(token) != token {
+			t.Fatalf("鉴权串应为小写十六进制: %q", token)
+		}
+		for _, ch := range token {
+			if !strings.ContainsRune("0123456789abcdef", ch) {
+				t.Fatalf("鉴权串含非十六进制字符: %q", token)
+			}
+		}
+		if seen[token] {
+			t.Fatalf("鉴权串重复生成: %q", token)
+		}
+		seen[token] = true
+	}
+}
+
 // TestParseConfigOptions 验证配置项快照解析（字符串/整数取值、空快照与非法输入）。
 func TestParseConfigOptions(t *testing.T) {
 	cases := []struct {

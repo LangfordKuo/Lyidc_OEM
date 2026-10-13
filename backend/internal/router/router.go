@@ -36,7 +36,8 @@ type PingFunc func(ctx context.Context) error
 // Async=false 的 Service 使交付同步完成，从而确定性地断言落库结果。
 type DeliveryTrigger interface {
 	// Trigger 是支付成功（在线回调 / 余额支付）后的自动交付入口，不阻塞调用方。
-	Trigger(orderID uint64)
+	// ctx 用于携带请求侧基地址（R16：`delivery.WithRequestBase`，异步交付时请求已结束）。
+	Trigger(ctx context.Context, orderID uint64)
 	// Deliver 同步执行一次交付（管理员重试接口）；allowFailed 为 true 时交付失败的订单可重试。
 	Deliver(ctx context.Context, orderID uint64, allowFailed bool) (*model.Order, error)
 }
@@ -269,6 +270,11 @@ func New(opts Options) *gin.Engine {
 	referralCoupons := &referralCouponHandler{store: st, reader: settingsReader, logger: opts.Logger}
 	referralPayouts := &referralPayoutHandler{store: st, logger: opts.Logger}
 
+	// R16：上游状态回推接收端（契约 22.3）——**顶层路由**，不在 /api/v1 之下：
+	// 路径由上游固定拼接（<downstream_url>/api/host/sync），响应格式由上游约定（不套统一响应包）。
+	hostSync := &hostSyncHandler{store: st, logger: opts.Logger}
+	engine.POST("/api/host/sync", hostSync.sync)
+
 	apiV1 := engine.Group("/api/v1")
 	{
 		apiV1.GET("/health", healthHandler(opts))
@@ -427,6 +433,14 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getDBBackupSettings)
 				settingsGroup.PUT("/db_backup",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateDBBackupSettings)
+
+				// 站点对外地址（R16，契约 22.4）：site 键里 url 一项的读写，**仅 admin**（含读取）。
+				// 该地址是交付时登记给上游的回推地址（downstream_url）；只读写 url，
+				// 向导写入的 name / admin_email 原样保留。非密钥，不做脱敏。
+				settingsGroup.GET("/site",
+					requireAdminRole(model.RoleAdmin), adminSettings.getSiteSettings)
+				settingsGroup.PUT("/site",
+					requireAdminRole(model.RoleAdmin), adminSettings.updateSiteSettings)
 			}
 
 			// 系统版本与更新检查（R13-A，契约 19.3）：仅 admin（19.6）。读缓存不出网；检查更新强制出网。

@@ -1343,3 +1343,23 @@ export interface DbBackupSettings {
 export interface UpdateDbBackupSettingsInput {
   dir: string
 }
+
+/**
+ * 「站点对外地址」设置（R16，契约 22.4；GET/PUT /api/v1/admin/settings/site，**仅 admin**）。
+ * 该地址是交付时登记给上游的回推地址（downstream_url）；空串 = 未配置（按触发请求的 Host 推断）。
+ */
+export interface SiteSettings {
+  /** 站点对外地址原值；空串 = 未配置。 */
+  url: string
+  /** 是否已配置（等价于 url !== ''）。 */
+  configured: boolean
+  /** 按当前请求推断的地址（scheme://host），供界面提示「留空时用这个」。 */
+  url_recommended: string
+  updated_by: number | null
+  updated_at: string | null
+}
+
+/** PUT /api/v1/admin/settings/site 请求体（契约 22.4）：url 必须提供，空串 = 清空。 */
+export interface UpdateSiteSettingsInput {
+  url: string
+}

@@ -14,6 +14,7 @@ import {
   fetchEpaySettings,
   fetchNotificationSettings,
   fetchReferralSettings,
+  fetchSiteSettings,
   fetchUpdatesSettings,
   fetchUpstreamHealth,
   fetchUpstreamSettings,
@@ -22,6 +23,7 @@ import {
   updateEpaySettings,
   updateNotificationSettings,
   updateReferralSettings,
+  updateSiteSettings,
   updateUpdatesSettings,
   updateUpstreamSettings,
 } from '@/api/adminSettings'
@@ -93,7 +95,7 @@ export default function AdminSettings() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          系统更新、数据库备份、支付渠道、上游对接、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
+          系统更新、数据库备份、支付渠道、上游对接、站点对外地址、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
         </p>
       </header>
 
@@ -101,6 +103,7 @@ export default function AdminSettings() {
       <DbBackupsPanel />
       <EpaySection />
       <UpstreamSection />
+      <SiteSection />
       <SMTPSection />
       <NotificationSection />
       <ReferralSection />
@@ -545,6 +548,107 @@ function UpstreamSection() {
               </>
             ) : (
               '保存上游设置'
+            )}
+          </Button>
+          <UpdatedFootnote at={current.updated_at} by={current.updated_by} />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 站点对外地址（site，R16 / 契约 22.4）：上游回推的下游地址
+// ---------------------------------------------------------------------------
+
+function SiteSection() {
+  const state = useAsync(fetchSiteSettings, [])
+  // urlText 为 null 表示「未编辑」（展示服务端原值），编辑后以本地值为准。
+  const [urlText, setUrlText] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  const current = state.data
+
+  if (state.loading && !current) {
+    return <LoadingBlock label="正在读取站点对外地址…" />
+  }
+  if (state.error && !current) {
+    return <ErrorState message={state.error} onRetry={state.reload} />
+  }
+  if (!current) {
+    return null
+  }
+
+  const value = urlText ?? current.url
+
+  const handleSave = async () => {
+    // 后端会去掉结尾斜杠；这里同样规范化后再比较与提交（避免「只改了斜杠」被当成修改）。
+    const trimmed = value.trim().replace(/\/+$/, '')
+    if (trimmed && !isHTTPURL(trimmed)) {
+      setError('站点对外地址必须是带主机名的 http:// 或 https:// 地址（留空表示按请求推断）')
+      return
+    }
+    if (trimmed === current.url) {
+      toast.info('没有需要保存的修改')
+      return
+    }
+
+    setPending(true)
+    setError('')
+    try {
+      await updateSiteSettings({ url: trimmed })
+      setUrlText(null)
+      state.reload()
+      toast.success('站点对外地址已保存，下一次开通即生效')
+    } catch (err) {
+      setError(errorMessage(err, '保存失败，请稍后重试'))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">站点对外地址（site）</CardTitle>
+        <CardDescription>
+          上游（魔方财务）在主机状态变化时按这个地址回调本站的 /api/host/sync。
+          留空则交付时按触发请求的 Host 推断；只影响保存之后新开通的实例。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <SectionError message={error} />
+
+        <Field>
+          <FieldLabel htmlFor="site_url">站点对外地址</FieldLabel>
+          <Input
+            id="site_url"
+            name="site_url"
+            placeholder={`留空时按请求推断（当前 ${current.url_recommended}）`}
+            value={value}
+            onChange={(event) => {
+              setUrlText(event.target.value)
+              setError('')
+            }}
+          />
+        </Field>
+
+        <p className="text-sm text-muted-foreground" data-testid="site-url-state">
+          {current.configured
+            ? `当前已配置：${current.url}（交付时一律用它登记给上游）`
+            : `当前未配置：交付时按触发请求的 Host 推断（当前请求推断为 ${current.url_recommended}）`}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button disabled={pending} onClick={handleSave}>
+            {pending ? (
+              <>
+                <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden />
+                保存中…
+              </>
+            ) : (
+              '保存站点对外地址'
             )}
           </Button>
           <UpdatedFootnote at={current.updated_at} by={current.updated_by} />

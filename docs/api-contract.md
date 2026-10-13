@@ -2,7 +2,7 @@
 
 > **变更流程**：任何接口变更都必须先修改本文档，再修改后端与前端代码。评审时以本文档为准。
 >
-> 版本：v26（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
+> 版本：v27（阶段 0 建立；阶段 1 认证与账号；阶段 2 上游对接与探活；阶段 3a 商品与计费；
 > 阶段 3b 六周期 + 优惠码；阶段 4 设置机制 + 易支付 + 充值/余额/流水 + 下单与在线支付；
 > 阶段 4+ 站点安装向导：首次访问浏览器完成部署，全程零文件编辑；阶段 5a/5b/5c 订单交付与自动开通、
 > 实例操作与续费、取消/终止流程；阶段 6a 工单系统；阶段 6b 通知体系：站内通知 + 邮件 SMTP + 到期提醒 + 事件接线；
@@ -16,7 +16,8 @@
 > **R13-A 系统版本与更新检查：版本号构建期注入 + GitHub Releases 检查更新 + 管理端「系统更新」（第 19 节；无迁移）**；
 > **R13-B 一键自动升级：下载 → 校验 → 替换 → 迁移 → 重启 → 失败回滚（第 20 节；无迁移）**；
 > **R14 数据库备份与恢复：纯 Go 导出 / 覆盖式恢复 + 管理端「数据库备份」分区（第 21 节；无迁移）**；
-> **R15 备份目录设置界面 + compose 默认挂载备份目录（21.10 新增；无迁移）**）
+> **R15 备份目录设置界面 + compose 默认挂载备份目录（21.10 新增；无迁移）**；
+> **R16 上游状态回推：开通登记下游地址 + `POST /api/host/sync` 接收端 + 「站点对外地址」设置（第 22 节；迁移 0018）**）
 
 ## 1. 通用约定
 
@@ -84,6 +85,9 @@
 2. HTTP 状态码与业务错误码同时表达语义：`code` 用于业务分支，HTTP 状态码用于网关/监控，映射规则见第 4 节。
 3. 后端实现：`backend/internal/response`（`Success` / `SuccessMessage` / `Fail` / `FailCode` / `FailWithData` / `Abort`）。
 4. 前端实现：`frontend/src/api/client.ts` 中 `request()` 负责统一解包，返回 `data` 或抛出 `ApiError`（携带 `code`、`message`、`data`）。
+5. **唯一例外：`POST /api/host/sync`（上游状态回推，第 22 节）不套本响应包**。它是**上游（魔方财务）调用本系统**的外部对接接口，
+   请求与响应格式由上游约定：请求是 form 表单、响应是 `{"status":200|400,"msg":"…"}`。
+   该接口因此**不在 `/api/v1` 前缀下**，前端也不消费它（详见 22.3）。
 
 ## 3. 错误码表
 
@@ -1990,7 +1994,7 @@ curl -s 'http://127.0.0.1:8080/api/v1/coupons/welcome10/validate?product_id=1&cy
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节；**阶段 6b 新增 `email.smtp`（邮件通道）与 `notifications`（通知开关与到期提醒天数），见第 17 节**；**R10-A 新增 `referral`（邀请返佣：总开关 + 全局默认比例 + 自建券折扣上限），见第 18 节**；**R13-A 新增 `updates.github`（更新源：仓库与可选 GitHub Token）与 `updates.check`（更新检查缓存，非用户设置），见第 19 节**；**R14 新增 `db_backup`（数据库备份目录，见 21.4 / 21.10；R15 起提供读写接口）** |
+| `key` | string | 设置键（主键）；本批两个：`payment.epay`、`upstream`；阶段 4+ 新增 `site`（站点信息）、`installed`（安装标记）、`install.progress`（安装进行中标记，临时），见第 13 节；**阶段 6b 新增 `email.smtp`（邮件通道）与 `notifications`（通知开关与到期提醒天数），见第 17 节**；**R10-A 新增 `referral`（邀请返佣：总开关 + 全局默认比例 + 自建券折扣上限），见第 18 节**；**R13-A 新增 `updates.github`（更新源：仓库与可选 GitHub Token）与 `updates.check`（更新检查缓存，非用户设置），见第 19 节**；**R14 新增 `db_backup`（数据库备份目录，见 21.4 / 21.10；R15 起提供读写接口）**；**R16 为既有的 `site` 键（站点信息，安装向导第 5 步写入）补上「站点对外地址」的读写接口（见 22.4）——该地址同时用作上游回推的下游地址** |
 | `value` | text | 设置值（JSON 文本），结构与键一一对应 |
 | `updated_by` | int \| null | 最后修改的管理员 ID（审计用；NULL = 没有接口写入记录） |
 | `created_at` / `updated_at` | string | RFC3339（UTC） |
@@ -3079,12 +3083,13 @@ cancelled                                provisioning ──上游开通成功�
 | --- | --- | --- |
 | `id` | int | 本地实例 ID（对外主键） |
 | `member_id` / `order_id` | int | 所属会员 / 来源订单（订单快照） |
-| `host_id` | int | 上游主机 ID（`hostinfo` 的 `hosts[].id`） |
+| `host_id` | int | 上游主机 ID（`hostinfo` 的 `hosts[].id`）。**R16 起该列是带符号 `INT`**：交付在途的实例用**负数占位**（`-订单号`，见 22.2），交付成功后改写为真实上游主机 ID（恒为正） |
 | `product_id` / `product_name` | int / string | 本地商品 ID 与商品名快照（订单快照） |
 | `name` | string | 主机名（开通时提交上游的 `host`：`oem-` + 订单号小写） |
 | `billing_cycle` | string | 计费周期（本地 6 周期之一） |
 | `next_due_date` | string \| null | 到期时间（UTC；开通后从上游 `nextduedate` 回读，回读失败留 `null`） |
-| `status` | string | `active` / `suspended` / `cancelled` / `terminated`；5a 只写 `active`，**5b 起 `suspended` 由管理端暂停与到期扫描写入**，**5c 起 `terminated` 由终止收敛写入**；`cancelled` 经 5c 定稿为**不再写入的预留枚举**（申请在途以 `cancel_status=pending` 表达，见 15.8.1，操作矩阵见 15.1） |
+| `status` | string | `provisioning` / `active` / `suspended` / `cancelled` / `terminated`；5a 只写 `active`，**5b 起 `suspended` 由管理端暂停与到期扫描写入**，**5c 起 `terminated` 由终止收敛写入**；`cancelled` 经 5c 定稿为**不再写入的预留枚举**（申请在途以 `cancel_status=pending` 表达，见 15.8.1，操作矩阵见 15.1）；**R16 起 `provisioning` 是「交付在途」的内部状态**（迁移 0018 扩枚举，见 22.2） |
+| `downstream_token` | string | **R16 新增（迁移 0018）**：上游回推鉴权串（32 位十六进制，开通时生成后不再变更），见 22.2 |
 | `upstream_status` | string | 上游 `domainstatus` 原文（如 `Active`；同步字段） |
 | `dedicated_ip` | string | 上游主 IPv4（未回读为空串） |
 | `assigned_ips` | string | 上游附加 IP（库内逗号分隔原文；接口输出为数组） |
@@ -3096,6 +3101,12 @@ cancelled                                provisioning ──上游开通成功�
 在实例详情接口可见（等价于「在面板查看主机密码」）；实例列表（会员端与管理端）一律不含；
 **任何日志不写密码**（交付日志只记订单号与主机 ID）；管理端本期不提供实例详情接口。
 
+**R16 边界（`provisioning` 行不可见）**：交付在途的实例（`status=provisioning`）是上游开通**之前**
+落库的内部行，**一律不出现在 `GET /api/v1/instances` 与 `GET /api/v1/admin/instances` 里**
+（`ListInstances` 统一排除）；列表/详情的 `status` 查询参数取值也与 14.4 完全一致
+（仍只有 `active` / `suspended` / `cancelled` / `terminated`，不接受 `provisioning`）。
+其余接口对该状态一律拒绝操作（见 15.1 操作矩阵：仅 `active` 可操作、仅 `active`/`suspended` 可续费/可申请终止）。
+
 ### 14.3 自动交付时序与幂等、失败、重试
 
 **时序（在线回调 / 余额支付两支共用）**：
@@ -3104,9 +3115,11 @@ cancelled                                provisioning ──上游开通成功�
 ① 入账事务（本地库）：订单 → paid（+ 支付字段 / 优惠码计数）      ← 回调应答前完成
 ② 事务提交后触发交付（Trigger）：不阻塞回调应答（默认异步 goroutine）
 ③ 认领（事务）：行锁订单 + 状态条件 → provisioning               ← 幂等锚点
-④ 上游开通：CreateHost（clear → add_to_shop → settle → apply_credit）
-⑤ 回读：hostinfo 取 nextduedate / domainstatus / IP / 端口 / 账号密码
-⑥ 落库（事务）：插入实例 + 订单 → active（host_id / delivered_at）
+④ 预落实例：插入/复用该订单的实例行（status=provisioning、host_id 负数占位、
+   downstream_token 生成一次后不再变更）                        ← R16：拿到 instances.id 供上游回推
+⑤ 上游开通：CreateHost（clear → add_to_shop → settle → apply_credit，四步都带下游地址三参数）
+⑥ 回读：hostinfo 取 nextduedate / domainstatus / IP / 端口 / 账号密码
+⑦ 落库（事务）：更新该实例行 → active（真实 host_id / 同步字段）+ 订单 → active（host_id / delivered_at）
 ```
 
 **触发点（三处）**：在线支付回调入账成功（`OutcomeApplied`）；余额支付成功（`OutcomeApplied`）；
@@ -3123,6 +3136,7 @@ cancelled                                provisioning ──上游开通成功�
 | `configoption[<配置项 id>]` | `orders.config_json` 快照原样（键为配置项 id、值为所选值 id；数量型配置的值为数量，见 10.3 第 6 条 / 12.3 / 14.5 第 1 条） |
 | `qty` | `orders.qty`（本批恒 1） |
 | `currencyid` | 由上游 `/cart/clear` 的 `user.currency` 决定（客户端自动处理） |
+| `downstream_url` / `downstream_token` / `downstream_id` | **R16 新增**：本系统的回推地址（站点对外地址）、该实例的 32 位鉴权串、`instances.id`。四步（`clear` / `add_to_shop` / `settle` / `apply_credit`）都带；任一为空则不提交该参数（见 22.2） |
 
 **幂等与防并发**：同一订单同一时刻只有一个交付在执行——`BeginDelivery` 在事务内行锁订单，
 仅 `paid`（管理员重试时 `failed` 也可）可转 `provisioning`；重复回调、重复触发、并发重试
@@ -3140,6 +3154,9 @@ cancelled                                provisioning ──上游开通成功�
 3. **已知边界**：进程在 `provisioning` 时崩溃会留下「交付中」悬挂订单（本批无自动恢复，
    留人工核对/后续批次加对账）；上游已开通但落库失败时订单停在 `provisioning` 并记 ERROR 日志
    （宁可留痕人工核对，也不静默覆盖状态）。
+4. **R16 补充**：交付失败时**预落实例行保留**（`status=provisioning`，不出现在任何列表里），
+   管理员重试会**复用同一行**（同一个 `instances.id` 与 `downstream_token`，不重新生成）——
+   上游那边登记的下游地址三参数因此保持有效，不会出现「换号后旧推送打空」。
 
 **可测性设计**：交付能力以 `router.DeliveryTrigger` 接口注入（`Trigger` 自动触发 / `Deliver` 同步执行）；
 生产默认 `internal/delivery.Service`（自动触发异步），集成测试注入 `Async=false` 的同一实现，
@@ -5336,10 +5353,211 @@ R14 只有「看到当前目录」；R15 补上**可编辑入口**（设置键 `
 | `500` | 500 | 备份服务不可用（数据库句柄不可用时的降级口径，与 21.3 一致） |
 | `50001` | 500 | 读写本地库失败；库内 `db_backup` 值损坏（只可能由手工改库导致） |
 
-## 22. 变更记录
+## 22. 上游状态回推（R16）
+
+R16 交付「上游 → 本系统」的状态回推接入：开通时把本系统的回推地址登记给上游，
+上游在主机状态变化时 `POST /api/host/sync` 推送最新主机信息，本系统按该推送同步实例状态与字段。
+
+> **与既有链路的关系**：这是本系统**第一次接收来自上游的主动请求**（此前的上游交互全是本系统出站调用，见第 8 节）。
+> 推送是**单向、幂等、静默**的：只写 `instances` 与一条审计，**不通知会员、不发站内信、不发邮件、不回读上游**。
+
+### 22.1 数据面（迁移 0018）
+
+迁移 0018（`backend/migrations/0018_add_instance_downstream_token.up.sql` / `.down.sql`，**不改 0001–0017**）：
+
+1. `instances` 新增 `downstream_token VARCHAR(32) NOT NULL DEFAULT ''`（上游回推鉴权串；32 位十六进制）。
+2. `instances.status` 扩枚举：`ENUM('provisioning','active','suspended','cancelled','terminated')`——
+   新增 `provisioning`（交付在途，见 14.2 的不可见边界）。
+3. `instances.host_id` 由 `INT UNSIGNED` 改为 `INT`（带符号）：交付在途用**负数占位**（见 22.2），
+   真实上游主机 ID 恒为正；`uk_instances_host` 唯一键**保持不变**（占位值互不相同，真实主机 ID 仍全局唯一）。
+
+存量老实例的 `downstream_token` 为空（历史数据不补发）——它们不参与回推，`/api/host/sync` 对它们一律拒绝（见 22.3）。
+
+### 22.2 开通时登记回推地址
+
+1. **实例先于上游调用落库**：交付认领后、调 `CreateHost` **之前**，先插入（或复用）该订单的实例行——
+   订单 ↔ 实例一对一（`uk_instances_order`），因此「预落实例」对同一订单天然幂等。
+   - 首建：`status=provisioning`、`host_id = -订单号`（负数占位：既不与真实主机 ID 冲突，
+     又在并发交付之间互不相同）、`member_id` / `order_id` / `product_id` / `product_name` / `name` /
+     `billing_cycle` 按订单快照写入、`downstream_token` 生成一次；
+   - 重试：按 `order_id` 取到既有行，**沿用同一个 `instances.id` 与 `downstream_token`**（不重新生成）；
+   - 交付成功：同一行改为 `status=active` 并写入真实 `host_id` 与回读字段（**不新增行**；
+     该行若意外缺失则插入一行兜底，保证交付结果照样落库）；
+   - 交付失败：该行**保留在 `provisioning`**（列表不可见，见 14.2），重试继续用它。
+2. **`downstream_token` 生成规则**：`crypto/rand` 取 16 字节 → 32 位十六进制（**长度恒为 32**，上游要求）。
+   同一实例**只在首次落库时生成一次**，之后任何重试、任何同步都不改写。
+3. **登记参数（四步全带）**：`downstream_url` / `downstream_token` / `downstream_id` 随开通链路
+   `POST /cart/clear`、`/cart/add_to_shop`、`/cart/settle`、`/apply_credit` **四步全部提交**
+   （上游只在四步都收到时才在主机上登记下游地址）：
+
+   | 参数 | 取值 |
+   | --- | --- |
+   | `downstream_url` | 站点对外地址（22.4 的设置项）；未配置时按**触发本次交付的请求**推断 `scheme://host`（`X-Forwarded-Proto` 或是否 TLS 决定 scheme）；都取不到时**不提交该参数**（该实例不参与回推） |
+   | `downstream_token` | 该实例的 `instances.downstream_token` |
+   | `downstream_id` | 该实例的 `instances.id`（上游回推时原样带回为 `id`） |
+
+4. 续费链路（`/host/renew`，15.5）**不重复登记**：上游主机上已有的下游地址随主机保留。
+
+> **为什么是「触发本次交付的请求」**：交付由支付成功触发（默认在后台 goroutine 里跑），
+> 下单请求（`POST /orders`）不带交付；能拿到 Host 的时机是支付回调 / 余额支付 / 管理员重试这三个触发点，
+> 本系统在**请求线程内**先解析好地址再交给后台交付（契约 22.6 第 4 条）。
+
+### 22.3 `POST /api/host/sync`（上游 → 本系统）
+
+#### 请求
+
+| 项目 | 约定 |
+| --- | --- |
+| 路径 | **`/api/host/sync`（顶层，不在 `/api/v1` 之下）**——路径由上游固定拼接（`<downstream_url>` + `/api/host/sync`），改不得 |
+| 方法 / 编码 | `POST`，`application/x-www-form-urlencoded`（**form 表单，不是 JSON**） |
+| 鉴权 | 请求体里的 `signature` + `rand_str`（见下方签名算法）；**没有 token / 头鉴权**，这是本接口唯一的凭证 |
+| 响应 | `{"status":200,"msg":"…"}` / `{"status":400,"msg":"…"}`——**上游约定格式，不套统一响应包**（第 2 节第 5 条例外） |
+
+入参字段（全部来自 form）：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `id` | 是 | **下游实例 ID**（= 开通时登记给上游的 `downstream_id`，即 `instances.id`）。它取自 form，因此**参与签名时是字符串** |
+| `rand_str` | 是 | 随机串（上游每次请求生成；本系统只把它参与签名，不校验唯一性） |
+| `signature` | 是 | 签名（32 位十六进制，**比对时大小写不敏感**） |
+| `host_id` | 否 | 上游主机 ID（本系统不写库，仅用于排查） |
+| `domain` / `username` / `password` / `dedicatedip` / `assignedips` / `port` / `os` / `os_url` / `nextduedate` / `domainstatus` / `suspendreason` | 否 | 主机信息（同步口径见下） |
+| `type` | 否 | 推送类型（如 `create`）；本系统不区分，一律按同一套字段同步处理 |
+
+#### 签名算法（与上游逐字符一致）
+
+```
+sign = upper( md5( json_encode( ksort({ "id": <id 原文>, "token": <该实例的 downstream_token>, "rand_str": <rand_str> }, SORT_STRING) ) ) )
+```
+
+1. **参与签名的 `id` 是收到的原始字符串**（PHP 侧 `$_POST['id']` 是字符串，`json_encode` 后带引号）：
+   `{"id":"42","rand_str":"aB3xY9","token":"0123456789abcdef0123456789abcdef"}`；
+2. 键按**字典序**（`id` < `rand_str` < `token`）；Go 侧用 `map[string]string` 装后 `json.Marshal`
+   （map 键输出即字典序，与 PHP `ksort` 一致）；
+3. **必须关闭 HTML 转义**（`json.Encoder.SetEscapeHTML(false)`）：否则 `<` / `>` / `&` 会被写成 Unicode 转义形式（`003c` 这类）而与 PHP 的 `json_encode` 不一致；
+4. 结果 `md5` 后**转大写**；比对时两边统一转大写。
+
+**golden 向量**（单测逐字符断言，见 `backend/internal/router/host_sync_rule_test.go`）：
+
+| `id` | `rand_str` | `token` | 签名字符串 | `signature` |
+| --- | --- | --- | --- | --- |
+| `42` | `aB3xY9` | `0123456789abcdef0123456789abcdef` | `{"id":"42","rand_str":"aB3xY9","token":"0123456789abcdef0123456789abcdef"}` | `9840FF4B28D19ED233E2228471ABFBB1` |
+| `7` | `Zx9Q2m` | `ffffffffffffffffffffffffffffffff` | `{"id":"7","rand_str":"Zx9Q2m","token":"ffffffffffffffffffffffffffffffff"}` | `FE4C0CF8F11C9455B68C4D7503D71034` |
+| `1001` | `A1b2C3` | `5d41402abc4b2a76b9719d911017c592` | `{"id":"1001","rand_str":"A1b2C3","token":"5d41402abc4b2a76b9719d911017c592"}` | `D3D475B73F78EFE8785A783E5539D714` |
+
+#### 处理与校验顺序
+
+1. `signature` 或 `rand_str` 为空 → `{"status":400,"msg":"参数不完整"}`；
+2. `id` 非正整数 / 实例不存在 / 该实例 `downstream_token` 为空 → `{"status":400,"msg":"该产品不能使用该接口"}`
+   （**统一文案**，不区分「实例不存在」与「未登记」，不泄露实例是否存在；**存量老实例因此一律被拒**）；
+3. 验签不过 → `{"status":400,"msg":"签名验证失败"}`；
+4. 通过后按下方口径同步；成功 → `{"status":200,"msg":"更新成功"}`。
+
+> 失败**一律 HTTP 200 + body `status=400`**：上游的下游调用统一走 `commonCurl`，它**只在 HTTP 200 时**
+> 才 `json_decode` 响应体（非 200 时自己造 `{"status":400,"msg":"请求失败,HTTP状态码:…"}` 并丢掉我们的 body）——
+> 因此要让上游看到「签名验证失败」这类业务原因，必须回 200 并在 body 里给 `status=400`；
+> 上游据此把本次推送记为已处理（不复推），`status=200` 才记为成功。
+> **不做重放窗口 / 时间戳校验**：上游只在状态变化时推送（`rand_str` 为 6 位字母数字随机串）。
+>
+> 上游侧口径（`app/zjmf.php` 的 `pushHostInfo` / `createSign` / `commonCurl`，只读参考）与本节的对应关系：
+> 推送地址 = `rtrim(downstream_url, "/") + "/api/host/sync"`；请求体是 `http_build_query(表单数组)`（**urlencoded，
+> 不是 multipart**）；登记门槛 = `downstream_url` 非空 + `downstream_token` 长度**恰好 32** + `downstream_id` 为数字；
+> 签名的 `id` 取自登记时的表单字段（PHP 字符串），`nextduedate` 为空时上游会**整个不下发该字段**（与本节的
+> 「未出现即不改动」口径配套）。
+
+#### 状态映射（`domainstatus` → 本地 `status`）
+
+比较时统一转小写（上游首字母大写、本地枚举小写）：
+
+| 上游 `domainstatus` | 本地 `instances.status` |
+| --- | --- |
+| `Active` | `active` |
+| `Suspended` | `suspended` |
+| `Cancelled` | **不改本地状态**（只更新 `upstream_status` 原文） |
+| `Deleted` | **`terminated`**（收敛到既有终止态；不改 `cancel_status`） |
+| `Pending` / `Fraud` | **不改本地状态**（只更新 `upstream_status` 原文） |
+| 其它未知值 | **不改本地状态**（只更新 `upstream_status` 原文） |
+
+> `Cancelled` **刻意不映射**到本地 `cancelled`（依据 **15.8.1 的 5c 定稿**）：`cancelled` 是「保留但不再写入」
+> 的预留枚举，`instances.status` 只反映主机的**真实可用状态**——上游仍在运行时即使已申请取消，
+> 本地也保持 `active` / `suspended`，「取消申请在途」由 `cancel_status=pending` 表达（操作矩阵见 15.1）。
+> 若把仍在运行的主机写成 `cancelled`，按 15.1（只有 `active` 可操作）会员会在主机还活着的时候失去操作能力；
+> 真正的终止收敛只认 `Deleted`（→ `terminated`）与主机不存在（管理端同步 / 扫描，见 15.8.3）。
+
+#### 同步字段与幂等
+
+1. `upstream_status`：`domainstatus` **原文照存**（未知值也存，保证可对账）。
+2. `next_due_date`：`nextduedate` **存在且非空**才更新（上游以 unix 秒给出）。
+3. `dedicated_ip` / `assigned_ips` / `port` / `username` / `password`：**出现在表单里的字段按原文写入**
+   （空值即清空）；**未出现在表单里的字段不改动**。`password` 是敏感字段：
+   **只落库，绝不写日志、绝不写审计描述**。
+4. **幂等**：状态与字段都无变化时**不写库、不写审计**（同一份推送重复到达是纯读操作）；
+   有变化才落库并写**一条**审计（`instance_operation_logs`：`actor_type=system`、`actor_id=0`、
+   `action=host_sync`，message 只列发生变化的字段名，**不含任何密码值**）。
+5. **静默**：**不通知会员、不发站内信、不发邮件**（与交付/续费等事件通知链路完全解耦）。
+6. **不校验回带的上游主机 ID / 域名**（推送不带可比的本地凭据）；`provisioning` 实例同样可以被推送更新
+   （上游可能在本地交付落库之前就推 `Active`，字段照写，状态在交付完成时收敛）。
+
+### 22.4 「站点对外地址」设置（`site.url`）
+
+`site` 键自安装向导第 5 步写入（13.3），R16 为它补上管理端读写接口，
+并把其中的 `url` 用作上游回推的下游地址（`downstream_url`，见 22.2）。
+
+#### `GET /api/v1/admin/settings/site`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 管理员 token，**仅 `admin` 角色**（含读取；`finance` / `support` 返回 `403`） |
+| 成功 | HTTP 200，`data` = `{url, configured, url_recommended, updated_by, updated_at}` |
+
+| 字段 | 说明 |
+| --- | --- |
+| `url` | 站点对外地址（配置原值；空串 = 未配置 → 交付时按请求 Host 推断） |
+| `configured` | `url != ""`（便于前端展示「未配置」） |
+| `url_recommended` | 按当前请求推断的地址（`scheme://host`），供界面提示「留空时用这个」，只做提示不校验可达性 |
+| `updated_by` / `updated_at` | 最后修改人 / 时间（从未写入为 `null`；向导写入时也记 `updated_by`） |
+
+#### `PUT /api/v1/admin/settings/site`
+
+| 项目 | 说明 |
+| --- | --- |
+| 鉴权 | 同上（仅 `admin`） |
+| 请求体 | `{"url":"https://oem.example.com"}`——`url` **必须提供**（键缺席 / `null` → `40001`）；空串 = 清空（回到「按请求 Host 推断」） |
+| 成功 | HTTP 200，`data` 为更新后的设置视图 |
+
+校验：必须是带主机名的 `http://` 或 `https://` 地址，否则 `40002` + 可读原因；
+保存时**去掉结尾斜杠**（与向导第 5 步同口径，避免拼出 `//api/host/sync`）。
+**只改 `url`**：`site` 键里的 `name` / `admin_email`（向导写入）原样保留。
+
+| code | HTTP | 场景与 message |
+| --- | --- | --- |
+| `40001` | 400 | 未提供 `url`（`请提供 url（留空表示按请求推断）`） |
+| `40002` | 400 | `url` 非 `http(s)` 或缺少主机名（`url 必须以 http:// 或 https:// 开头，收到 "..."`） |
+| `403` | 403 | 角色不是 `admin` |
+| `500` / `50001` | 500 | 值损坏 / 库操作失败 |
+
+### 22.5 角色权限矩阵（R16）
+
+| 能力 | admin | finance | support | 会员 | 访客 / 上游 |
+| --- | --- | --- | --- | --- | --- |
+| `GET/PUT /admin/settings/site` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/host/sync` | —（无 token 鉴权） | — | — | — | ✅（凭签名，且仅限已登记 `downstream_token` 的实例） |
+
+### 22.6 边界与本批未做
+
+1. **存量老实例**（`downstream_token` 为空）不参与回推：本轮不补发 token、不做数据回填。
+2. **不做商品同步、不做轮询收敛、不做自动删除**：推送只同步字段与状态；上游删除主机的收敛仍走既有
+   管理端同步 / 到期扫描（15.6 / 15.8.3），收到 `Deleted` 只把本地置 `terminated`（**不删实例行**）。
+3. **不防重放**：`rand_str` 只参与签名，不落库、不查重（上游侧每次请求都是新的随机串）。
+4. **`downstream_url` 未配置时的推断口径**：见 22.2 第 3 条的说明（用触发交付的请求，而非下单请求）；
+   两者都取不到（例如从无 Host 的内部调用触发）时该次开通**不登记下游地址**，其余开通行为不受影响。
+5. **推送不做限流**：上游只在其侧状态变化时推送，且推送本身幂等。
+
+## 23. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-14 | v27 | R16 上游状态回推（**新增第 22 节，变更记录顺延为第 23 节；第 2 节补「唯一例外」、12.1 补 site 读写、14.1/14.2/14.3 同步口径**；**迁移 0018**）：**① 数据面（22.1，迁移 0018）**——`instances` 新增 `downstream_token VARCHAR(32)`（上游回推鉴权串，32 位十六进制，开通时生成一次后不再变更；存量老实例为空串、**不补发**）、`status` 枚举新增 `provisioning`（交付在途的内部态，见 14.2）、`host_id` 由 `INT UNSIGNED` 改为带符号 `INT`（交付在途用 `-订单号` 占位：既不与真实主机 ID 冲突又在并发交付间互不相同），`uk_instances_host` 唯一键**保持不变**。**② 开通登记（22.2 / 14.3）**——交付流程改为**先落实例、再调上游**：`EnsurePendingInstance` 在 `CreateHost` 之前插入（或复用）该订单的实例行（`status=provisioning`、`host_id` 负数占位、订单快照字段、`downstream_token`），**同一实例的重试沿用同一个 `instances.id` 与 `downstream_token`**（不重新生成）；`downstream_url`/`downstream_token`/`downstream_id` 随 `/cart/clear`、`/cart/add_to_shop`、`/cart/settle`、`/apply_credit` **四步全部提交**；`downstream_url` 取「站点对外地址」，未配置时按**触发本次交付的请求**（支付回调 / 余额支付 / 管理员重试，在请求线程内解析后交给后台交付）推断 `scheme://host`（`X-Forwarded-Proto` 或 TLS），都取不到则不登记；交付失败时在途行**保留在 `provisioning`** 且**不出现在任何列表里**（`ListInstances` 统一排除；`status` 查询取值仍只有既有四态）；续费链路不再重复登记。**③ 接收端 `POST /api/host/sync`（22.3）**——**顶层路由**（不在 `/api/v1`），`application/x-www-form-urlencoded` 表单，响应是**上游约定的 `{"status":200\|400,"msg":"…"}`（不套统一响应包，第 2 节第 5 条例外）**，失败一律 HTTP 200；验签 = `upper(md5(json_encode(ksort({id, token, rand_str}))))`，其中 **id 以字符串参与**（PHP 口径）、**必须关闭 HTML 转义**，比对大小写不敏感，文档给出三个 golden 向量（单测逐字符断言）；校验顺序为「缺 `signature`/`rand_str` → 400 参数不完整」→「id 非法 / 实例不存在 / `downstream_token` 为空 → 400 **统一文案「该产品不能使用该接口」**（不泄露实例是否存在，存量老实例一律被拒）」→「验签不过 → 400 签名验证失败」；状态映射 `Active/Suspended/Deleted → active/suspended/terminated`、`Cancelled`/`Pending`/`Fraud`/未知值**只存原文不改状态**（`Cancelled` 依据 15.8.1 的 5c 定稿**刻意不映射**：`cancelled` 是保留但不再写入的预留枚举，上游仍在运行时本地保持 `active`/`suspended`），且**终态 terminated 不可逆**；同步字段口径为「**出现在表单里才写**（空值即清空），未出现的不动」，`nextduedate` 额外要求非空；**幂等**（状态与字段都没变则不写库、不写审计）、**静默**（不通知会员/不发站内信/不发邮件）、**密码只落库不进日志与审计**（审计只记变化栏目名，`action=host_sync`、`actor_type=system`）。**④ 站点对外地址设置（22.4）**——`GET/PUT /api/v1/admin/settings/site`（**仅 admin，含读取**；finance/support `403`、会员 `401`）读写 `site` 键里的 `url`（`name`/`admin_email` 由向导写入、原样保留），保存时去尾斜杠、必须是带主机名的 `http(s)` 地址（否则 `40002` 且**不落库**），GET 另给按当前请求推断的 `url_recommended`；管理端设置页新增「站点对外地址」分区。**测试**：`go test ./...` 全量绿（563 → **579** 个 `func Test`：`internal/router` 新增 12 个——签名 golden 向量（逐字符断言签名字符串与 md5）/ HTML 转义回归 / 状态映射逐值 / 表单字段口径、接收端六类用例（同步与响应形状、幂等不写库不写审计、五类非法请求一律 400 且不改数据、状态映射端到端含终态不可逆、字段存在性语义、顶层路由）、站点设置三个（角色矩阵、读写与保留 name/admin_email、校验与不落库）、交付两处（四步都带三参数且取值正确、未配置时按请求 Host 回退）；`internal/delivery` 新增 1 个——鉴权串长度恒 32 且不重复；`migrations` 往返测试扩到 0018（up 断言新列/负号列/枚举、down 断言占位行被清而已交付行保留、再 up 幂等）；`internal/install` 与 `internal/dbbackup` 的既有断言随迁移数 17→18 同步）；前端 `npm test` 全量绿（322 → **327**，新增「站点对外地址」分区 5 个用例）、`npm run build` 通过 |
 | 2026-10-14 | v26 | R15 备份目录的设置界面 + compose 默认挂载备份目录（**21.10 新增；21.3/21.4/21.7/21.8/21.9 与 12.1 同步；本批无迁移、不改 R14 四个接口的形状与语义**）：**① 备份目录设置接口（21.10）**——`GET/PUT /api/v1/admin/settings/db_backup`（**仅 admin，含读取**；finance/support `403`、未登录/会员 token `401`）。GET 返回配置原值 `dir`（空串=缺省）、`default`、`default_dir`（缺省目录绝对路径，与当前是否在用无关，供界面展示「留空 = 用这个」）、`resolved_dir`（解析后的绝对路径）、`outside_web_root`、`exists`、`writable`、`message`；**GET 不创建目录、不写库**（目录尚不存在时 `exists=false`+提示，`message` 说明保存或首次备份时会自动创建）。PUT 请求体 `{"dir":"<路径>"}`（**必须提供**，键缺席/`null` → `40001`；空串或纯空白 = 恢复缺省目录），**保存时就做环境校验**：形状校验（控制字符 → `40001`）→ 相对路径按**安装目录**解析 → **落在 Web 根（`<安装目录>/dist`）内一律拒绝（`40002` + 可读原因）** → 目录不存在则按 **0750** 创建（含中间目录）→ **写入探针**（临时文件写+删，覆盖权限不足/只读挂载）；**任一步失败都不落库**，通过才写 `db_backup` 键并返回更新后的完整视图（此时 `exists`/`writable` 均为 true）。**② 复用同一套校验（防口径漂移）**——路径解析、Web 根判定、符号链接与非目录判定全部走 `internal/dbbackup`（新增 `DefaultDir` / `InspectDir` / `PrepareDir`，运行时 `BackupDir` 与启动校验行为不变）；R14 的四条接口（21.3）与「不可下载」铁律完全不变，21.3 只加一行指向 21.10 的说明。**③ 改目录不搬运已有备份（21.10 第 5 条，界面必须明示）**——改目录后旧目录里的备份不出现在新目录的列表里、也**不会被删除**；要保留就手工迁移（`.sql` 与同名 sidecar 一起）或把目录改回原值。**④ 前端（21.7 第 8 条）**——「数据库备份」分区新增可编辑的「备份目录」（输入框 + 保存按钮 + 校验结果提示：解析后的绝对路径/不在 Web 根内/可写，失败展示后端 `40002` 原因并保留输入），旁边明示两条必读提示（改目录不搬走已有备份；留空即缺省目录并显示 `default_dir` 实际路径）；保存成功后重读列表（目录展示随之更新）。**⑤ 容器默认挂卷（21.9 第 6 条）**——`deploy/docker-compose.yml` 的 `backend` 服务新增绑定挂载 **`./backups:/app/backups`**（落点 `deploy/backups/`，已被 `.gitignore` 忽略）：备份**没有下载入口**，运维取文件变成「直接到宿主机该目录拿」；文档给出命名卷替代写法（`backend-backups:/app/backups` + 顶层 `volumes:` 声明，取文件需 `docker cp`）、**权限/属主说明**（容器默认以 root 运行 → 宿主机目录/文件属主通常是 root，目录 0750、文件 0640）与「界面上改成别的路径需自备挂载」「绝不要把备份目录指向 Web 可访问目录」的警告，并明确**容器内不适用一键升级**（R13-B 是主机直装场景，容器升级 = 换镜像 + 手动 `migrate up`）。**测试**：`go test ./...` 全量绿（555 → **563** 个 `func Test`：`internal/dbbackup` 新增 6 个——缺省/相对路径解析、Web 根拒绝且不创建、保存时按 0750 创建并探针、指向文件/符号链接拒绝、只读目录探针失败（Windows 下按既有惯例跳过）；`internal/router` 新增 2 个——角色矩阵与保存/留空/拒绝不落库/改目录后列表不含旧备份、服务未接入时两个接口明确拒绝）；前端 `npm test` 全量绿（**318 → 322 例 / 41 文件**，新增 4 例：解析与可写展示 + 两条提示、保存提交 `{dir}` 并重读列表、留空保存提交 `{dir:""}`、后端拒绝展示原因且不谎报成功）；**真机验证（临时库 + 临时安装目录 + 真实二进制，5 项 / 32 条断言）全部通过**——合法目录保存后返回解析后的绝对路径且备份立即落新目录、Web 根内被拒（`40002` + 可读原因、未落库、未创建目录）、留空恢复缺省目录、改目录后旧备份不在列表且文件未被删除、未登录与会员 token `401` / finance 角色 `403`；compose 以 YAML 解析 + 卷结构断言校验（本机无 docker，未跑 `docker compose config`）。 |
 | 2026-10-14 | v25 | R14 数据库备份与恢复（**新增第 21 节；变更记录顺延为第 22 节；20.10 补第 6/7 条升级前备份提示；**本批无迁移、无新表**）：**① 备份实现（21.1）**——**纯 Go** 逐表导出（`SHOW FULL TABLES` → `SHOW CREATE TABLE` + 流式 `SELECT *`），**不依赖 `mysqldump` 或任何外部二进制**；NULL 与字符串严格区分、单引号/反斜杠/换行/NUL 转义、二进制列（BLOB/BINARY/BIT/空间类型）走 `X'..'` 十六进制而**文本列（VARCHAR/TEXT/JSON/DECIMAL）必须走转义字符串**（驱动同样返回 `[]byte`）、时间按 UTC 墙钟值往返（含小数秒与零值日期）、`AUTO_INCREMENT` 由建表语句带出；**一致性口径**：整库在**一个事务**里读同一快照（`REPEATABLE READ` + `START TRANSACTION WITH CONSISTENT SNAPSHOT`），代价是长事务 undo 占用、收益是恢复出来一定自洽；**分块**：单条 `INSERT` ≤ 200 行或 ≤ 512 KiB（MySQL 5.7 缺省 `max_allowed_packet` 4 MiB，绝不拼巨型 INSERT）；**流式写盘**（临时文件 + 原子改名，整库不进内存）；每表 `DROP TABLE IF EXISTS` + `CREATE TABLE` + 分批 `INSERT`（空表只有建表）；文件头带 `generated_at`/`database`/`schema_version`/`app_version`/`operator` 与 `SET FOREIGN_KEY_CHECKS=0;` `SET NAMES utf8mb4;`；**② 元信息存 sidecar（21.2，本批取舍）**——`<文件名>.json` 与备份同目录、**不入库、无新表**：恢复是覆盖式的，元信息若存库会被旧备份带回旧状态（恢复点之后的备份会在列表里凭空消失），sidecar 始终与文件一致且库不可用也能列出；③ **接口（21.3）**——`GET /api/v1/admin/db-backups`（目录状态 + 元信息列表 + 总占用 + `auto_cleanup:false`）、`POST /api/v1/admin/db-backups`（立即备份，同步）、`POST /api/v1/admin/db-backups/:id/restore`、`DELETE /api/v1/admin/db-backups/:id`；错误码：`40001`/`40002`/`403`/`404`/`409`/`50005`（新增「数据库备份或恢复失败」）；④ **不可下载 · 目录边界 · ID 白名单（21.4，本批最硬的三条）**——**不提供任何下载/读文件内容的接口**（路由断言测试保证只有四条路由，响应与日志只含元信息）；缺口省目录 `<安装目录>/backups`（与 `dist/` 同级），设置键 `db_backup`（`{"dir":""}`，相对路径相对安装目录解析），**解析结果落在 `<安装目录>/dist` 内一律拒绝**（启动校验一次 + 每次使用再校验；含符号链接解析后判定）；文件名为 `lyidc-backup-<UTC 时间戳>-<8 位十六进制>`（`crypto/rand`），**ID 形状即白名单**（`../`、绝对路径、盘符、带扩展名、大小写/长度不符一律 404），服务端解析后再复核仍在备份目录内且是普通文件（符号链接拒绝）；⑤ **恢复（21.5，覆盖式、不可撤销）**——校验 `admin` + `confirm=true` + **当前登录管理员密码**（bcrypt，任一不满足 40002 且不动库）；逐表 `DROP`/`CREATE`/`INSERT` 后**删除「当前库有、备份里没有」的表**（`dropped_tables` 即覆盖而非合并的证据）；`FOREIGN_KEY_CHECKS=0` 期间执行并在退出前还原（会话变量随连接回池）；`NO_BACKSLASH_ESCAPES` 直接拒绝（不偷偷改 `sql_mode`）；**恢复后追迁移**：备份版本低于当前代码内嵌最新版本时执行一次 `up`（与安装向导/`lyidc-migrate` 同一套 golang-migrate + 内嵌迁移文件，用 `DatabaseDSN` 新开连接因迁移文件含多语句），高于当前代码则返回 `warning` 不迁移；失败不吞错、错误信息只带语句种类与表名；⑥ **如实声明的风险（21.6）**——覆盖式不可撤销、**失败可能留下不完整的库**（不做恢复前快照）、恢复期间网站短暂不可用（不做维护模式），界面必须醒目警告并**强烈建议先手动备份**；⑦ **前端（21.7）**——设置页新增「数据库备份」分区（锚点 `#db-backups`）：当前库名 / 备份目录（含「不在 Web 根内」标记）/ **备份总占用磁盘** / **不自动清理**说明、备份列表（时间/大小/schema 版本/表·行数/操作人/应用版本）、「立即备份」（进行中禁用）、「恢复」弹窗（不可撤销 + 失败风险 + **输入当前管理员密码** + 明确确认）、「删除」二次确认；**不做下载、不做查看内容**；非 admin 不进设置页、不发越权请求；⑧ **升级弹窗提示（20.10 第 6 条，只提示不阻断）**——R13-B 的升级二次确认弹窗内新增「建议先到「数据库备份」分区做一次备份」的醒目提示与锚点链接，**不自动备份、不阻断升级**（升级链路行为不变）；⑨ **边界（21.9）**——不自动清理/不自动定时备份、不做增量与压缩加密、不支持部分表恢复与恢复到其它库、备份格式自研不保证与 mysqldump 互通、容器部署需挂载备份目录。**测试**：`go test ./...` 全量绿（528 → **555** 个 `func Test`：新增 `internal/dbbackup` 包 20 个——字面量转义/分词器/路径白名单 + 真机集成（备份→改数据→恢复逐表行数比对、覆盖性、低版本备份恢复后追迁移、符号链接与 Web 根拒绝、`NO_BACKSLASH_ESCAPES` 拒绝）——并补 `internal/router` 备份接口集成用例 5 个（角色矩阵、只输出元信息、路由断言「无下载」、二次确认与密码、防穿越、覆盖式恢复））；前端 `npm test` 全绿（**307 → 318 例 / 40 → 41 文件**，新增 `AdminSettingsBackups.test.tsx` 11 例）；**真机验证（临时库 + 临时安装目录 + 真实二进制，7 项）全部通过**——备份/恢复逐表行数一致、覆盖性（新增表被删）、schema 16→恢复后自动追到 17、密码错/缺 confirm/非 admin 全部拒绝、防穿越全部 404、不可下载且备份目录不在 Web 根内、中文与特殊字符往返逐字节一致；浏览器（无头 Edge + CDP）实测备份分区/备份列表/恢复弹窗（密码必填 + 不可撤销文案）/删除确认/升级弹窗备份提示五处界面。 |
 | 2026-10-14 | v24 | R13-B 一键自动升级（**新增第 20 节；变更记录顺延为第 21 节；19.5 扩两个地址字段、19.6 矩阵补两行、19.8 改为指向第 20 节；本批无迁移**）：**① 新增 `POST /api/v1/admin/updates/apply`（20.3）**——二次确认 `{"confirm":true,"target_version":"v0.10.0"}`；`target_version` 必须等于缓存里的 `latest_version` 且严格高于当前版本（不降级、不错版），成功 **HTTP 202** 返回任务视图，已有进行中任务 **409**；**② 前置检查 12 条（20.2）**——开发构建拒绝、无有效检查结果拒绝、缺本平台产物 / 缺同名 `.sha256` 拒绝、安装目录可写、磁盘空间 ≥ `max(2×包大小, 512 MiB)`、同步拉取 `.sha256` 作为唯一出网预检（失败 40002 给出可读原因，不半路炸）；**③ 新增 `GET /api/v1/admin/updates/job`（20.4）**——阶段 / 进度 / 起止时间 / 目标版本 / 结果 / 失败原因 / 是否回滚 / `db_migrated` / 日志尾部，从未升级过返回 `data:null`；陈旧 `running`（>10 分钟）落盘为 `failed`；**④ 状态落盘定稿（20.5）**——`<安装目录>/upgrade-state.json`（0600 原子写）+ `upgrade.log`，**不用数据库**：升级会重启进程、替换二进制、迁移可能改库结构，状态必须跨版本/跨进程/库不可用时仍可读，helper 也不能依赖新版本的库访问代码；**⑤ helper 分离进程（20.6）**——主进程落盘 + 写 `handoff.json`（含旧 pid、健康检查地址、**旧进程启动参数**）+ **复制正在运行的二进制**当 helper（不新增发布产物、无自举问题、复制品不在替换范围内）+ 分离启动（Windows `DETACHED_PROCESS`、Unix `setsid`）+ 202 后 0.5 秒 `os.Exit(0)`；helper 入口是同一二进制的 `upgrade-helper` 子命令；**⑥ 顺序与不可逆风险（20.6.3，本批拍板）**——**先替换文件、后迁移、最后才启动新服务**（迁移用新包内的 `lyidc-migrate`，且新服务在迁移成功前绝不启动）；**不做数据库备份**，回滚只还原二进制与 `dist`，明确接受「二进制回滚但迁移已前进」的中间态（依据：既有迁移全部向前兼容，旧二进制在新库上仍可运行），并用状态里的 `db_migrated` + 日志里的 migrate 原始输出兜底；**⑦ 回滚（20.6.3）**——备份 `.bak` / `dist.bak`、失败时结束新进程 → 还原 → 拉起旧版 → 健康检查（30 秒）→ `rolled_back`；旧版也起不来则 `failed` 并要求人工介入；**⑧ 安全（20.7）**——sha256 必须校验（缺失即拒绝、不匹配绝不替换任何文件）、**资产下载不携带 GitHub Token**（`download_base` 可指向任意主机）、解包防路径穿越与符号链接（总 1 GiB、单文件 512 MiB）、交接前用新二进制 `-version` 自报版本校验、日志与响应不含 Token；**⑨ 更新源注入（19.5 / 20.8）**——`updates.github` 新增可选 `api_base`（缺省 `https://api.github.com`）与 `download_base`（非空时 `下载地址 = download_base + path`），仅 admin、改完立即生效，供镜像与**本地 mock 真机验证**；改 `repo` 或 `api_base` 同请求清空检查缓存；**⑩ 前端（20.10）**——「立即升级」按钮 + 二次确认弹窗（目标版本、替换内容、服务会短暂中断）+ 阶段进度轮询（2 秒，容忍重启期间的连接中断）+ 结束态（成功 / 失败原因 / 已回滚 + `db_migrated` 提示），进入设置页先读一次任务状态（刷新后可继续看到进行中或已结束的任务），进行中禁用按钮不重复提交，非 admin 不发越权请求；**⑪ 边界（20.9）**——不支持降级/同版本重装/指定历史版本、不适用于容器部署（容器内替换的是可写层）、不支持断点续传与多镜像回退、不校验发布包签名。**测试**：`go test ./...` 全量绿（486 → **528** 个 `func Test`，测试包 18 → 19：新增 `internal/upgrade` 包 41 个并补 `internal/router` 升级接口集成用例）；前端 `npm test` 全绿（**307** 例 / 40 文件，新增 `AdminSettingsUpgrade.test.tsx` 10 例）；**假部署真机验证三情形**全部通过——① 正常升级（替换后新二进制在跑、dist 已换、迁移 16→17 已执行、健康检查通过）② sha256 不匹配 → 拒绝且未替换任何文件、未产生备份 ③ 健康检查失败 → 自动回滚且旧服务恢复可用。 |

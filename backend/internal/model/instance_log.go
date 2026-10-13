@@ -42,6 +42,9 @@ const (
 	ActionCancel = "cancel"
 	// ActionCancelSync 上游确认终止后的本地收敛（管理端同步或到期扫描触发，阶段 5c）。
 	ActionCancelSync = "cancel_sync"
+	// ActionHostSync 上游主动回推的状态同步（R16，`POST /api/host/sync`，actor=system）。
+	// 与 ActionSync（管理端主动回读上游）区分：这里是被上游推送驱动的被动同步。
+	ActionHostSync = "host_sync"
 )
 
 // 实例操作审计的结果取值（instance_operation_logs.status）。

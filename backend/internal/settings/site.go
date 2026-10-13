@@ -43,6 +43,31 @@ func (s Site) Validate() error {
 	return nil
 }
 
+// ValidateURL 只校验「站点对外地址」（R16，契约 22.4）：留空合法（表示交付时按请求 Host 推断）；
+// 非空时必须是带主机名的 http(s) 地址。
+//
+// 与 Site.Validate 的差别：这里**不要求 name 非空**——R16 的接口只改 url 一项，
+// 不应因为「向导时期没有写站点名」这种历史状态被拒。
+func (s Site) ValidateURL() error {
+	return validateHTTPURL("url", s.URL)
+}
+
+// SiteURLUpdate 是「站点对外地址」的更新意图（R16，契约 22.4）：本批只开放 url 一项，
+// name / admin_email 仍由安装向导第 5 步写入、原样保留。
+type SiteURLUpdate struct {
+	// URL 非 nil 时替换（空串 = 清空，回到「按请求 Host 推断」）。
+	URL *string
+}
+
+// Apply 把更新意图合并到站点设置上（只动 url，其余字段原样保留）。
+// 与安装向导同口径：去掉首尾空白与**结尾斜杠**（避免拼出 `//api/host/sync`）。
+func (s Site) Apply(u SiteURLUpdate) Site {
+	if u.URL != nil {
+		s.URL = strings.TrimRight(strings.TrimSpace(*u.URL), "/")
+	}
+	return s
+}
+
 // Encode 返回落库用的 JSON 文本。
 func (s Site) Encode() (string, error) { return encode(s) }
 

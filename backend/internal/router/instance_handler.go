@@ -236,10 +236,16 @@ func instanceIDParam(c *gin.Context) (uint64, bool) {
 
 // newInstanceSummaryView 组装实例列表项（不含敏感字段）。
 func newInstanceSummaryView(instance *model.Instance) instanceSummaryView {
+	hostID := instance.HostID
+	if hostID < 0 {
+		// R16：交付在途的行用负数占位（-订单号，契约 22.2），对外一律输出 0（尚未分配上游主机），
+		// 不把内部占位值暴露成「负数主机 ID」。这类行本就不出现在任何列表里（14.2）。
+		hostID = 0
+	}
 	return instanceSummaryView{
 		ID:             instance.ID,
 		OrderID:        instance.OrderID,
-		HostID:         instance.HostID,
+		HostID:         hostID,
 		ProductID:      instance.ProductID,
 		ProductName:    instance.ProductName,
 		Name:           instance.Name,

@@ -7,13 +7,20 @@ import "time"
 // 阶段 5a 只产生 active（交付成功）；阶段 5b 起 suspended 由管理端暂停与
 // 到期扫描写入；terminated 由阶段 5c（终止流程）收敛写入。
 const (
+	// InstanceStatusProvisioning 交付在途（R16，迁移 0018）：提交上游开通（CreateHost）**之前**
+	// 就落库的内部行，作用是把 instances.id 与 downstream_token 先确定下来交给上游做回推登记
+	// （契约 22.2）。该状态是纯内部态：**一律不出现在实例列表里**（store.ListInstances 排除），
+	// 且不在任何列表/详情接口的 status 查询取值里；其余操作矩阵与既有四态一致（全部拒绝，
+	// 见 IsInstanceOperable / IsInstanceCancellable / IsInstanceRenewable）。
+	InstanceStatusProvisioning = "provisioning"
 	// InstanceStatusActive 正常（已交付；可执行电源/重装/改密等操作）。
 	InstanceStatusActive = "active"
 	// InstanceStatusSuspended 已暂停（管理端手动暂停或到期未续费自动暂停；不可执行会员端操作）。
 	InstanceStatusSuspended = "suspended"
 	// InstanceStatusCancelled 迁移 0007 的预留枚举值；阶段 5c 定稿**不再写入**——
 	// 「取消申请在途」以 cancel_status=pending 标记表达，status 保持 active / suspended 原值
-	// （见契约 15.8.1，与本文件 InstanceCancel* 常量配套）。
+	// （见契约 15.8.1，与本文件 InstanceCancel* 常量配套）；R16 的上游回推同样不写它
+	// （domainstatus=Cancelled 刻意不映射，见契约 22.3 状态映射表）。
 	InstanceStatusCancelled = "cancelled"
 	// InstanceStatusTerminated 已终止（上游主机已删除，本地已收敛；全部操作拒绝）。
 	InstanceStatusTerminated = "terminated"
@@ -101,6 +108,9 @@ type Instance struct {
 	// 提醒过会员；与 NextDueDate 相等表示本到期周期的提醒已完成（续费/同步推进到期时间后自动重新武装）。
 	ExpiryRemindedDue *time.Time `gorm:"column:expiry_reminded_due"`
 	Status            string     `gorm:"column:status"`
+	// DownstreamToken 是上游回推鉴权串（R16，迁移 0018）：32 位十六进制，交付首建时生成一次、
+	// 此后任何重试/同步都不改写。**内部字段**——不进入任何实例视图（列表/详情 JSON 都不含它）。
+	DownstreamToken string `gorm:"column:downstream_token"`
 	// UpstreamStatus 是上游 domainstatus 原文（如 Active），仅作同步展示。
 	UpstreamStatus string `gorm:"column:upstream_status"`
 	DedicatedIP    string `gorm:"column:dedicated_ip"`
@@ -121,3 +131,14 @@ type Instance struct {
 
 // TableName 返回实例表名。
 func (Instance) TableName() string { return "instances" }
+
+// PlaceholderHostID 返回交付在途实例的 host_id 占位值（R16）：订单号的相反数。
+//
+// instances.host_id 上有唯一键且列是带符号 INT，占位值必须同时满足两条：
+//  1. 不可能是真实上游主机 ID（真实值恒为正）；
+//  2. 并发交付之间互不相同（订单号唯一 → 相反数也唯一）。
+//
+// 交付成功后同一行会改写为真实主机 ID（契约 22.2）。
+func PlaceholderHostID(orderID uint64) int {
+	return -int(orderID)
+}

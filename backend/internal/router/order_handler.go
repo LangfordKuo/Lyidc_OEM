@@ -458,7 +458,8 @@ func (h *orderHandler) payOrderWithBalance(c *gin.Context, order *model.Order) {
 	h.logger.Info("订单余额支付成功", "order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 		"member_id", order.MemberID, "amount", string(result.Order.FinalAmount))
 	// 阶段 5a：入账事务已提交，在此触发交付（不阻塞本次响应，契约 14.3）。
-	h.deliveries.Trigger(result.Order.ID)
+	// R16：连同请求侧基地址一起交给交付（异步交付在后台跑，届时请求已结束，契约 22.2）。
+	h.deliveries.Trigger(delivery.WithRequestBase(c.Request.Context(), requestBaseURL(c)), result.Order.ID)
 	response.Success(c, payOrderView{
 		Order: newOrderView(result.Order, h.logger),
 		Pay:   payView{Channel: model.PayChannelBalance, Paid: true, BalanceAfter: balanceAfter},
@@ -552,7 +553,8 @@ func (h *orderHandler) retryDelivery(c *gin.Context) {
 		return
 	}
 
-	order, err := h.deliveries.Deliver(c.Request.Context(), id, true)
+	// R16：同样带上请求侧基地址（未配置站点对外地址时，交付用它作为 downstream_url，契约 22.2）。
+	order, err := h.deliveries.Deliver(delivery.WithRequestBase(c.Request.Context(), requestBaseURL(c)), id, true)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		response.Fail(c, response.CodeNotFound, msgOrderMissing)

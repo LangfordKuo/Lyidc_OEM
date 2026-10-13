@@ -6,11 +6,13 @@ import type {
   EpaySettings,
   NotificationSettings,
   ReferralSettings,
+  SiteSettings,
   UpdateDbBackupSettingsInput,
   UpdateEmailSMTPSettingsInput,
   UpdateEpaySettingsInput,
   UpdateNotificationSettingsInput,
   UpdateReferralSettingsInput,
+  UpdateSiteSettingsInput,
   UpdateUpdatesSettingsInput,
   UpdateUpstreamSettingsInput,
   UpdatesSettings,
@@ -138,4 +140,20 @@ export function updateDbBackupSettings(
   input: UpdateDbBackupSettingsInput,
 ): Promise<DbBackupSettings> {
   return http.put<DbBackupSettings>('/admin/settings/db_backup', input, { auth: 'admin' })
+}
+
+/**
+ * GET /api/v1/admin/settings/site —— 「站点对外地址」设置（R16，契约 22.4，**仅 admin**）。
+ * 该地址是交付时登记给上游的回推地址（downstream_url）；未配置时交付按触发请求的 Host 推断。
+ */
+export function fetchSiteSettings(): Promise<SiteSettings> {
+  return http.get<SiteSettings>('/admin/settings/site', { auth: 'admin' })
+}
+
+/**
+ * PUT /api/v1/admin/settings/site —— 保存站点对外地址（url 必填，空串 = 清空 → 按请求 Host 推断）。
+ * 后端校验必须是带主机名的 http(s) 地址，非法时抛 ApiError（40002 带可读原因）且不落库。
+ */
+export function updateSiteSettings(input: UpdateSiteSettingsInput): Promise<SiteSettings> {
+  return http.put<SiteSettings>('/admin/settings/site', input, { auth: 'admin' })
 }

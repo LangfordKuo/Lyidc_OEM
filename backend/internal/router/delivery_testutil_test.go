@@ -35,7 +35,7 @@ import (
 type noopDeliverer struct{}
 
 // Trigger 什么都不做。
-func (noopDeliverer) Trigger(uint64) {}
+func (noopDeliverer) Trigger(context.Context, uint64) {}
 
 // Deliver 不应被调用；返回 ErrNotClaimable 以暴露误用。
 func (noopDeliverer) Deliver(context.Context, uint64, bool) (*model.Order, error) {

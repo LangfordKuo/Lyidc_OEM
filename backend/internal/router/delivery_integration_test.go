@@ -14,6 +14,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 )
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,80 @@ func TestDeliveryAfterOnlinePay(t *testing.T) {
 	}
 }
 
+// TestDeliveryRegistersDownstreamAddress 验证开通链路把本系统的回推地址登记给上游（R16，契约 22.2）：
+// 四步（clear / add_to_shop / settle / apply_credit）**全部**带上 downstream_url / downstream_token /
+// downstream_id，取值正确（地址取设置项、token 落库且长度 32、id 即 instances.id）。
+func TestDeliveryRegistersDownstreamAddress(t *testing.T) {
+	gdb := testDatabase(t)
+	host := newFakeHostServer(t)
+	engine := newStage5Engine(t, gdb, host.client(t), nil)
+	gateway := newFakeEpayGateway(t)
+	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
+	// 「站点对外地址」已配置 → 交付一律用它（不再按请求 Host 推断）。
+	seedSetting(t, gdb, settings.KeySite, `{"name":"Lyidc","url":"https://oem.example.com","admin_email":""}`)
+	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
+
+	token, _ := memberTokenFor(t, engine, "downstreamuser")
+	order := createOrder(t, engine, token, map[string]any{
+		"product_id": product.ID, "cycle": "monthly", "config": map[string]any{},
+	})
+	updated := payOrderByEpayNotify(t, engine, gateway, token, order)
+	if updated.Status != model.OrderStatusActive {
+		t.Fatalf("交付未完成: %s（%s）", updated.Status, updated.ProvisionError)
+	}
+
+	instance := instanceByOrderID(t, gdb, order.ID)
+	if len(instance.DownstreamToken) != delivery.DownstreamTokenLength {
+		t.Fatalf("实例 downstream_token = %q（长度 %d），期望 %d 位十六进制",
+			instance.DownstreamToken, len(instance.DownstreamToken), delivery.DownstreamTokenLength)
+	}
+	if instance.HostID != host.hostIDValue() {
+		t.Fatalf("交付完成后 host_id = %d，期望真实上游主机 ID %d", instance.HostID, host.hostIDValue())
+	}
+
+	for _, path := range []string{pathCartClear, pathCartAdd, pathCartSettle, pathApplyCred} {
+		form := host.lastForm(path)
+		if form.Get("downstream_url") != "https://oem.example.com" {
+			t.Fatalf("%s 的 downstream_url = %q，期望站点对外地址", path, form.Get("downstream_url"))
+		}
+		if form.Get("downstream_token") != instance.DownstreamToken {
+			t.Fatalf("%s 的 downstream_token = %q，期望实例落库的 %q",
+				path, form.Get("downstream_token"), instance.DownstreamToken)
+		}
+		if form.Get("downstream_id") != itoa(instance.ID) {
+			t.Fatalf("%s 的 downstream_id = %q，期望 instances.id = %d", path, form.Get("downstream_id"), instance.ID)
+		}
+	}
+}
+
+// TestDeliveryDownstreamURLFallsBackToRequestHost 验证未配置「站点对外地址」时的回退口径
+// （R16，契约 22.2）：用触发交付的请求推断出的 scheme://host 作为 downstream_url。
+func TestDeliveryDownstreamURLFallsBackToRequestHost(t *testing.T) {
+	gdb := testDatabase(t)
+	host := newFakeHostServer(t)
+	engine := newStage5Engine(t, gdb, host.client(t), nil)
+	gateway := newFakeEpayGateway(t)
+	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
+	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
+
+	token, _ := memberTokenFor(t, engine, "fallbackuser")
+	order := createOrder(t, engine, token, map[string]any{
+		"product_id": product.ID, "cycle": "monthly", "config": map[string]any{},
+	})
+	if updated := payOrderByEpayNotify(t, engine, gateway, token, order); updated.Status != model.OrderStatusActive {
+		t.Fatalf("交付未完成: %s（%s）", updated.Status, updated.ProvisionError)
+	}
+
+	// 同步交付（Async=false）在请求线程内执行，站点设置为空 → 用回调请求的 Host 推断。
+	form := host.lastForm(pathCartSettle)
+	if got := form.Get("downstream_url"); got != "http://example.com" {
+		t.Fatalf("downstream_url = %q，期望按触发请求推断出 http://example.com", got)
+	}
+	if form.Get("downstream_token") == "" || form.Get("downstream_id") == "" {
+		t.Fatalf("回退场景同样必须登记 token 与 id: %v", form)
+	}
+}
+
 // TestDeliveryIdempotentOnDuplicateNotify 验证重复回调不重复开通（幂等）。
 func TestDeliveryIdempotentOnDuplicateNotify(t *testing.T) {
 	gdb := testDatabase(t)
@@ -225,12 +300,27 @@ func TestDeliveryFailureAndAdminRetry(t *testing.T) {
 	if !strings.Contains(updated.ProvisionError, "余额不足") {
 		t.Fatalf("provision_error = %q，期望包含上游原因", updated.ProvisionError)
 	}
-	if count := countInstancesForOrder(t, gdb, order.ID); count != 0 {
-		t.Fatalf("交付失败不应落实例，实际 %d 条", count)
+
+	// R16：交付在途的实例行在**调上游之前**就已落库（为的是把 instances.id 与 downstream_token
+	// 交给上游做回推登记），交付失败时它保留在 provisioning——但**不出现在任何列表里**，
+	// 且重试会复用同一行（同一个 id 与 token）。
+	pending := instanceByOrderID(t, gdb, order.ID)
+	if pending.Status != model.InstanceStatusProvisioning {
+		t.Fatalf("交付失败后实例状态 = %s，期望 provisioning", pending.Status)
+	}
+	if got := countInstancesForOrder(t, gdb, order.ID); got != 1 {
+		t.Fatalf("交付失败后实例行数 = %d，期望 1（预落的在途行）", got)
+	}
+	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/instances", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("会员端实例列表失败: HTTP %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if list := decodeData[instanceListView](t, envelope); list.Total != 0 {
+		t.Fatalf("交付在途的实例不应出现在列表里，总数 = %d", list.Total)
 	}
 
 	// 管理员重试（上游仍失败）：同步执行后返回最新订单视图（failed，仍可再试）。
-	rec, envelope := retryDelivery(t, engine, admin, order.ID)
+	rec, envelope = retryDelivery(t, engine, admin, order.ID)
 	if rec.Code != http.StatusOK || envelope.Code != 0 {
 		t.Fatalf("重试接口失败: HTTP %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -251,6 +341,22 @@ func TestDeliveryFailureAndAdminRetry(t *testing.T) {
 	}
 	if count := countInstancesForOrder(t, gdb, order.ID); count != 1 {
 		t.Fatalf("重试成功后实例数 = %d，期望 1", count)
+	}
+	// 重试复用同一行：实例 id 与 downstream_token 都不重新生成（契约 22.2 幂等口径）。
+	after := instanceByOrderID(t, gdb, order.ID)
+	if after.ID != pending.ID || after.DownstreamToken != pending.DownstreamToken {
+		t.Fatalf("重试应复用同一实例行（id/token 不变）: before=%d/%q after=%d/%q",
+			pending.ID, pending.DownstreamToken, after.ID, after.DownstreamToken)
+	}
+	if after.Status != model.InstanceStatusActive || after.HostID != host.hostIDValue() {
+		t.Fatalf("重试成功后实例未收敛: %+v", after)
+	}
+	listRec, listEnvelope := doAPI(t, engine, http.MethodGet, "/api/v1/instances", token, nil)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("会员端实例列表失败: HTTP %d, body=%s", listRec.Code, listRec.Body.String())
+	}
+	if list := decodeData[instanceListView](t, listEnvelope); list.Total != 1 {
+		t.Fatalf("交付完成后实例应出现在列表里，总数 = %d", list.Total)
 	}
 
 	// 已交付订单再次重试 → 40002（无需重试）。

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/payment"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/pricing"
@@ -75,7 +76,9 @@ func (h *paymentHandler) epayNotify(c *gin.Context) {
 
 	switch {
 	case strings.HasPrefix(notification.OutTradeNo, model.OrderTradeNoPrefix):
-		h.ackEpay(c, h.applyOrderPayment(ctx, notification))
+		// R16：交付要用到的请求侧基地址（未配置站点对外地址时作为 downstream_url）必须在
+		// 请求线程内先解析好——默认异步交付在后台 goroutine 里跑，届时请求已结束（契约 22.2）。
+		h.ackEpay(c, h.applyOrderPayment(delivery.WithRequestBase(ctx, requestBaseURL(c)), notification))
 	case strings.HasPrefix(notification.OutTradeNo, model.RechargeTradeNoPrefix):
 		h.ackEpay(c, h.applyRechargePayment(ctx, notification))
 	default:
@@ -118,7 +121,8 @@ func (h *paymentHandler) applyOrderPayment(ctx context.Context, n *payment.Notif
 		h.logger.Info("易支付回调：订单已支付", "order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 			"channel_trade_no", n.TradeNo, "amount", string(result.Order.FinalAmount))
 		// 阶段 5a：入账事务已提交，触发交付（不阻塞回调应答，契约 14.3）。
-		h.deliveries.Trigger(result.Order.ID)
+		// R16：请求侧基地址由 epayNotify 在请求线程内放进 ctx（异步交付届时已拿不到 Host）。
+		h.deliveries.Trigger(ctx, result.Order.ID)
 	case store.OutcomeAlreadyPaid:
 		h.logger.Info("易支付回调：订单已是已支付状态（幂等，不重复处理）",
 			"order_id", result.Order.ID, "trade_no", result.Order.TradeNo)

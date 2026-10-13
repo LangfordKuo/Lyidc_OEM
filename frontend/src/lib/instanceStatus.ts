@@ -122,6 +122,8 @@ export const INSTANCE_ACTION_LABELS: Record<string, string> = {
   renew: '续费',
   cancel: '提交终止申请',
   cancel_sync: '终止收敛',
+  // R16：上游主动回推的状态同步（POST /api/host/sync，actor=system），与 sync（管理端回读）区分。
+  host_sync: '上游推送同步',
 }
 
 export const ACTOR_TYPE_LABELS: Record<string, string> = {
