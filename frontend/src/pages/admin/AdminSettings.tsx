@@ -405,20 +405,14 @@ function UpstreamSection() {
     if (!base) {
       return
     }
-    if (current.base_url.trim() && !isHTTPURL(current.base_url)) {
-      setError('上游地址必须是合法的 http(s) 地址（留空表示未配置）')
-      return
-    }
     const timeout = timeoutText.trim() === '' ? undefined : Number(timeoutText.trim())
     if (timeout !== undefined && (!Number.isInteger(timeout) || timeout < 1 || timeout > 120)) {
       setError('超时需为 1-120 之间的整数（秒）')
       return
     }
 
+    // 上游地址是构建期固定项：只读展示、**绝不提交**（提交会被后端 40002 拒绝）。
     const payload: Record<string, unknown> = {}
-    if (current.base_url !== base.base_url) {
-      payload.base_url = current.base_url.trim()
-    }
     if (current.username !== base.username) {
       payload.username = current.username.trim()
     }
@@ -499,10 +493,16 @@ function UpstreamSection() {
             <Input
               id="upstream_base_url"
               name="upstream_base_url"
-              placeholder="https://idc.example.com/"
-              value={current.base_url}
-              onChange={(event) => update({ base_url: event.target.value })}
+              value={current.base_url || '（构建时未注入）'}
+              disabled={current.base_url_fixed}
+              readOnly={current.base_url_fixed}
             />
+            {current.base_url_fixed ? (
+              <p className="text-xs text-muted-foreground">
+                由系统固定，不可修改：地址在构建时注入（与版本号同一机制），
+                后台与接口都改不了；需要换地址时由运维改构建变量并重新发布。
+              </p>
+            ) : null}
           </Field>
 
           <Field>

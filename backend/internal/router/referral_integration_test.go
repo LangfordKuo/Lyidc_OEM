@@ -263,7 +263,7 @@ func TestReferralRebateFormulaExamplesEndToEnd(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			gdb := testDatabase(t)
-			engine := newStage4Engine(t, gdb, nil)
+			engine := newStage4Engine(t, gdb, "", nil)
 			seedReferralSetting(t, gdb, true, "20.00")
 			product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -317,7 +317,7 @@ func TestReferralRebateFormulaExamplesEndToEnd(t *testing.T) {
 
 func TestReferralRatioPriority(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "5.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -409,7 +409,7 @@ func TestReferralRatioPriority(t *testing.T) {
 
 func TestReferralRebateCoversNewRenewAndBalancePayButNotRecharge(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -485,7 +485,7 @@ func TestReferralRebateCoversNewRenewAndBalancePayButNotRecharge(t *testing.T) {
 
 func TestReferralNoRebateForUnboundBuyer(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -509,7 +509,7 @@ func TestReferralNoRebateForUnboundBuyer(t *testing.T) {
 func TestReferralRebateIdempotentOnReplayedCallback(t *testing.T) {
 	gdb := testDatabase(t)
 	gateway := newFakeEpayGateway(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://shop.example.com/api/v1/payments/epay/notify")
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -540,7 +540,7 @@ func TestReferralRebateIdempotentOnReplayedCallback(t *testing.T) {
 
 func TestReferralRebateRollbackOnOrderCancel(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -591,7 +591,7 @@ func TestReferralRebateRollbackOnOrderCancel(t *testing.T) {
 
 func TestCancelOrderTriggersRebateRollbackHook(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -652,7 +652,7 @@ func TestCancelOrderTriggersRebateRollbackHook(t *testing.T) {
 
 func TestInviteCouponBindingRules(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
@@ -752,7 +752,7 @@ func refOverview(t *testing.T, engine http.Handler, token string) referralOvervi
 
 func TestReferralMemberQueryEndpoints(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	seedSetting(t, gdb, settings.KeySite, `{"name":"Lyidc","url":"https://shop.example.com","admin_email":""}`)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -881,7 +881,7 @@ func TestReferralAdminSettings(t *testing.T) {
 
 func TestBalanceLedgerExcludesReferralRebate(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	seedReferralSetting(t, gdb, true, "20.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 

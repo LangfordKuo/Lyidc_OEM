@@ -28,6 +28,10 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILT_AT=unknown
 
+# 上游地址同样是构建期注入项（契约 8.6，R17）：运行时只读，任何界面与接口都改不了。
+# 缺省空串 = 本地构建未注入（上游功能按未配置处理）；发布流水线由仓库变量 UPSTREAM_BASE_URL 注入。
+ARG UPSTREAM_BASE_URL=""
+
 # CGO_ENABLED=0：纯静态编译，产出无 libc 依赖的二进制，可直接跑在 alpine 上。
 ENV CGO_ENABLED=0 \
     GOOS=${TARGETOS:-linux} \
@@ -42,7 +46,7 @@ RUN cd backend && go mod download
 # 再拷源码（migrations/ 通过 go:embed 内嵌进二进制，安装向导建表依赖它）。
 COPY backend ./backend
 RUN cd backend \
-    && ldflags="-s -w -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Version=${VERSION} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Commit=${COMMIT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.BuiltAt=${BUILT_AT}" \
+    && ldflags="-s -w -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Version=${VERSION} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Commit=${COMMIT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.BuiltAt=${BUILT_AT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.UpstreamBaseURL=${UPSTREAM_BASE_URL}" \
     && go build -trimpath -ldflags="$ldflags" -o /out/lyidc-server ./cmd/server \
     && go build -trimpath -ldflags="$ldflags" -o /out/lyidc-migrate ./cmd/migrate
 

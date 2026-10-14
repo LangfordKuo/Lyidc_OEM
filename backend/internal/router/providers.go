@@ -38,14 +38,24 @@ func newPaymentRegistry(reader *settings.Reader, logger *slog.Logger) *payment.R
 
 // newUpstreamProvider 构造按后台设置动态生效的上游客户端提供者（契约 8.6 / 12.1）：
 // 设置指纹变化时重建客户端并丢弃旧 JWT 缓存，保证下一次调用用新参数。
-func newUpstreamProvider(reader *settings.Reader, logger *slog.Logger) upstream.Provider {
+//
+// baseURL 是**构建期注入**的上游地址（R17，由 cmd/server 从 buildinfo 传入）：每次构造客户端
+// 都用它，不从 settings 读、也不接受任何请求入参；设置指纹只覆盖 username / api_key / timeout。
+// 未注入（空串）时客户端恒为 enabled=false，上游相关功能按「未配置」处理。
+func newUpstreamProvider(reader *settings.Reader, baseURL string, logger *slog.Logger) upstream.Provider {
+	if baseURL == "" {
+		logger.Warn("未注入上游地址（构建期变量 UpstreamBaseURL 为空），上游相关功能将不可用",
+			"setting", "buildinfo.UpstreamBaseURL")
+	} else {
+		logger.Info("上游地址由构建期注入（不可通过任何界面或接口修改）", "base_url", baseURL)
+	}
 	return upstream.NewManager(func(ctx context.Context) (upstream.Config, string, error) {
 		state, err := reader.Upstream(ctx)
 		if err != nil {
 			return upstream.Config{}, "", err
 		}
 		return upstream.Config{
-			BaseURL:  state.Value.BaseURL,
+			BaseURL:  baseURL,
 			Username: state.Value.Username,
 			APIKey:   state.Value.APIKey,
 			Timeout:  time.Duration(state.Value.TimeoutSecondsOr()) * time.Second,

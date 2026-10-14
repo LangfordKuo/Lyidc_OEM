@@ -65,6 +65,15 @@ func main() {
 	slog.SetDefault(logger)
 	logger.Info("版本信息", "version", buildinfo.Version, "commit", buildinfo.Commit, "built_at", buildinfo.BuiltAt)
 
+	// R17：上游地址是构建期固定项（与版本号同一套 -ldflags 注入），运行时只读、不可改。
+	// 未注入时明确提示：上游相关功能（导入/交付/实例操作/探活）都会按「未配置」处理。
+	if buildinfo.UpstreamBaseURL == "" {
+		logger.Warn("未注入上游地址（构建期变量 UpstreamBaseURL 为空），上游相关功能不可用",
+			"how_to_fix", "构建时注入 -X <模块>/internal/buildinfo.UpstreamBaseURL=<上游地址>")
+	} else {
+		logger.Info("上游地址（构建期固定，不可修改）", "base_url", buildinfo.UpstreamBaseURL)
+	}
+
 	if cfg.SourcePath == "" {
 		logger.Warn("未找到配置文件，使用缺省配置（将进入安装向导模式）", "searched", config.DefaultSearchPaths)
 	} else {
@@ -88,6 +97,8 @@ func main() {
 				Ping:   db.PingFunc(gdb),
 				DB:     gdb,
 				JWT:    jwt,
+				// R17：上游地址由构建期注入（任何界面/接口都改不了），设置里只剩账号与密钥。
+				UpstreamBaseURL: buildinfo.UpstreamBaseURL,
 				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
 				EnableDueScan: true,
 				// R13-A：生产开启「检查更新」后台定时刷新（契约 19.4）。
@@ -110,9 +121,10 @@ func main() {
 	supervisor.Init(startupCtx)
 	cancelStartup()
 
-	// 支付渠道参数与上游对接参数都在后台设置（settings 表）里，由 router 按当前设置动态构造：
-	// 启动时不做读取（数据库可能不可用），管理员改完设置下一次调用即生效（契约 12.1）。
-	logger.Info("支付与上游参数由后台设置承载", "settings_api", "/api/v1/admin/settings",
+	// 支付渠道参数与上游对接**凭据**（账号 / 密钥 / 超时）都在后台设置（settings 表）里，
+	// 由 router 按当前设置动态构造：启动时不做读取（数据库可能不可用），管理员改完设置下一次调用
+	// 即生效（契约 12.1）。R17 起上游**地址**不在设置里，改走构建期注入（见上方的启动日志）。
+	logger.Info("支付与上游凭据由后台设置承载", "settings_api", "/api/v1/admin/settings",
 		"keys", []string{"payment.epay", "upstream"})
 
 	srv := &http.Server{

@@ -381,6 +381,11 @@ def check_workflow(report: Report, wf):
         package_text = fh.read()
     report.check("$buildinfo_pkg.Version=" in package_text and '-ldflags "$ldflags"' in package_text,
                  "打包脚本经 -ldflags 注入 buildinfo 版本")
+    # R17（契约 8.6）：上游地址与版本号同属构建期注入项，空值必须让打包直接失败。
+    report.check("$buildinfo_pkg.UpstreamBaseURL=$UPSTREAM_BASE_URL" in package_text,
+                 "打包脚本经 -ldflags 注入上游地址（buildinfo.UpstreamBaseURL）")
+    report.check("UPSTREAM_BASE_URL" in bp_text and "::error::" in bp_text,
+                 "打包 job 校验仓库变量 UPSTREAM_BASE_URL 非空（为空即失败）")
 
     print("\n[D] release（仅 tag 且非 dry_run）")
     rel = job(wf, "release")
@@ -415,6 +420,11 @@ def check_workflow(report: Report, wf):
                           and "Dockerfile.backend" in str((s.get("with") or {}).get("file", ""))), {})
     backend_args = str((backend_build.get("with") or {}).get("build-args", ""))
     report.check("VERSION=${{ env.VERSION }}" in backend_args, "后端镜像注入版本号（build-args VERSION）", backend_args)
+    # R17（契约 8.6）：镜像同样在构建期固定上游地址，并先校验仓库变量非空。
+    report.check("UPSTREAM_BASE_URL=${{ vars.UPSTREAM_BASE_URL }}" in backend_args,
+                 "后端镜像注入上游地址（build-args UPSTREAM_BASE_URL）", backend_args)
+    report.check("UPSTREAM_BASE_URL" in dk_text and "::error::" in dk_text,
+                 "镜像 job 校验仓库变量 UPSTREAM_BASE_URL 非空（为空即失败）")
     report.check('echo "VERSION=' in dk_text, "docker job 解析版本号并写入 GITHUB_ENV")
     # 平台矩阵既可以直接写在 build 步骤里，也可以放在 workflow 级 env（本仓库用 env.PLATFORMS）。
     platforms = " ".join(
@@ -461,6 +471,8 @@ def check_workflow(report: Report, wf):
         report.check(needle in sm_text, "冒烟断言：%s" % label, needle)
     report.check("health=${state}" in sm_text or "healthy" in sm_text, "等待并断言 healthy")
     report.check("docker build" in sm_text, "冒烟自建镜像（不依赖 registry 可拉取性）")
+    # R17：冒烟按正式口径构建——同样在构建期注入上游地址，否则验的不是真实包形态。
+    report.check("UPSTREAM_BASE_URL" in sm_text, "冒烟重建镜像时注入上游地址（build-arg）")
 
     print("\n[G] 内嵌 run 脚本的 shell 语法（sh -n）")
     for job_name in ("frontend", "build-packages", "release", "docker", "smoke"):
@@ -594,6 +606,9 @@ def main() -> int:
         backend_dockerfile = fh.read()
     report.check("ARG VERSION=dev" in backend_dockerfile and "buildinfo.Version=${VERSION}" in backend_dockerfile,
                  "Dockerfile.backend 注入版本号（ARG VERSION + buildinfo.Version）")
+    report.check("ARG UPSTREAM_BASE_URL" in backend_dockerfile
+                 and "buildinfo.UpstreamBaseURL=${UPSTREAM_BASE_URL}" in backend_dockerfile,
+                 "Dockerfile.backend 注入上游地址（ARG UPSTREAM_BASE_URL + buildinfo.UpstreamBaseURL）")
     check_dockerfile(report, DOCKERFILE_FRONTEND, "nginx", "Dockerfile.frontend")
     check_compose(report, compose or {})
 

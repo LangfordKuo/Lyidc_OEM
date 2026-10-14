@@ -29,7 +29,8 @@ import (
 const (
 	// KeyPaymentEpay 易支付渠道参数（值结构见 Epay）。
 	KeyPaymentEpay = "payment.epay"
-	// KeyUpstream 上游「魔方财务系统」对接参数（值结构见 Upstream）。
+	// KeyUpstream 上游「魔方财务系统」对接**凭据**（值结构见 Upstream；R17 起不含地址，
+	// 地址由构建期注入，见 buildinfo.UpstreamBaseURL）。
 	KeyUpstream = "upstream"
 )
 

@@ -23,6 +23,8 @@ import (
 // ---------------------------------------------------------------------------
 
 // fakeUpstreamServer 是假上游：/zjmf_api_login 返回固定 JWT，/cart/credit 返回固定余额。
+// 它的 baseURL 在 R17 起通过 router.Options.UpstreamBaseURL 注入（而非写 settings 行），
+// 因此调用计数也顺带证明「请求确实打到了注入的地址」。
 type fakeUpstreamServer struct {
 	server *httptest.Server
 	jwt    string
@@ -112,7 +114,7 @@ func putUpstreamSettings(t *testing.T, engine http.Handler, token string, body a
 // TestEpaySettingsPermission 验证设置接口仅 admin 可用（含读取）。
 func TestEpaySettingsPermission(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 
 	for _, role := range []string{model.RoleFinance, model.RoleSupport} {
 		token := stage4AdminToken(t, engine, gdb, role, role)
@@ -144,7 +146,7 @@ func TestEpaySettingsPermission(t *testing.T) {
 // TestEpaySettingsLifecycle 验证三态 key、脱敏、校验与生效（含审计字段）。
 func TestEpaySettingsLifecycle(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
 	// 初始未配置。
@@ -247,7 +249,7 @@ func TestEpaySettingsLifecycle(t *testing.T) {
 // TestEpaySettingsEmptyBodyRejected 验证空请求体被拒绝（至少提供一个字段）。
 func TestEpaySettingsEmptyBodyRejected(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
 	rec, envelope := putEpaySettings(t, engine, adminToken, map[string]any{})
@@ -263,7 +265,7 @@ func TestEpaySettingsEmptyBodyRejected(t *testing.T) {
 // TestEpayReturnRedirect 验证同步跳转：302 到设置的 return_url；未配置时输出提示页。
 func TestEpayReturnRedirect(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
 	// 未配置 → 提示页（HTTP 200 + HTML）。
@@ -292,33 +294,33 @@ func TestEpayReturnRedirect(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestUpstreamSettingsMaskingAndValidation 验证上游设置的读取脱敏与写入校验。
+// R17：地址来自构建期注入（只读），设置里只剩 username / api_key / timeout_seconds。
 func TestUpstreamSettingsMaskingAndValidation(t *testing.T) {
 	gdb := testDatabase(t)
 	var logs bytes.Buffer
-	engine := newStage4Engine(t, gdb, &logs)
+	buildBase := "https://build.example.com"
+	engine := newStage4Engine(t, gdb, buildBase, &logs)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
-	// 初始：未配置，超时为缺省 5。
+	// 初始：凭据未配置、超时缺省 5；地址是构建期值且标记为只读。
 	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/settings/upstream", adminToken, nil)
-	if initial := decodeData[upstreamSettingsView](t, envelope); initial.APIKeyConfigured ||
-		initial.TimeoutSeconds != settings.DefaultUpstreamTimeoutSeconds {
+	initial := decodeData[upstreamSettingsView](t, envelope)
+	if initial.APIKeyConfigured || initial.TimeoutSeconds != settings.DefaultUpstreamTimeoutSeconds {
 		t.Fatalf("初始上游设置错误: %+v", initial)
 	}
+	if initial.BaseURL != buildBase || !initial.BaseURLFixed {
+		t.Fatalf("地址应为构建期值且只读: %+v", initial)
+	}
 
-	// 超时越界 → 40002；URL 非法 → 40001。
+	// 超时越界 → 40002。
 	rec, envelope = putUpstreamSettings(t, engine, adminToken, map[string]any{"timeout_seconds": 121})
 	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
 		t.Fatalf("超时越界应 40002：HTTP %d, body=%s", rec.Code, rec.Body.String())
 	}
-	rec, envelope = putUpstreamSettings(t, engine, adminToken, map[string]any{"base_url": "lyew.com"})
-	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeInvalidParam {
-		t.Fatalf("URL 非法应 40001：HTTP %d, body=%s", rec.Code, rec.Body.String())
-	}
 
-	// 正常写入：回显不含明文密钥。
+	// 正常写入：回显不含明文密钥，地址仍是构建期值。
 	rec, envelope = putUpstreamSettings(t, engine, adminToken, map[string]any{
-		"base_url": "https://lyew.example.com", "username": "13800000000",
-		"api_key": testUpstreamKey, "timeout_seconds": 30,
+		"username": "13800000000", "api_key": testUpstreamKey, "timeout_seconds": 30,
 	})
 	if rec.Code != http.StatusOK || envelope.Code != 0 {
 		t.Fatalf("写入上游设置失败: HTTP %d, body=%s", rec.Code, rec.Body.String())
@@ -326,6 +328,9 @@ func TestUpstreamSettingsMaskingAndValidation(t *testing.T) {
 	saved := decodeData[upstreamSettingsView](t, envelope)
 	if !saved.APIKeyConfigured || saved.APIKeyMasked != "test****" || saved.TimeoutSeconds != 30 {
 		t.Fatalf("上游设置视图错误: %+v", saved)
+	}
+	if saved.BaseURL != buildBase || !saved.BaseURLFixed {
+		t.Fatalf("写入后地址不应变化: %+v", saved)
 	}
 	if strings.Contains(rec.Body.String(), testUpstreamKey) {
 		t.Fatalf("响应泄露上游密钥: %s", rec.Body.String())
@@ -345,32 +350,98 @@ func TestUpstreamSettingsMaskingAndValidation(t *testing.T) {
 		t.Fatalf("api_key 未清空: %+v", cleared)
 	}
 
-	// 清空后探活报告未配置（不发起请求）。
+	// 清空后探活报告未配置（不发起请求），但仍回带构建期地址供排查。
 	health := upstreamHealth(t, engine, adminToken)
-	if health.Connected || health.Error != upstreamErrorNotConfigured {
+	if health.Connected || health.Error != upstreamErrorNotConfigured || health.BaseURL != buildBase {
 		t.Fatalf("未配置探活 = %+v", health)
 	}
 }
 
-// TestUpstreamSettingsTakesEffect 验证改设置后立即生效：
-//   - 换地址后下一次调用就走新上游（旧上游不再被调用）；
+// TestUpstreamBaseURLIsImmutable 验证**没有任何接口能改上游地址**（R17 核心承诺）：
+//   - PUT 带 base_url（值 / 空串 / null 三种形态）一律 40002 且不落库；
+//   - 该请求里同时带的 username / api_key 也不得被改动（拒绝发生在合并与写库之前）；
+//   - 库内遗留的 base_url 键被忽略：客户端仍打构建期注入的地址，绝不改道；
+//   - 试把地址改到另一个假上游，后者收不到任何请求。
+func TestUpstreamBaseURLIsImmutable(t *testing.T) {
+	gdb := testDatabase(t)
+	injected := newFakeUpstreamServer(t, "jwt-injected")
+	evil := newFakeUpstreamServer(t, "jwt-evil")
+	engine := newStage4Engine(t, gdb, injected.baseURL(), nil)
+	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
+
+	// 先写入一份可用凭据。
+	if _, envelope := putUpstreamSettings(t, engine, adminToken, map[string]any{
+		"username": "13800000000", "api_key": testUpstreamKey,
+	}); envelope.Code != 0 {
+		t.Fatalf("写入凭据失败: %s", toJSON(t, envelope))
+	}
+
+	// 三种 base_url 形态都被拒，且拒绝时**不落库**。
+	for _, body := range []map[string]any{
+		{"base_url": evil.baseURL(), "username": "13900000000", "api_key": "hijacked-key"},
+		{"base_url": "", "username": "13900000000"},
+		{"base_url": nil, "username": "13900000000"},
+	} {
+		rec, envelope := putUpstreamSettings(t, engine, adminToken, body)
+		if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+			t.Fatalf("带 base_url 的请求应 40002：body=%s, HTTP %d, code=%d",
+				toJSON(t, body), rec.Code, envelope.Code)
+		}
+		if !strings.Contains(envelope.Message, "不可修改") {
+			t.Fatalf("拒绝文案应说明地址不可修改：%s", envelope.Message)
+		}
+	}
+
+	// 不落库：凭据保持原值，地址仍是构建期值。
+	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/settings/upstream", adminToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("读取设置失败: HTTP %d", rec.Code)
+	}
+	view := decodeData[upstreamSettingsView](t, envelope)
+	if view.Username != "13800000000" || !view.APIKeyConfigured {
+		t.Fatalf("被拒请求不应改动凭据: %+v", view)
+	}
+	if view.BaseURL != injected.baseURL() {
+		t.Fatalf("地址被改动: %+v", view)
+	}
+
+	// 库内遗留 base_url（指向 evil）被忽略：探活与业务调用都只打注入地址。
+	seedSetting(t, gdb, settings.KeyUpstream,
+		`{"base_url":"`+evil.baseURL()+`","username":"13800000000","api_key":"`+testUpstreamKey+`","timeout_seconds":5}`)
+	health := upstreamHealth(t, engine, adminToken)
+	if !health.Connected || health.BaseURL != injected.baseURL() {
+		t.Fatalf("探活应使用构建期地址: %+v", health)
+	}
+	rec, envelope = doAPI(t, engine, http.MethodPost, "/api/v1/admin/products/import", adminToken, nil)
+	if rec.Code != http.StatusOK || envelope.Code != 0 {
+		t.Fatalf("商品导入失败: HTTP %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if evil.loginCount() != 0 || evil.creditCount() != 0 {
+		t.Fatalf("遗留 base_url 不该改变调用目标：evil 收到 login=%d credit=%d",
+			evil.loginCount(), evil.creditCount())
+	}
+	if injected.loginCount() == 0 {
+		t.Fatal("注入的地址应收到请求")
+	}
+}
+
+// TestUpstreamSettingsTakesEffect 验证改凭据后立即生效（R17：地址固定，不再随设置变化）：
+//   - 设置没变时复用客户端与缓存中的 JWT（不重复登录）；
 //   - 只改密钥也会触发客户端重建，**旧 JWT 缓存一并失效**（业务调用重新登录）；
-//   - 设置没变时复用客户端与缓存中的 JWT（不重复登录）。
+//   - 全程只打构建期注入的地址。
 //
 // 说明：探活（/upstream/health）本身每次都主动登录以验证鉴权，因此这里用
 // 商品导入（走 ensureJWT 的普通业务调用）来观察 JWT 缓存的复用与失效。
 func TestUpstreamSettingsTakesEffect(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	upstream := newFakeUpstreamServer(t, "jwt-fixed")
+	engine := newStage4Engine(t, gdb, upstream.baseURL(), nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
-	upstreamA := newFakeUpstreamServer(t, "jwt-for-a")
-	upstreamB := newFakeUpstreamServer(t, "jwt-for-b")
-
-	writeUpstream := func(baseURL, apiKey string) {
+	writeUpstream := func(apiKey string) {
 		t.Helper()
 		if _, envelope := putUpstreamSettings(t, engine, adminToken, map[string]any{
-			"base_url": baseURL, "username": "13800000000", "api_key": apiKey, "timeout_seconds": 5,
+			"username": "13800000000", "api_key": apiKey, "timeout_seconds": 5,
 		}); envelope.Code != 0 {
 			t.Fatalf("写入上游设置失败: %s", toJSON(t, envelope))
 		}
@@ -383,43 +454,28 @@ func TestUpstreamSettingsTakesEffect(t *testing.T) {
 		}
 	}
 
-	// 指向 A：探活成功（只读，走新客户端），随后一次导入完成首次登录。
-	writeUpstream(upstreamA.baseURL(), testUpstreamKey)
+	// 写入凭据后探活成功（只读，走新客户端），随后一次导入完成首次登录。
+	writeUpstream(testUpstreamKey)
 	health := upstreamHealth(t, engine, adminToken)
-	if !health.Connected || health.BaseURL != upstreamA.baseURL() {
-		t.Fatalf("探活 A 失败: %+v", health)
+	if !health.Connected || health.BaseURL != upstream.baseURL() {
+		t.Fatalf("探活失败: %+v", health)
 	}
 	importOnce()
-	if upstreamA.loginCount() != 1 {
-		t.Fatalf("A 登录次数 = %d，期望 1", upstreamA.loginCount())
+	if upstream.loginCount() != 1 {
+		t.Fatalf("登录次数 = %d，期望 1", upstream.loginCount())
 	}
 
 	// 设置未变：再次导入复用客户端与缓存中的 JWT（不再登录）。
 	importOnce()
-	if upstreamA.loginCount() != 1 {
-		t.Fatalf("设置未变时不应重新登录：A 登录次数 = %d，期望 1", upstreamA.loginCount())
+	if upstream.loginCount() != 1 {
+		t.Fatalf("设置未变时不应重新登录：登录次数 = %d，期望 1", upstream.loginCount())
 	}
 
-	// 换地址到 B：下一次探活必须走 B，A 不再被调用。
-	writeUpstream(upstreamB.baseURL(), testUpstreamKey)
-	health = upstreamHealth(t, engine, adminToken)
-	if !health.Connected || health.BaseURL != upstreamB.baseURL() {
-		t.Fatalf("探活 B 失败: %+v", health)
-	}
-	creditCallsOnA := upstreamA.creditCount()
+	// 只改 api_key（地址固定不变）：同样触发重建，旧 JWT 缓存失效 → 重新登录一次。
+	writeUpstream("another-upstream-key")
 	importOnce()
-	if upstreamB.loginCount() != 1 {
-		t.Fatalf("B 登录次数 = %d，期望 1（新客户端应重新登录）", upstreamB.loginCount())
-	}
-	if upstreamA.creditCount() != creditCallsOnA {
-		t.Fatalf("换地址后旧上游仍被调用：A credit=%d", upstreamA.creditCount())
-	}
-
-	// 只改 api_key（地址仍是 B）：同样触发重建，旧 JWT 缓存失效 → 重新登录一次。
-	writeUpstream(upstreamB.baseURL(), "another-upstream-key")
-	importOnce()
-	if upstreamB.loginCount() != 2 {
-		t.Fatalf("改密钥后应重新登录：B 登录次数 = %d，期望 2", upstreamB.loginCount())
+	if upstream.loginCount() != 2 {
+		t.Fatalf("改密钥后应重新登录：登录次数 = %d，期望 2", upstream.loginCount())
 	}
 	health = upstreamHealth(t, engine, adminToken)
 	// 探活沿用阶段 2 的掩码口径（首 4 位 + **** + 末 3 位，契约第 9 节），
@@ -433,14 +489,26 @@ func TestUpstreamSettingsTakesEffect(t *testing.T) {
 }
 
 // TestUpstreamSettingsHealthWhenNotConfigured 验证完全未配置时探活不发起请求。
+// 构建期地址未注入与已注入两种情况都不该发起请求：前者地址为空，后者缺凭据。
 func TestUpstreamSettingsHealthWhenNotConfigured(t *testing.T) {
-	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
-	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
+	for _, tc := range []struct {
+		name      string
+		baseURL   string
+		wantShown string
+	}{
+		{"构建期未注入地址", "", ""},
+		{"构建期已注入地址", "https://build.example.com", "https://build.example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gdb := testDatabase(t)
+			engine := newStage4Engine(t, gdb, tc.baseURL, nil)
+			adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
-	health := upstreamHealth(t, engine, adminToken)
-	if health.Connected || health.Error != upstreamErrorNotConfigured || health.BaseURL != "" {
-		t.Fatalf("未配置探活 = %+v", health)
+			health := upstreamHealth(t, engine, adminToken)
+			if health.Connected || health.Error != upstreamErrorNotConfigured || health.BaseURL != tc.wantShown {
+				t.Fatalf("未配置探活 = %+v", health)
+			}
+		})
 	}
 }
 
@@ -448,11 +516,12 @@ func TestUpstreamSettingsHealthWhenNotConfigured(t *testing.T) {
 // 但设置接口仍能看到已填字段（便于管理员分步填写）。
 func TestUpstreamSettingsPartialConfigReportsMissing(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	buildBase := "https://build.example.com"
+	engine := newStage4Engine(t, gdb, buildBase, nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
 	if _, envelope := putUpstreamSettings(t, engine, adminToken, map[string]any{
-		"base_url": "https://lyew.example.com", "username": "13800000000",
+		"username": "13800000000",
 	}); envelope.Code != 0 {
 		t.Fatalf("写入失败: %s", toJSON(t, envelope))
 	}
@@ -461,8 +530,8 @@ func TestUpstreamSettingsPartialConfigReportsMissing(t *testing.T) {
 	if health.Connected || health.Error != upstreamErrorNotConfigured {
 		t.Fatalf("配一半应视为未配置: %+v", health)
 	}
-	if health.BaseURL != "https://lyew.example.com" {
-		t.Fatalf("探活应回带已配置的地址便于排查: %+v", health)
+	if health.BaseURL != buildBase {
+		t.Fatalf("探活应回带构建期地址便于排查: %+v", health)
 	}
 
 	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/settings/upstream", adminToken, nil)
@@ -470,7 +539,7 @@ func TestUpstreamSettingsPartialConfigReportsMissing(t *testing.T) {
 		t.Fatalf("读取设置失败: HTTP %d", rec.Code)
 	}
 	view := decodeData[upstreamSettingsView](t, envelope)
-	if view.BaseURL == "" || view.APIKeyConfigured {
+	if view.Username != "13800000000" || view.APIKeyConfigured {
 		t.Fatalf("设置视图错误: %+v", view)
 	}
 }
@@ -478,7 +547,7 @@ func TestUpstreamSettingsPartialConfigReportsMissing(t *testing.T) {
 // TestSettingsCorruptValueReportsInternal 验证库内设置值损坏时返回 500（而不是静默忽略）。
 func TestSettingsCorruptValueReportsInternal(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 	seedSetting(t, gdb, settings.KeyPaymentEpay, "{not-json")
 
@@ -491,7 +560,7 @@ func TestSettingsCorruptValueReportsInternal(t *testing.T) {
 // TestSettingsUpdatedByAudit 验证审计字段记录操作管理员 ID。
 func TestSettingsUpdatedByAudit(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := stage4AdminToken(t, engine, gdb, "admin", model.RoleAdmin)
 
 	var admin model.Admin

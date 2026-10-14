@@ -107,7 +107,7 @@ func seedReferralAdmin(t *testing.T, engine http.Handler, gdb *gorm.DB, username
 
 func TestReferralWithdrawalValidation(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "wdvalid")
@@ -156,7 +156,7 @@ func TestReferralWithdrawalValidation(t *testing.T) {
 
 func TestReferralNegativeBalanceBlocksPayout(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "wddnegative")
@@ -177,7 +177,7 @@ func TestReferralNegativeBalanceBlocksPayout(t *testing.T) {
 
 func TestReferralWithdrawalFullFlow(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "wdadmin")
 
@@ -271,7 +271,7 @@ func TestReferralWithdrawalFullFlow(t *testing.T) {
 
 func TestReferralWithdrawalRejectRefunds(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "wdreject")
 
@@ -320,7 +320,7 @@ func TestReferralWithdrawalRejectRefunds(t *testing.T) {
 
 func TestReferralWithdrawalStateConflicts(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "wdstate")
 
@@ -367,7 +367,7 @@ func TestReferralWithdrawalStateConflicts(t *testing.T) {
 
 func TestReferralConversionApproveSwapsBalances(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "cvadmin")
 
@@ -439,7 +439,7 @@ func TestReferralConversionApproveSwapsBalances(t *testing.T) {
 
 func TestReferralConversionRejectLeavesBalances(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "cvreject")
 
@@ -469,7 +469,7 @@ func TestReferralConversionRejectLeavesBalances(t *testing.T) {
 
 func TestReferralConversionAvailableBalanceCountsPending(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "cvavail")
@@ -507,7 +507,7 @@ func TestReferralConversionAvailableBalanceCountsPending(t *testing.T) {
 
 func TestReferralPayoutPermissions(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	seedAdmin(t, gdb, "padmin", "admin123456", model.RoleAdmin, model.StatusActive)
@@ -576,7 +576,7 @@ func TestReferralPayoutPermissions(t *testing.T) {
 
 func TestAdminMemberRebateOverrideTriState(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "5.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "ovadmin")
 
@@ -625,7 +625,7 @@ func TestAdminMemberRebateOverrideTriState(t *testing.T) {
 
 func TestAdminMemberRebateOverrideRejectsInvalid(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	adminToken := seedReferralAdmin(t, engine, gdb, "ovbad")
 
 	_, member := memberTokenFor(t, engine, "ovbadmember")
@@ -673,7 +673,7 @@ func TestAdminMemberRebateOverrideRejectsInvalid(t *testing.T) {
 
 func TestAdminMemberRebateOverrideAffectsGrantRatio(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	// 全局默认 5.00，特批 20.00 → 发放时按 20.00（会员级优先于全局）。
 	refCouponSetting(t, gdb, true, "5.00", "100.00")
 	adminToken := seedReferralAdmin(t, engine, gdb, "ovgrant")

@@ -31,7 +31,9 @@ const EPAY = {
 }
 
 const UPSTREAM = {
+  // 构建期注入的地址：只读展示，保存时绝不提交（契约 8.6 / 12.1，R17）。
   base_url: 'https://idc.example.com/',
+  base_url_fixed: true,
   username: 'oem',
   api_key_configured: true,
   api_key_masked: 'abcd****wxyz',
@@ -268,6 +270,33 @@ describe('管理后台 · 全站设置', () => {
     await user.type(screen.getByLabelText(/单次请求超时/), '999')
     await user.click(screen.getByRole('button', { name: '保存上游设置' }))
     expect(await screen.findByText(/超时需为 1-120 之间的整数/)).toBeInTheDocument()
+  })
+
+  it('上游地址只读展示、不可修改，保存也不提交 base_url', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+
+    // 只读：禁用 + 不可编辑，并给出「由系统固定」的说明。
+    const baseURLInput = screen.getByLabelText(/上游地址/) as HTMLInputElement
+    expect(baseURLInput).toBeDisabled()
+    expect(baseURLInput).toHaveValue(UPSTREAM.base_url)
+    expect(screen.getByText(/由系统固定，不可修改/)).toBeInTheDocument()
+
+    // 改用户名并保存 → 请求体只含 username，绝不含 base_url。
+    const usernameInput = screen.getByLabelText('上游用户名')
+    await user.clear(usernameInput)
+    await user.type(usernameInput, 'oem2')
+    await user.click(screen.getByRole('button', { name: '保存上游设置' }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls
+        .filter(
+          ([input, init]) =>
+            String(input).includes('/admin/settings/upstream') && init?.method === 'PUT',
+        )
+        .at(-1)
+      expect(requestBody(call?.[1] as RequestInit)).toEqual({ username: 'oem2' })
+    })
   })
 
   it('SMTP：发送测试邮件前校验收件地址格式', async () => {

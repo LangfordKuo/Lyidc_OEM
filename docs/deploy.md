@@ -179,6 +179,22 @@ tar -xzf lyidc-oem-v1.0.0-linux-amd64.tar.gz && cd lyidc-oem-v1.0.0-linux-amd64
   ./lyidc-server -config config.yaml
   ```
 
+### 上游地址（构建期固定，运行时不可改）
+
+上游「魔方财务系统」的**地址**在打包/构建镜像时烧进二进制（`-X .../internal/buildinfo.UpstreamBaseURL=<地址>`，
+与版本号同一机制），运行时只读：后台「设置 → 上游对接」里能看到它并标记为不可修改，**任何界面与接口都改不了**。
+这样即使后台账号被冒用，也无法把整站上游指向别处。
+
+- **换地址 = 改构建期变量并重新发布**：改 GitHub 仓库变量 `UPSTREAM_BASE_URL`（Settings → Secrets and
+  variables → Actions → Variables）后重跑 Release 流水线（或打新 tag），重新生成发布包与镜像；
+  已部署的实例要落到新地址，须用新包/新镜像升级。
+- **本地打包**必须显式给地址，缺失会直接报错退出（绝不产出连不上上游的包）：
+  `UPSTREAM_BASE_URL=https://lyew.com scripts/package.sh -v v1.0.0`。
+- **上游账号与 API 密钥**仍走后台设置（settings 表），改完立即生效、无需重启；库内旧版遗留的
+  `base_url` 键会被忽略，属惰性残留，可不管。
+- 构建时**未注入**地址的包：启动日志会提示「未注入上游地址」，上游相关功能（商品导入、开通交付、
+  实例操作、探活）一律按「未配置」处理，其余功能不受影响——现场见到该提示就说明包打错了。
+
 ### 一键自动升级（后台「设置 → 系统更新」）
 
 主机直装（本节的二进制部署）可以在后台**一键升级**，无需登录服务器手工解包：
@@ -273,5 +289,6 @@ LYIDC_FRONTEND_IMAGE=docker.m.daocloud.io/ghcr.io/langfordkuo/lyidc-oem-frontend
 | 向导第 1 步「配置写入点可写」红 | 数据卷属主/权限问题，见上文「数据卷权限」 |
 | 容器状态 `unhealthy` | 后端：健康检查要求「已安装且数据库 up」或「安装向导存活」；未安装且向导接口也不通才是真异常，看日志。前端：`unhealthy` 说明 nginx 自身没起来 |
 | 升级后报错缺表 | 目标版本含新迁移，跑一次 `lyidc-migrate up`（见「升级」） |
+| 后台「上游对接」里地址是空的 / 探活报「上游未配置」 | 包的构建期没注入上游地址（启动日志会提示「未注入上游地址」）：这不是设置问题，改后台无济于事——换用正确构建的包/镜像（见「上游地址」小节） |
 
 日志：`docker compose logs -f backend`（后端为结构化文本日志，`log.format: json` 可切 JSON）。

@@ -77,7 +77,7 @@ func refCreateCouponOK(t *testing.T, engine http.Handler, token string, body map
 
 func TestReferralCouponRequiresEnabledReferral(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "noref")
@@ -99,7 +99,7 @@ func TestReferralCouponRequiresEnabledReferral(t *testing.T) {
 
 func TestReferralCouponPercentCapFromSettings(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	// 全局默认比例 50.00 很松，自建券折扣上限被设置压到 10.00 → 上限 = min(10, 50) = 10。
 	refCouponSetting(t, gdb, true, "50.00", "10.00")
 
@@ -125,7 +125,7 @@ func TestReferralCouponPercentCapFromSettings(t *testing.T) {
 
 func TestReferralCouponPercentCapFromMemberOverride(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	// 设置很松（80.00），会员特批 20.00 → 上限 = min(80, 20) = 20。
 	refCouponSetting(t, gdb, true, "50.00", "80.00")
 
@@ -149,7 +149,7 @@ func TestReferralCouponPercentCapFromMemberOverride(t *testing.T) {
 
 func TestReferralCouponRejectsFixedTypeAndBadValue(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, _ := memberTokenFor(t, engine, "fixedtype")
@@ -183,7 +183,7 @@ func TestReferralCouponRejectsFixedTypeAndBadValue(t *testing.T) {
 
 func TestReferralCouponCreateSetsOwnerAndSource(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "ownerchk")
@@ -213,7 +213,7 @@ func TestReferralCouponCreateSetsOwnerAndSource(t *testing.T) {
 
 func TestReferralCouponListOnlyOwn(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "listown")
@@ -244,7 +244,7 @@ func TestReferralCouponListOnlyOwn(t *testing.T) {
 
 func TestReferralCouponUpdateOnlyStatusAndExpiresAt(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 
 	token, member := memberTokenFor(t, engine, "updself")
@@ -330,7 +330,7 @@ func TestReferralCouponUpdateOnlyStatusAndExpiresAt(t *testing.T) {
 
 func TestAdminCouponViewExposesOwnerAndBlocksSelfOwnedValue(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	seedAdmin(t, gdb, "capadmin", "admin123456", model.RoleAdmin, model.StatusActive)
 	adminToken, _ := loginAdmin(t, engine, "capadmin", "admin123456")
@@ -375,7 +375,7 @@ func TestAdminCouponViewExposesOwnerAndBlocksSelfOwnedValue(t *testing.T) {
 
 func TestSelfCouponUseRulesWithApiCreatedCoupon(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	refCouponSetting(t, gdb, true, "20.00", "100.00")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 

@@ -28,6 +28,7 @@ function mockDashboard() {
       return ok({
         connected: true,
         base_url: 'https://idc.example.com/',
+        base_url_fixed: true,
         latency_ms: 12,
         api_key_masked: 'abcd****wxyz',
         checked_at: '2026-10-08T06:20:00Z',
@@ -86,6 +87,7 @@ describe('管理后台 · 登录与守卫', () => {
         return ok({
           connected: true,
           base_url: 'https://idc.example.com/',
+          base_url_fixed: true,
           latency_ms: 12,
           api_key_masked: 'abcd****wxyz',
           checked_at: '2026-10-08T06:20:00Z',

@@ -5,6 +5,11 @@
 #
 # 手动演练：Actions → Release → Run workflow（dry_run 默认 true = 只构建不发布）。
 # 发版步骤与 tag 规则见 docs/RELEASE.md。
+#
+# 前置：仓库变量 UPSTREAM_BASE_URL 必须已设置（Settings → Secrets and variables → Actions →
+# Variables），如 https://lyew.com。上游地址是**构建期固定**项（契约 8.6，R17）：包与镜像都
+# 在构建时把它烧进二进制，运行时只读、任何界面与接口都改不了——换地址只能改该变量并重跑发布。
+# 地址不进仓库任何入库文件（本仓库公开）。
 name: Release
 
 on:
@@ -78,6 +83,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 上游地址必须在构建期固定（R17）：变量为空就别往下走——空的包连不上上游，
+      # 发出去才发现只能重打 tag 重发，代价比这里失败大得多。
+      - name: 校验构建期变量 UPSTREAM_BASE_URL
+        run: |
+          set -euo pipefail
+          if [ -z "${{ vars.UPSTREAM_BASE_URL }}" ]; then
+            echo "::error::仓库变量 UPSTREAM_BASE_URL 未设置或为空。"
+            echo "::error::上游地址是构建期固定项（契约 8.6），请在 Settings → Secrets and variables → Actions → Variables 添加 UPSTREAM_BASE_URL（如 https://lyew.com）后重跑。"
+            exit 1
+          fi
+          echo "上游地址已设置（构建期注入，运行时不可修改）"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -102,6 +119,9 @@ jobs:
           echo "本次打包版本：${version}"
 
       - name: 交叉编译并打包
+        env:
+          # 地址只经环境变量进打包脚本，再经 -ldflags 进二进制（不落任何入库文件）。
+          UPSTREAM_BASE_URL: ${{ vars.UPSTREAM_BASE_URL }}
         run: |
           set -euo pipefail
           bash scripts/package.sh \
@@ -158,6 +178,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # 与 build-packages 同一道闸门：镜像里的后端二进制同样要在构建期烧入上游地址。
+      - name: 校验构建期变量 UPSTREAM_BASE_URL
+        run: |
+          set -euo pipefail
+          if [ -z "${{ vars.UPSTREAM_BASE_URL }}" ]; then
+            echo "::error::仓库变量 UPSTREAM_BASE_URL 未设置或为空（见 build-packages job 的说明）。"
+            exit 1
+          fi
+          echo "上游地址已设置（构建期注入，运行时不可修改）"
 
       # Docker 拒绝大写仓库名，而 GitHub 用户名可能含大写（如 LangfordKuo）→ 统一小写。
       - name: 计算镜像名
@@ -224,6 +254,7 @@ jobs:
             VERSION=${{ env.VERSION }}
             COMMIT=${{ env.COMMIT }}
             BUILT_AT=${{ env.BUILT_AT }}
+            UPSTREAM_BASE_URL=${{ vars.UPSTREAM_BASE_URL }}
           platforms: ${{ env.PLATFORMS }}
           push: ${{ env.DRY_RUN == 'false' }}
           tags: ${{ steps.meta-backend.outputs.tags }}
@@ -283,9 +314,16 @@ jobs:
       # 能跑的容器」，而不是 registry 可拉取性（后者另有匿名回读检查，见 scratch/stage9/ACCEPTANCE.md）。
       # 本机构建同时避开了私有包需要登录、跨账号可见性等一堆与镜像本身无关的失败源。
       - name: 构建冒烟镜像（本机架构）
+        env:
+          # 冒烟按正式口径构建：同样在构建期注入上游地址（R17），否则这里验的就不是真实包形态。
+          UPSTREAM_BASE_URL: ${{ vars.UPSTREAM_BASE_URL }}
         run: |
           set -euo pipefail
-          docker build -f Dockerfile.backend  -t "${SMOKE_BACKEND_IMAGE}"  .
+          if [ -z "${UPSTREAM_BASE_URL}" ]; then
+            echo "::error::仓库变量 UPSTREAM_BASE_URL 未设置或为空（见 build-packages job 的说明）。"
+            exit 1
+          fi
+          docker build -f Dockerfile.backend  --build-arg UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL}" -t "${SMOKE_BACKEND_IMAGE}"  .
           docker build -f Dockerfile.frontend -t "${SMOKE_FRONTEND_IMAGE}" .
 
       - name: 起容器并断言（未安装态 → 安装向导 → 就绪态 → 反代 → 健康检查）

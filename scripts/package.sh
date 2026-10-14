@@ -16,8 +16,13 @@
 #     README.md                 项目简介
 #     VERSION                   本包对应的版本号/提交
 #
+# 环境变量：
+#   UPSTREAM_BASE_URL  上游「魔方财务系统」地址（必填，如 https://lyew.com）：构建期注入二进制，
+#                      运行时只读、任何界面与接口都改不了（契约 8.6 / 12.1，R17）。
+#                      缺失或为空直接报错退出——绝不产出连不上上游的包。
+#
 # 用法：
-#   scripts/package.sh [选项]
+#   UPSTREAM_BASE_URL=https://lyew.com scripts/package.sh [选项]
 #     -v, --version VER    版本号（缺省：dev-<提交号>，非 git 目录为 dev；发布流水线传入 tag）
 #     -p, --platforms LIST 平台列表，空格分隔（缺省 "linux/amd64 linux/arm64 windows/amd64"）
 #     -d, --dist DIR       前端构建产物目录（缺省 frontend/dist，须先 npm run build）
@@ -26,8 +31,16 @@
 #     -h, --help           显示帮助
 #
 # 例（本地打全部三平台，前端产物复用 frontend/dist）：
-#   scripts/package.sh -v v1.0.0
+#   UPSTREAM_BASE_URL=https://lyew.com scripts/package.sh -v v1.0.0
 set -eu
+
+# 上游地址与版本号同属「运行时只读」的构建期注入项（契约 8.6 / 19.1）：
+# 它决定整站所有上游调用的目标，因此**绝不能静默为空**——空地址的包等于连不上上游的废包。
+if [ -z "${UPSTREAM_BASE_URL:-}" ]; then
+  echo "错误：未设置环境变量 UPSTREAM_BASE_URL（上游地址，构建期注入，运行时不可修改）。" >&2
+  echo "      用法示例：UPSTREAM_BASE_URL=https://lyew.com scripts/package.sh -v v1.0.0" >&2
+  exit 1
+fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
@@ -106,13 +119,14 @@ safe_version=$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\
 [ -f "$dist_dir/index.html" ] || die "前端产物不完整：$dist_dir/index.html 不存在（请重新 npm run build）"
 command -v go >/dev/null 2>&1 || die "未找到 go 命令（后端交叉编译需要 Go 工具链）"
 
-# 版本信息注入（契约 19.1）：三个 buildinfo 变量随 -ldflags 写入二进制，运行时只读取、不写死版本号。
+# 版本与上游地址注入（契约 19.1 / 8.6）：四个 buildinfo 变量随 -ldflags 写入二进制，
+# 运行时只读取、不写死版本号，也不从任何界面/接口读上游地址。
 # 模块路径从 go.mod 读取，避免与仓库改名脱节；提交号取不到（如非 git 目录）时记为 unknown。
 module_path=$(awk '/^module /{print $2; exit}' "$source_dir/go.mod")
 build_commit=$(git -C "$(native_path "$repo_root")" rev-parse --short HEAD 2>/dev/null || echo unknown)
 built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 buildinfo_pkg="$module_path/internal/buildinfo"
-ldflags="-s -w -X $buildinfo_pkg.Version=$version -X $buildinfo_pkg.Commit=$build_commit -X $buildinfo_pkg.BuiltAt=$built_at"
+ldflags="-s -w -X $buildinfo_pkg.Version=$version -X $buildinfo_pkg.Commit=$build_commit -X $buildinfo_pkg.BuiltAt=$built_at -X $buildinfo_pkg.UpstreamBaseURL=$UPSTREAM_BASE_URL"
 
 mkdir -p "$outdir"
 stage_root="$outdir/.stage"
@@ -185,6 +199,7 @@ list_zip() {
 
 echo "== Lyidc_OEM 打包 =="
 echo "版本：$version（文件名用：$safe_version）"
+echo "上游地址（构建期注入，运行时不可修改）：$UPSTREAM_BASE_URL"
 echo "平台：$platforms"
 echo "前端产物：$dist_dir"
 echo "输出目录：$outdir"

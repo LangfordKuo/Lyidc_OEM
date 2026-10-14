@@ -136,6 +136,7 @@ function mockSettingsPage(nodes: {
     if (path === '/api/v1/admin/settings/upstream') {
       return ok({
         base_url: '',
+        base_url_fixed: true,
         username: '',
         api_key_configured: false,
         api_key_masked: '',

@@ -3,7 +3,7 @@
 岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
 后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui。
-接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v27）。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v28）。
 
 ## 快速部署
 
@@ -35,7 +35,8 @@ docker compose up -d
 - **上游状态回推**：开通时把本站地址与实例鉴权串登记给上游（`downstream_url/token/id`）；
   上游在主机状态变化时回调 `POST /api/host/sync`（form + md5 签名），按 `domainstatus` 同步实例状态
   与字段（幂等、静默、不通知会员）；站点对外地址可在后台设置（留空按请求 Host 推断）
-- **运营**：站内通知 + 邮件（SMTP）、到期提醒、工单、后台设置（支付/上游/邮件等全部进库，改完即生效）
+- **运营**：站内通知 + 邮件（SMTP）、到期提醒、工单、后台设置（支付/上游凭据/邮件等全部进库，改完即生效）；
+  **上游地址是构建期固定项**（与版本号同一机制注入，后台只读展示、任何接口都改不了，换地址须重新发布）
 - **部署**：浏览器安装向导、容器化交付（GHCR 双镜像）、Release 三平台包
 - **版本与更新**：构建期注入版本号（`-version` 可查）；管理端「系统更新」检查 GitHub 最新正式版并**一键自动升级**
   （下载 → sha256 校验 → 替换二进制与 dist → 迁移 → 重启 → 健康检查，失败自动回滚）

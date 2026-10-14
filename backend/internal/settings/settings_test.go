@@ -146,8 +146,7 @@ func TestEpayURLValidation(t *testing.T) {
 
 // TestUpstreamApplyAndValidation 验证上游设置：api_key 三态、超时范围、缺省超时。
 func TestUpstreamApplyAndValidation(t *testing.T) {
-	base := Upstream{BaseURL: "https://lyew.com", Username: "13800000000",
-		APIKey: "upstream-key-1", TimeoutSeconds: 10}
+	base := Upstream{Username: "13800000000", APIKey: "upstream-key-1", TimeoutSeconds: 10}
 
 	kept, err := base.Apply(UpstreamUpdate{TimeoutSeconds: intptr(30)})
 	if err != nil {
@@ -170,15 +169,12 @@ func TestUpstreamApplyAndValidation(t *testing.T) {
 		t.Fatal("清空密钥后不应视为已配置")
 	}
 
-	// 超时越界 → ErrRule；URL 非法 → ErrFormat。
+	// 超时越界 → ErrRule。
 	if _, err := base.Apply(UpstreamUpdate{TimeoutSeconds: intptr(0)}); !errors.Is(err, ErrRule) {
 		t.Fatalf("超时 0 的 err = %v，期望 ErrRule", err)
 	}
 	if _, err := base.Apply(UpstreamUpdate{TimeoutSeconds: intptr(121)}); !errors.Is(err, ErrRule) {
 		t.Fatalf("超时 121 的 err = %v，期望 ErrRule", err)
-	}
-	if _, err := base.Apply(UpstreamUpdate{BaseURL: strptr("lyew.com")}); !errors.Is(err, ErrFormat) {
-		t.Fatalf("URL 非法的 err = %v，期望 ErrFormat", err)
 	}
 
 	// 缺省超时：0 值读出为 5。
@@ -187,14 +183,46 @@ func TestUpstreamApplyAndValidation(t *testing.T) {
 	}
 }
 
-// TestUpstreamMissing 验证「配了一半」的缺失项列表（三项全空返回 nil）。
+// TestUpstreamMissing 验证「配了一半」的缺失项列表：R17 起只看 username / api_key
+// （上游地址来自构建期，不参与判定），两者全空返回 nil。
 func TestUpstreamMissing(t *testing.T) {
 	if missing := (Upstream{}).Missing(); missing != nil {
 		t.Fatalf("完全未配置时 Missing() = %v，期望 nil", missing)
 	}
-	missing := (Upstream{BaseURL: "https://lyew.com"}).Missing()
-	if len(missing) != 2 || missing[0] != "username" || missing[1] != "api_key" {
-		t.Fatalf("Missing() = %v", missing)
+	missing := (Upstream{APIKey: "upstream-key-1"}).Missing()
+	if len(missing) != 1 || missing[0] != "username" {
+		t.Fatalf("缺账号时 Missing() = %v，期望 [username]", missing)
+	}
+	missing = (Upstream{Username: "13800000000"}).Missing()
+	if len(missing) != 1 || missing[0] != "api_key" {
+		t.Fatalf("缺密钥时 Missing() = %v，期望 [api_key]", missing)
+	}
+	if missing := (Upstream{Username: "13800000000", APIKey: "k"}).Missing(); missing != nil {
+		t.Fatalf("齐全时 Missing() = %v，期望 nil", missing)
+	}
+}
+
+// TestUpstreamIgnoresLegacyBaseURL 验证库内遗留的 base_url 键被忽略（不再读、不再写）：
+// 解析时不报错、不进入取值结构，重新编码后 JSON 里不再含该键。
+func TestUpstreamIgnoresLegacyBaseURL(t *testing.T) {
+	legacy := `{"base_url":"https://lyew.com","username":"13800000000","api_key":"k","timeout_seconds":30}`
+	decoded, err := decodeUpstream(legacy)
+	if err != nil {
+		t.Fatalf("解析遗留值失败: %v", err)
+	}
+	if decoded.Username != "13800000000" || decoded.APIKey != "k" || decoded.TimeoutSeconds != 30 {
+		t.Fatalf("遗留值解析错误: %+v", decoded)
+	}
+
+	encoded, err := decoded.Encode()
+	if err != nil {
+		t.Fatalf("Encode 失败: %v", err)
+	}
+	if strings.Contains(encoded, "base_url") {
+		t.Fatalf("重新编码后仍写回 base_url：%s", encoded)
+	}
+	if want := `{"username":"13800000000","api_key":"k","timeout_seconds":30}`; encoded != want {
+		t.Fatalf("Encode = %s，期望 %s", encoded, want)
 	}
 }
 
@@ -227,6 +255,18 @@ func TestReaderDefaults(t *testing.T) {
 		t.Fatalf("损坏值的 err = %v，期望 ErrCorrupt", err)
 	}
 
+	// 库内遗留的 base_url 键被忽略（旧版写入的值属惰性残留，不再读、不再写）。
+	legacy := NewReader(fakeSource{values: map[string]string{
+		KeyUpstream: `{"base_url":"https://lyew.com","username":"13800000000","api_key":"k","timeout_seconds":30}`,
+	}})
+	state, err := legacy.Upstream(ctx)
+	if err != nil {
+		t.Fatalf("含遗留 base_url 的值应能正常读取: %v", err)
+	}
+	if state.Value.Username != "13800000000" || state.Value.TimeoutSeconds != 30 {
+		t.Fatalf("遗留值解析错误: %+v", state.Value)
+	}
+
 	// 数据库错误原样回传（不是 ErrNotFound）。
 	dbErr := errors.New("db down")
 	if _, err := NewReader(fakeSource{err: dbErr}).Epay(ctx); !errors.Is(err, dbErr) {
@@ -257,7 +297,7 @@ func TestReaderFingerprintAndMeta(t *testing.T) {
 
 // TestEncodeRoundTrip 验证落库 JSON 与解析的往返一致（字段顺序稳定，便于按内容比较）。
 func TestEncodeRoundTrip(t *testing.T) {
-	value := Upstream{BaseURL: "https://lyew.com", Username: "13800000000", APIKey: "k", TimeoutSeconds: 5}
+	value := Upstream{Username: "13800000000", APIKey: "k", TimeoutSeconds: 5}
 	encoded, err := value.Encode()
 	if err != nil {
 		t.Fatalf("Encode 失败: %v", err)

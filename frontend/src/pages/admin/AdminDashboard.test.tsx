@@ -39,6 +39,7 @@ function mockDashboard(role: 'admin' | 'finance' | 'support' = 'admin') {
       return ok({
         connected: true,
         base_url: 'https://idc.example.com/',
+        base_url_fixed: true,
         latency_ms: 18,
         api_key_masked: 'abcd****wxyz',
         checked_at: '2026-10-08T06:20:00Z',

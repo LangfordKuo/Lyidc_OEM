@@ -51,7 +51,7 @@ func memberBalance(t *testing.T, gdb *gorm.DB, memberID uint64) string {
 // TestRechargeCreateAndNotify 跑通「充值下单 → 渠道下单 → 回调 → 余额到账 + 流水」，并验证幂等。
 func TestRechargeCreateAndNotify(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 
@@ -130,7 +130,7 @@ func TestRechargeCreateAndNotify(t *testing.T) {
 // TestRechargeAmountAndChannelValidation 验证金额边界（1.00 ~ 50000.00）与渠道校验。
 func TestRechargeAmountAndChannelValidation(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	token, _ := memberTokenFor(t, engine, "amountuser")
@@ -176,7 +176,7 @@ func TestRechargeAmountAndChannelValidation(t *testing.T) {
 // TestRechargeChannelUnavailable 验证渠道未配置时充值返回明确业务错误（不影响其余功能）。
 func TestRechargeChannelUnavailable(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	token, _ := memberTokenFor(t, engine, "nochanneluser")
 
 	rec, envelope := createRecharge(t, engine, token, map[string]any{"amount": "100.00", "channel": "epay"})
@@ -194,7 +194,7 @@ func TestRechargeChannelUnavailable(t *testing.T) {
 // TestFinanceListsAndIsolation 验证本人流水/充值单隔离与管理端对账列表（含角色守卫）。
 func TestFinanceListsAndIsolation(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 

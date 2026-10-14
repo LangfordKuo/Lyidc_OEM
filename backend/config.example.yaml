@@ -30,9 +30,11 @@ log:
   # 日志格式：text | json
   format: "text"
 
-# 注意（阶段 4 起）：**上游对接参数与易支付参数不再来自配置文件**。
+# 注意（阶段 4 起）：**上游对接凭据与易支付参数不再来自配置文件**。
 # 所有「用户可设置」的内容一律由后台管理设置承载（settings 表 + 管理端接口），
 # 改完立即生效、无需重启：
-#   PUT /api/v1/admin/settings/upstream      —— 上游 base_url / username / api_key / timeout_seconds
+#   PUT /api/v1/admin/settings/upstream      —— 上游 username / api_key / timeout_seconds
 #   PUT /api/v1/admin/settings/payment/epay  —— 易支付 enabled / gateway / pid / key / notify_url / return_url
+# R17 起上游**地址**也不来自配置文件，而是**构建期注入**（-X .../internal/buildinfo.UpstreamBaseURL=…，
+# 与版本号同一机制）；后台只读展示、任何接口都改不了，改地址必须重新构建发布。
 # 本文件只保留部署级参数（监听地址、数据库连接、JWT 密钥、日志等级）。契约见 docs/api-contract.md 12.1。

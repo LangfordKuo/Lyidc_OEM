@@ -21,7 +21,7 @@ import (
 // TestOrderCreateWithCouponAndPriceSnapshot 验证下单校验与金额明细（含优惠码折扣快照）。
 func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 	seedCoupon(t, gdb, "CASH20", "fixed", "20", `["annual"]`, nil)
 
@@ -79,7 +79,7 @@ func TestOrderCreateWithCouponAndPriceSnapshot(t *testing.T) {
 // 值传数量（configoption 口径，非子项 id），范围取自该值的 qty_minimum~qty_maximum。
 func TestOrderCreateQuantityConfig(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 	token, _ := memberTokenFor(t, engine, "qtyuser")
 
@@ -122,7 +122,7 @@ func TestOrderCreateQuantityConfig(t *testing.T) {
 // TestOrderCreateCouponRejections 验证优惠码在下单链路的统一 40002 口径。
 func TestOrderCreateCouponRejections(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 	seedCoupon(t, gdb, "OFF10", "percent", "10", `[]`, func(c *model.Coupon) {
 		c.Status = model.CouponStatusOff
@@ -163,7 +163,7 @@ func TestOrderCreateCouponRejections(t *testing.T) {
 // TestOrderCreateParameterErrors 验证参数格式类错误（40001）与商品类错误（404）。
 func TestOrderCreateParameterErrors(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 	offProduct := seedOrderProduct(t, gdb, model.ProductStatusOff)
 
@@ -214,7 +214,7 @@ func TestOrderCreateParameterErrors(t *testing.T) {
 // 并验证重复回调的幂等与金额一致性校验。
 func TestOrderOnlinePayAndNotify(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -291,7 +291,7 @@ func TestOrderOnlinePayAndNotify(t *testing.T) {
 // TestOrderPayReusesTradeNoOnRepeat 验证重复发起支付沿用同一 out_trade_no（契约 12.2）。
 func TestOrderPayReusesTradeNoOnRepeat(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -319,7 +319,7 @@ func TestOrderPayReusesTradeNoOnRepeat(t *testing.T) {
 // TestOrderChannelFailures 验证渠道拒绝下单与渠道未配置的错误码。
 func TestOrderChannelFailures(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 	token, _ := memberTokenFor(t, engine, "failuser")
@@ -364,7 +364,7 @@ func TestOrderChannelFailures(t *testing.T) {
 // TestOrderNotifyRejections 验证回调的拒绝分支：找不到单 / 非成功状态 / 前缀不可识别。
 func TestOrderNotifyRejections(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 
@@ -410,7 +410,7 @@ func TestOrderNotifyRejections(t *testing.T) {
 // TestOrderCancelThenNotify 验证取消后收到回调：记 WARN、不处理、仍应答 success。
 func TestOrderCancelThenNotify(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -457,7 +457,7 @@ func TestOrderCancelThenNotify(t *testing.T) {
 // TestOrderCouponOveruseDoesNotBlock 验证极端并发超用不阻断入账（used_count 停在 max_uses）。
 func TestOrderCouponOveruseDoesNotBlock(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -492,7 +492,7 @@ func TestOrderCouponOveruseDoesNotBlock(t *testing.T) {
 // TestOrderPayWithBalance 验证余额支付成功与不足两条路径。
 func TestOrderPayWithBalance(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
 	token, member := memberTokenFor(t, engine, "balanceuser")
@@ -549,7 +549,7 @@ func TestOrderPayWithBalance(t *testing.T) {
 // TestOrderListAndIsolation 验证列表分页、状态过滤与他人订单不可见。
 func TestOrderListAndIsolation(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
 
 	ownerToken, _ := memberTokenFor(t, engine, "owneruser")
@@ -612,7 +612,7 @@ func TestOrderListAndIsolation(t *testing.T) {
 func TestPaymentLogsNeverContainSecrets(t *testing.T) {
 	gdb := testDatabase(t)
 	var logs bytes.Buffer
-	engine := newStage4Engine(t, gdb, &logs)
+	engine := newStage4Engine(t, gdb, "", &logs)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
@@ -638,7 +638,7 @@ func TestPaymentLogsNeverContainSecrets(t *testing.T) {
 // TestSettingsRawValueNotLeakedInOrderFlows 验证订单/支付接口响应里不含密钥（防御性断言）。
 func TestSettingsRawValueNotLeakedInOrderFlows(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newStage4Engine(t, gdb, nil)
+	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)

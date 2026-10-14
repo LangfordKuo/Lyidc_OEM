@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -27,6 +28,8 @@ import (
 type settingsHandler struct {
 	store  *store.Store
 	reader *settings.Reader
+	// upstreamBaseURL 是构建期注入的上游地址（R17）：GET 只读回显它，PUT 一律拒绝修改它。
+	upstreamBaseURL string
 	// notify 是通知能力（阶段 6b）：设置页的「发送测试邮件」经它发送并留痕。
 	notify NotificationTrigger
 	// backups 是数据库备份服务（R15，契约 21.10）：备份目录设置接口用它做解析、Web 根判定、
@@ -51,8 +54,12 @@ type epaySettingsView struct {
 }
 
 // upstreamSettingsView 是 upstream 设置的对外视图。
+//
+// base_url 只读：它是**构建期注入值**（R17），不是库内设置；base_url_fixed 恒为 true，
+// 供界面直接把它渲染成不可编辑项（契约 8.6 / 12.1）。
 type upstreamSettingsView struct {
 	BaseURL          string  `json:"base_url"`
+	BaseURLFixed     bool    `json:"base_url_fixed"`
 	Username         string  `json:"username"`
 	APIKeyConfigured bool    `json:"api_key_configured"`
 	APIKeyMasked     string  `json:"api_key_masked"`
@@ -80,16 +87,20 @@ func (r epaySettingsUpdateRequest) provided() bool {
 
 // upstreamSettingsUpdateRequest 是 PUT /admin/settings/upstream 请求体：字段均可选但至少一个。
 // api_key 三态语义同支付 key。
+//
+// **没有 base_url 字段**（R17）：上游地址由构建期固定，请求体里出现 base_url 一律拒绝。
+// 这里显式声明它以区分「键缺席」与「键在场」——json.RawMessage 只要键在场（含 null）就非 nil，
+// 因此「带了但想清空/想改」都走同一条 40002 拒绝路径。
 type upstreamSettingsUpdateRequest struct {
-	BaseURL        *string `json:"base_url"`
-	Username       *string `json:"username"`
-	APIKey         *string `json:"api_key"`
-	TimeoutSeconds *int    `json:"timeout_seconds"`
+	BaseURL        json.RawMessage `json:"base_url"`
+	Username       *string         `json:"username"`
+	APIKey         *string         `json:"api_key"`
+	TimeoutSeconds *int            `json:"timeout_seconds"`
 }
 
 // provided 判断请求是否至少提供了一个字段。
 func (r upstreamSettingsUpdateRequest) provided() bool {
-	return r.BaseURL != nil || r.Username != nil || r.APIKey != nil || r.TimeoutSeconds != nil
+	return r.Username != nil || r.APIKey != nil || r.TimeoutSeconds != nil
 }
 
 // getEpaySettings 处理 GET /api/v1/admin/settings/payment/epay。
@@ -155,17 +166,21 @@ func (h *settingsHandler) updateEpaySettings(c *gin.Context) {
 }
 
 // getUpstreamSettings 处理 GET /api/v1/admin/settings/upstream。
+// base_url 回显**构建期注入值**（只读，恒带 base_url_fixed=true），不是库内设置。
 func (h *settingsHandler) getUpstreamSettings(c *gin.Context) {
 	state, err := h.reader.Upstream(c.Request.Context())
 	if err != nil {
 		h.failSettings(c, err)
 		return
 	}
-	response.Success(c, upstreamSettingsViewOf(state.Value, state.Meta))
+	response.Success(c, upstreamSettingsViewOf(h.upstreamBaseURL, state.Value, state.Meta))
 }
 
 // updateUpstreamSettings 处理 PUT /api/v1/admin/settings/upstream：局部更新并立即生效
 // （上游客户端会在下一次调用时发现设置指纹变化，重建客户端并丢弃旧 JWT 缓存）。
+//
+// R17：**上游地址不可修改**——请求体里只要出现 base_url（含 null 与空串）就 40002 拒绝且不落库，
+// 校验发生在合并与写库之前，因此这次请求连 username / api_key 也不会被改动。
 func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 	admin, ok := adminFromContext(c)
 	if !ok {
@@ -177,9 +192,14 @@ func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
+	if req.BaseURL != nil {
+		response.Fail(c, response.CodeValidationFailed,
+			"上游地址由系统固定（构建期注入），不可修改：请从请求体中移除 base_url")
+		return
+	}
 	if !req.provided() {
 		response.Fail(c, response.CodeInvalidParam,
-			"至少提供一个字段：base_url / username / api_key / timeout_seconds")
+			"至少提供一个字段：username / api_key / timeout_seconds")
 		return
 	}
 
@@ -190,7 +210,6 @@ func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 		return
 	}
 	merged, err := current.Value.Apply(settings.UpstreamUpdate{
-		BaseURL:        req.BaseURL,
 		Username:       req.Username,
 		APIKey:         req.APIKey,
 		TimeoutSeconds: req.TimeoutSeconds,
@@ -211,8 +230,8 @@ func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 		return
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyUpstream, "admin_id", admin.ID,
-		"base_url", merged.BaseURL, "api_key_changed", req.APIKey != nil)
-	response.Success(c, upstreamSettingsViewOf(merged, settingMeta(setting)))
+		"api_key_changed", req.APIKey != nil)
+	response.Success(c, upstreamSettingsViewOf(h.upstreamBaseURL, merged, settingMeta(setting)))
 }
 
 // emailSMTPView 是 email.smtp 设置的对外视图（口令只输出配置标志与掩码）。
@@ -624,9 +643,11 @@ func epaySettingsViewOf(c *gin.Context, value settings.Epay, meta settings.Meta)
 }
 
 // upstreamSettingsViewOf 组装上游设置视图（API 密钥只输出配置标志与掩码）。
-func upstreamSettingsViewOf(value settings.Upstream, meta settings.Meta) upstreamSettingsView {
+// baseURL 是构建期注入值（只读），base_url_fixed 恒为 true。
+func upstreamSettingsViewOf(baseURL string, value settings.Upstream, meta settings.Meta) upstreamSettingsView {
 	view := upstreamSettingsView{
-		BaseURL:          value.BaseURL,
+		BaseURL:          baseURL,
+		BaseURLFixed:     true,
 		Username:         value.Username,
 		APIKeyConfigured: value.APIKey != "",
 		APIKeyMasked:     settings.MaskSecret(value.APIKey),

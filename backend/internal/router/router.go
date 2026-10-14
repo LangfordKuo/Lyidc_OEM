@@ -80,6 +80,12 @@ type Options struct {
 	// Upstream 是上游客户端提供者；**nil 时按后台设置（settings 表 upstream 键）动态构造**
 	// （生产默认路径）。测试可注入 upstream.StaticProvider 指向假上游。
 	Upstream upstream.Provider
+	// UpstreamBaseURL 是上游地址（R17：构建期固定，不可通过任何接口或界面修改）。
+	//
+	// **生产由 cmd/server 用 buildinfo.UpstreamBaseURL 填充**（与版本号同一套 -ldflags 注入）；
+	// 这里是给测试保留的唯一注入点：它来自进程内的构造参数，不来自任何 HTTP 入参，
+	// 因此没有任何请求能让它改变。仅当 Options.Upstream 为 nil（走默认动态构造）时生效。
+	UpstreamBaseURL string
 	// UpstreamTimeout 是上游探活的整体超时，缺省 5s。
 	UpstreamTimeout time.Duration
 	// Delivery 是订单交付器；nil 时构造默认实现（自动交付异步执行、管理员重试用当前上游设置）。
@@ -143,7 +149,7 @@ func New(opts Options) *gin.Engine {
 	payments := newPaymentRegistry(settingsReader, opts.Logger)
 	upstreamProvider := opts.Upstream
 	if upstreamProvider == nil {
-		upstreamProvider = newUpstreamProvider(settingsReader, opts.Logger)
+		upstreamProvider = newUpstreamProvider(settingsReader, opts.UpstreamBaseURL, opts.Logger)
 	}
 	// 阶段 6b：通知服务（站内通知 + 通知邮件），供交付/扫描/工单/设置页共用。
 	// 生产实现的事件入口是异步的（不阻塞业务，失败只记日志），发送器按后台 SMTP 设置动态重建。
@@ -256,6 +262,8 @@ func New(opts Options) *gin.Engine {
 	instances := &instanceHandler{store: st, ops: instanceOperator, logger: opts.Logger}
 	adminSettings := &settingsHandler{
 		store: st, reader: settingsReader, notify: notifier,
+		// R17：上游地址是构建期注入值——GET 只读回显它，PUT 出现 base_url 一律 40002。
+		upstreamBaseURL: opts.UpstreamBaseURL,
 		// R15：备份目录设置接口与备份运行时共用同一个服务实例（同一套目录校验口径）。
 		backups: backupService, logger: opts.Logger,
 	}

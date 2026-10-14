@@ -835,7 +835,10 @@ export interface UpdateEpaySettingsInput {
 }
 
 export interface UpstreamSettings {
+  /** 上游地址：构建期注入、**只读**（契约 8.6 / 12.1，R17）。 */
   base_url: string
+  /** 恒为 true：界面据此把地址渲染成不可编辑项。 */
+  base_url_fixed: boolean
   username: string
   api_key_configured: boolean
   api_key_masked: string
@@ -844,8 +847,8 @@ export interface UpstreamSettings {
   updated_at: string | null
 }
 
+/** 上游地址不可修改：请求体里出现 base_url 会被后端 40002 拒绝，故本结构没有该字段。 */
 export interface UpdateUpstreamSettingsInput {
-  base_url?: string
   username?: string
   /** 三态同上。 */
   api_key?: string

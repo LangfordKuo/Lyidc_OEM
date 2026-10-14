@@ -170,22 +170,26 @@ func notifyAck(t *testing.T, engine http.Handler, values url.Values) string {
 // 测试数据辅助
 // ---------------------------------------------------------------------------
 
-// newStage4Engine 构造阶段 4 集成测试引擎：真实数据库 + 假支付/假上游（由设置驱动）。
+// newStage4Engine 构造阶段 4 集成测试引擎：真实数据库 + 假支付/假上游（账号与密钥由设置驱动）。
 // logs 非 nil 时同时把服务端日志写入该缓冲（用于断言日志不含密钥明文）。
+//
+// upstreamBaseURL 是**构建期上游地址的测试替身**（R17）：生产由 buildinfo 注入，测试从这里注入。
+// 空串表示「构建时未注入地址」，此时上游相关功能按未配置处理。
 //
 // 阶段 5a 起支付成功会触发交付：此处注入 noopDeliverer，保持阶段 4 用例
 // 「支付后订单停留在 paid」的原断言（交付链路由 newStage5Engine 的专门用例覆盖）。
-func newStage4Engine(t *testing.T, gdb *gorm.DB, logs *bytes.Buffer) *gin.Engine {
+func newStage4Engine(t *testing.T, gdb *gorm.DB, upstreamBaseURL string, logs *bytes.Buffer) *gin.Engine {
 	t.Helper()
 	var handler io.Writer = io.Discard
 	if logs != nil {
 		handler = logs
 	}
 	return New(Options{
-		Logger:   slog.New(slog.NewTextHandler(handler, nil)),
-		DB:       gdb,
-		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-		Delivery: noopDeliverer{},
+		Logger:          slog.New(slog.NewTextHandler(handler, nil)),
+		DB:              gdb,
+		JWT:             config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		UpstreamBaseURL: upstreamBaseURL,
+		Delivery:        noopDeliverer{},
 	})
 }
 
