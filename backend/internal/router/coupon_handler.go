@@ -250,6 +250,7 @@ func (h *couponHandler) createCoupon(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("已创建优惠码 %s（%s，状态 %s）", coupon.Code, coupon.Type, coupon.Status))
 	response.Success(c, h.couponView(coupon))
 }
 
@@ -439,6 +440,7 @@ func (h *couponHandler) updateCoupon(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("已更新优惠码 %s（当前状态 %s）", updated.Code, updated.Status))
 	response.Success(c, h.couponView(updated))
 }
 

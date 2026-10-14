@@ -89,6 +89,11 @@ func (h *settingsHandler) updateSiteSettings(c *gin.Context) {
 		return
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeySite, "admin_id", admin.ID, "url", merged.URL)
+	if merged.URL == "" {
+		setOplogSummary(c, "已保存站点对外地址设置（清空，交付时按请求推断）")
+	} else {
+		setOplogSummary(c, "已保存站点对外地址设置（"+merged.URL+"）")
+	}
 	response.Success(c, siteSettingsViewOf(c, merged, settingMeta(setting)))
 }
 

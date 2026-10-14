@@ -18,6 +18,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/notify"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/oplog"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/scheduler"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
@@ -118,6 +119,12 @@ type Options struct {
 	// 注入的实现同时被「交付/扫描（经 Options.Delivery 与调度器）」与「工单/设置页」使用；
 	// 测试注入 Async=false 的 notify.Service 即可同步断言通知结果。
 	Notifier NotificationTrigger
+	// Oplog 是操作日志写入器（R18，契约第 23 节）：管理端/会员端写操作与定时任务都写它。
+	//
+	// **nil 时用丢弃写入器**（oplog.Discard，不开后台协程、不写库）：生产由 cmd/server
+	// 显式构造并注入（关闭时 Close 冲出缓冲）；测试不关心日志时无需构造，
+	// 需要断言日志的测试显式注入自己的写入器（可 Flush 定序）。
+	Oplog *oplog.Writer
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -142,6 +149,13 @@ func New(opts Options) *gin.Engine {
 	st := store.New(opts.DB)
 	tokens := auth.NewTokenManager(opts.JWT)
 	mw := &middleware{store: st, tokens: tokens}
+
+	// R18：操作日志写入器（契约第 23 节）。未注入时用丢弃写入器——日志是尽力而为的留痕，
+	// 绝不因为日志问题改变业务结果；生产与日志测试都显式注入自己的写入器。
+	oplogWriter := opts.Oplog
+	if oplogWriter == nil {
+		oplogWriter = oplog.Discard(opts.Logger)
+	}
 
 	// 阶段 4：支付渠道与上游客户端都按后台设置动态构造（契约 12.1），
 	// 管理员改完设置下一次调用即生效；未配置时对应功能返回明确业务错误，其余功能不受影响。
@@ -176,6 +190,8 @@ func New(opts Options) *gin.Engine {
 			InitialDelay: scheduler.DefaultInitialDelay,
 			Logger:       opts.Logger,
 			Notifier:     notifier,
+			// R18：定时任务通道——每轮扫描一条汇总 + 有实际动作时的明细（契约 23.3）。
+			Oplog: oplogWriter,
 		})
 		scanner.Start()
 		opts.Logger.Info("到期暂停扫描已启动",
@@ -277,6 +293,8 @@ func New(opts Options) *gin.Engine {
 	// R10-B：邀请人自建券 + 提现/转余额（含审核），契约 18.5。
 	referralCoupons := &referralCouponHandler{store: st, reader: settingsReader, logger: opts.Logger}
 	referralPayouts := &referralPayoutHandler{store: st, logger: opts.Logger}
+	// R18：操作日志（契约第 23 节）——列表（高级搜索）与清空；清空接口自写留痕并跳过中间件默认入队。
+	operationLogs := &operationLogHandler{store: st, writer: oplogWriter, logger: opts.Logger}
 
 	// R16：上游状态回推接收端（契约 22.3）——**顶层路由**，不在 /api/v1 之下：
 	// 路径由上游固定拼接（<downstream_url>/api/host/sync），响应格式由上游约定（不套统一响应包）。
@@ -288,10 +306,13 @@ func New(opts Options) *gin.Engine {
 		apiV1.GET("/health", healthHandler(opts))
 
 		// 会员端：注册与登录开放，其余需要会员 token。
-		apiV1.POST("/auth/register", members.register)
-		apiV1.POST("/auth/login", members.login)
+		// R18：注册/登录也是会员写操作，同样留痕（登录成败都记，失败只记尝试的用户名）。
+		apiV1.POST("/auth/register", recordOperation(oplogWriter, oplog.ChannelMember), members.register)
+		apiV1.POST("/auth/login", recordOperation(oplogWriter, oplog.ChannelMember), members.login)
 
-		memberGroup := apiV1.Group("/members", mw.requireMember())
+		// R18（契约 23.3）：会员通道的写操作兜底埋点——记录中间件挂在鉴权**之前**，
+		// 因此未登录/被禁用（401/403）的写请求同样留痕（操作人 0/空串）。
+		memberGroup := apiV1.Group("/members", recordOperation(oplogWriter, oplog.ChannelMember), mw.requireMember())
 		{
 			memberGroup.GET("/me", members.me)
 			memberGroup.PUT("/me", members.updateMe)
@@ -314,7 +335,8 @@ func New(opts Options) *gin.Engine {
 		apiV1.GET("/payments/epay/return", paymentCallbacks.epayReturn)
 
 		// 订单与财务（阶段 4）：需要会员 token；全部只操作**本人**数据。
-		memberAPI := apiV1.Group("", mw.requireMember())
+		// R18：同一会员通道埋点（鉴权之前挂载，被拒写请求同样留痕）。
+		memberAPI := apiV1.Group("", recordOperation(oplogWriter, oplog.ChannelMember), mw.requireMember())
 		{
 			memberAPI.POST("/orders", orders.createOrder)
 			memberAPI.GET("/orders", orders.listOrders)
@@ -378,9 +400,13 @@ func New(opts Options) *gin.Engine {
 
 		// 管理端：登录开放，其余需要管理员 token；
 		// 改状态类接口额外要求角色为 admin 或 finance（support 返回 403）。
-		apiV1.POST("/admin/auth/login", admins.login)
+		// R18：登录是管理端写操作，成功与失败都留痕（失败只记尝试的用户名，不记密码）。
+		apiV1.POST("/admin/auth/login",
+			recordOperation(oplogWriter, oplog.ChannelAdmin), admins.login)
 
-		adminGroup := apiV1.Group("/admin", mw.requireAdmin())
+		// R18（契约 23.3）：管理员通道的写操作兜底埋点——记录中间件挂在鉴权**之前**，
+		// 因此未登录/无权限（401/403）的写请求同样留痕；未注册路径的 404 不经过本中间件。
+		adminGroup := apiV1.Group("/admin", recordOperation(oplogWriter, oplog.ChannelAdmin), mw.requireAdmin())
 		{
 			adminGroup.GET("/profile", admins.profile)
 			adminGroup.GET("/members", admins.listMembers)
@@ -576,6 +602,14 @@ func New(opts Options) *gin.Engine {
 				adminNotifications.POST("/:id/read", notifications.readAdminNotification)
 				adminNotifications.POST("/read-all", notifications.readAllAdminNotifications)
 			}
+
+			// 操作日志（R18，契约 23.4）：列表（高级搜索）与清空，**两个接口都仅 admin**
+			// （含读取；finance / support 一律 403）。**没有**按条删除或修改的接口——
+			// 路由表断言测试保证不存在 DELETE /:id 之类的路径。
+			adminGroup.GET("/operation-logs",
+				requireAdminRole(model.RoleAdmin), operationLogs.listOperationLogs)
+			adminGroup.DELETE("/operation-logs",
+				requireAdminRole(model.RoleAdmin), operationLogs.clearOperationLogs)
 		}
 	}
 

@@ -300,6 +300,62 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 }
 
 // TestRestoreDowngradedSchemaMigratesUp 覆盖「备份一个低版本库 → 恢复 → 追到当前版本」（契约 21.5）。
+// TestRestoreKeepsFulltextNgramParser（R18）：备份 → 恢复必须保留 MySQL 可执行注释里的表结构选项。
+//
+// 背景：`SHOW CREATE TABLE` 把 FULLTEXT 的 ngram 解析器写成 `/*!50100 WITH PARSER `ngram` */`；
+// 恢复端若把它当成普通块注释剥掉，恢复出来的表会**静默丢失解析器**，
+// 中文关键字检索（契约 23.5）随即失效——默认解析器会把整句当成一个词。
+func TestRestoreKeepsFulltextNgramParser(t *testing.T) {
+	gdb, dsn := prepareBackupDatabase(t)
+	service := newTestService(t, gdb, dsn)
+	ctx := context.Background()
+
+	exec(t, gdb, "INSERT INTO operation_logs "+
+		"(channel,actor_id,actor_name,action,method,path,http_status,status,ip,duration_ms,summary,created_at) "+
+		"VALUES ('admin',1,'admin','修改上游设置','PUT','/api/v1/admin/settings/upstream',200,'success','127.0.0.1',12,?,NOW())",
+		"已保存上游凭据设置（账号=13900000000）")
+
+	record, err := service.Create(ctx, "admin")
+	if err != nil {
+		t.Fatalf("备份失败: %v", err)
+	}
+	_, path, err := service.resolve(service.BackupDir(ctx), record.ID)
+	if err != nil {
+		t.Fatalf("解析备份路径失败: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取备份文件失败: %v", err)
+	}
+	if !strings.Contains(string(raw), "WITH PARSER `ngram`") {
+		t.Fatalf("备份文件未包含 ngram 解析器声明（SHOW CREATE TABLE 输出应带可执行注释）")
+	}
+
+	// 破坏现场（删表）后恢复：表结构完全来自备份文件。
+	exec(t, gdb, "DROP TABLE operation_logs")
+	if _, err := service.Restore(ctx, record.ID); err != nil {
+		t.Fatalf("恢复失败: %v", err)
+	}
+
+	var name, ddl string
+	if err := gdb.Raw("SHOW CREATE TABLE operation_logs").Row().Scan(&name, &ddl); err != nil {
+		t.Fatalf("读取建表语句失败: %v", err)
+	}
+	if !strings.Contains(ddl, "WITH PARSER `ngram`") {
+		t.Fatalf("恢复后 FULLTEXT 丢失 ngram 解析器（可执行注释被剥掉）:\n%s", ddl)
+	}
+
+	// 端到端：恢复后中文短语检索必须仍然命中那一行。
+	var hits int64
+	if err := gdb.Raw("SELECT COUNT(*) FROM operation_logs WHERE MATCH(action, summary, actor_name) "+
+		"AGAINST(? IN BOOLEAN MODE)", `+"上游凭据"`).Scan(&hits).Error; err != nil {
+		t.Fatalf("全文检索失败: %v", err)
+	}
+	if hits != 1 {
+		t.Fatalf("恢复后中文关键字检索命中 = %d，期望 1", hits)
+	}
+}
+
 func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 	gdb, dsn := prepareBackupDatabase(t)
 	service := newTestService(t, gdb, dsn)
@@ -308,8 +364,8 @@ func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 	exec(t, gdb, `INSERT INTO members (username,email,password_hash,nickname,status,balance,created_at,updated_at)
 		VALUES ('old-schema','old@example.com','$2a$10$hash','低版本库','active','0.00',NOW(),NOW())`)
 
-	// 回滚两步（0018 down 删 downstream_token 列并收起枚举、0017 down 删掉
-	// product_group_category_maps 表），再备份 → 低版本备份（缺表也缺列）。
+	// 回滚两步（0019 down 删掉 operation_logs 表、0018 down 删 downstream_token 列并收起枚举），
+	// 再备份 → 低版本备份（缺表也缺列；0017 的 product_group_category_maps 仍在备份里）。
 	migrateSteps(t, dsn, -2)
 	record, err := service.Create(ctx, "admin")
 	if err != nil {
@@ -340,14 +396,21 @@ func TestRestoreDowngradedSchemaMigratesUp(t *testing.T) {
 	if result.ToSchemaVersion != int64(latest) {
 		t.Fatalf("迁移后版本 = %d，期望 %d", result.ToSchemaVersion, latest)
 	}
-	if len(result.DroppedTables) != 1 || result.DroppedTables[0] != "product_group_category_maps" {
+	if len(result.DroppedTables) != 1 || result.DroppedTables[0] != "operation_logs" {
 		t.Fatalf("低版本备份里没有的表应被删掉，实际 %v", result.DroppedTables)
 	}
 
-	// 迁移应把 0017 的表与 0018 的列都重建出来，且库版本追平。
+	// 迁移应把 0019 的表与 0018 的列都重建出来，且库版本追平。
 	counts := tableCounts(t, gdb)
-	if _, ok := counts["product_group_category_maps"]; !ok {
-		t.Fatalf("迁移后 product_group_category_maps 应被重建")
+	if _, ok := counts["operation_logs"]; !ok {
+		t.Fatalf("迁移后 operation_logs（0019）应被重建")
+	}
+	var fulltextDDL string
+	if err := gdb.Raw("SHOW CREATE TABLE operation_logs").Row().Scan(new(string), &fulltextDDL); err != nil {
+		t.Fatalf("读取 operation_logs 建表语句失败: %v", err)
+	}
+	if !strings.Contains(fulltextDDL, "WITH PARSER `ngram`") {
+		t.Fatalf("迁移重建的 operation_logs 必须带 ngram 全文解析器:\n%s", fulltextDDL)
 	}
 	var downstreamColumns int64
 	if err := gdb.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() " +

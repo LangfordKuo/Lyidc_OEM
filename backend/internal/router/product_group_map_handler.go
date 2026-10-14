@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -136,6 +137,8 @@ func (h *groupMapHandler) upsertGroupMap(c *gin.Context) {
 			byID[parent.ID] = parent
 		}
 	}
+	setOplogSummary(c, fmt.Sprintf("已保存分组映射：上游分组「%s」→ 分类 #%d（重新导入后生效）",
+		group.Name, saved.CategoryID))
 	response.Success(c, buildGroupMapView(saved.UpstreamGroupID, saved.CategoryID, group.Name, byID))
 }
 
@@ -156,6 +159,7 @@ func (h *groupMapHandler) deleteGroupMap(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("已删除上游分组 #%d 的映射（该分组回到自动派生，需重新导入才生效）", upstreamGroupID))
 	response.Success(c, nil)
 }
 

@@ -306,6 +306,8 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 	h.logger.Info("订单已创建", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", member.ID, "product_id", product.ID, "cycle", cycle,
 		"final_amount", string(order.FinalAmount), "coupon", stringOrDash(order.CouponCode))
+	setOplogSummary(c, "已创建订单 "+order.TradeNo+"（商品 #"+strconv.FormatUint(product.ID, 10)+
+		"，周期 "+cycle+"，实付 "+string(order.FinalAmount)+"，优惠码 "+stringOrDash(order.CouponCode)+"）")
 	response.Success(c, newOrderView(order, h.logger))
 }
 
@@ -457,6 +459,7 @@ func (h *orderHandler) payOrderWithBalance(c *gin.Context, order *model.Order) {
 
 	h.logger.Info("订单余额支付成功", "order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 		"member_id", order.MemberID, "amount", string(result.Order.FinalAmount))
+	setOplogSummary(c, "余额支付订单 "+result.Order.TradeNo+"（"+string(result.Order.FinalAmount)+"）")
 	// 阶段 5a：入账事务已提交，在此触发交付（不阻塞本次响应，契约 14.3）。
 	// R16：连同请求侧基地址一起交给交付（异步交付在后台跑，届时请求已结束，契约 22.2）。
 	h.deliveries.Trigger(delivery.WithRequestBase(c.Request.Context(), requestBaseURL(c)), result.Order.ID)
@@ -499,6 +502,9 @@ func (h *orderHandler) payOrderWithChannel(c *gin.Context, order *model.Order, p
 
 	h.logger.Info("订单发起在线支付", "order_id", order.ID, "trade_no", order.TradeNo,
 		"channel", payment.ProviderEpay, "pay_type", result.PayType, "amount", string(order.FinalAmount))
+	// R18：只记「已发起」，不代表已支付（到账以回调为准）；支付链接等敏感信息不入摘要。
+	setOplogSummary(c, "发起在线支付（易支付/"+result.PayType+"，订单 "+order.TradeNo+
+		"，金额 "+string(order.FinalAmount)+"）")
 	response.Success(c, payOrderView{
 		Order: newOrderView(order, h.logger),
 		Pay: payView{
@@ -539,6 +545,7 @@ func (h *orderHandler) cancelOrder(c *gin.Context) {
 	}
 
 	h.logger.Info("订单已取消", "order_id", order.ID, "trade_no", order.TradeNo, "member_id", member.ID)
+	setOplogSummary(c, "已取消订单 "+order.TradeNo)
 	response.Success(c, newOrderView(order, h.logger))
 }
 
@@ -566,6 +573,7 @@ func (h *orderHandler) retryDelivery(c *gin.Context) {
 	case errors.Is(err, delivery.ErrProvisionFailed):
 		h.logger.Warn("管理员重试交付失败（订单已置 failed，可再次重试）",
 			"order_id", order.ID, "trade_no", order.TradeNo, "error", err)
+		setOplogSummary(c, "重试交付订单 "+order.TradeNo+" 失败（订单已置 failed，失败原因见订单 provision_error）")
 		response.Success(c, newOrderView(order, h.logger))
 		return
 	case err != nil:
@@ -575,6 +583,7 @@ func (h *orderHandler) retryDelivery(c *gin.Context) {
 
 	h.logger.Info("管理员重试交付成功", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", order.MemberID, "host_id", order.HostID)
+	setOplogSummary(c, "重试交付订单 "+order.TradeNo+" 成功")
 	response.Success(c, newOrderView(order, h.logger))
 }
 

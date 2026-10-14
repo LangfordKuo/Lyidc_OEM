@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -150,6 +151,8 @@ func (h *referralPayoutHandler) createWithdrawal(c *gin.Context) {
 	h.logger.Info("提现申请已提交（已冻结返现余额）",
 		"member_id", member.ID, "payout_id", payout.ID, "amount", string(payout.Amount),
 		"detail", maskedAccountNote(channel, accountName, accountNo))
+	// R18：操作日志同样只记金额与申请号，收款账号原文绝不落库（日志只记脱敏结果也不可能带出原文）。
+	setOplogSummary(c, fmt.Sprintf("提交提现申请 #%d（金额 %s，余额已冻结）", payout.ID, string(payout.Amount)))
 	response.Success(c, h.view(payout, nil))
 }
 
@@ -188,6 +191,7 @@ func (h *referralPayoutHandler) createConversion(c *gin.Context) {
 	}
 
 	h.logger.Info("转余额申请已提交", "member_id", member.ID, "payout_id", payout.ID, "amount", string(payout.Amount))
+	setOplogSummary(c, fmt.Sprintf("提交转余额申请 #%d（金额 %s，审核通过才换算）", payout.ID, string(payout.Amount)))
 	response.Success(c, h.view(payout, nil))
 }
 
@@ -409,6 +413,8 @@ func (h *referralPayoutHandler) review(c *gin.Context, expectKind, attempted str
 	h.logger.Info("出账申请已审核",
 		"admin_id", admin.ID, "payout_id", id, "action", string(action),
 		"already", result.Already, "status", result.Payout.Status)
+	setOplogSummary(c, fmt.Sprintf("审核%s #%d：%s（重复审核=%t，当前状态 %s）",
+		oplogPayoutKindLabel(existing.Kind), id, string(action), result.Already, result.Payout.Status))
 	response.Success(c, reviewResultView{
 		Payout:  h.view(result.Payout, nil),
 		Already: result.Already,
@@ -471,10 +477,19 @@ func (h *referralPayoutHandler) markWithdrawalPaid(c *gin.Context) {
 
 	h.logger.Info("提现申请已标记打款",
 		"admin_id", admin.ID, "payout_id", id, "already", result.Already)
+	setOplogSummary(c, fmt.Sprintf("提现申请 #%d 标记为已打款（重复操作=%t）", id, result.Already))
 	response.Success(c, reviewResultView{
 		Payout:  h.view(result.Payout, nil),
 		Already: result.Already,
 	})
+}
+
+// oplogPayoutKindLabel 把出账申请类型渲染成中文（供操作日志摘要）。
+func oplogPayoutKindLabel(kind string) string {
+	if kind == model.PayoutKindConvert {
+		return "转余额申请"
+	}
+	return "提现申请"
 }
 
 // reviewResultView 是审核/打款响应：带 already 标记（幂等命中为 true）。

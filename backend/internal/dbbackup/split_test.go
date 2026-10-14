@@ -81,6 +81,26 @@ func TestSplitStatementsIgnoresCommentsAndEmpty(t *testing.T) {
 	}
 }
 
+// TestStripCommentsKeepsExecutableComments（R18）覆盖可执行注释的保留口径：
+// `/*! ... */` 不是注释而是语句内容（`SHOW CREATE TABLE` 用它表达 ngram 解析器、分区与行格式等），
+// 普通块注释与行注释仍然剥掉。
+func TestStripCommentsKeepsExecutableComments(t *testing.T) {
+	ddl := "CREATE TABLE `t` (\n" +
+		"  `s` varchar(500) NOT NULL,\n" +
+		"  FULLTEXT KEY `ft` (`s`) /*!50100 WITH PARSER `ngram` */\n" +
+		") ENGINE=InnoDB /* 普通块注释 */ DEFAULT CHARSET=utf8mb4; -- 行注释\n"
+	got := stripComments(ddl)
+	if !strings.Contains(got, "WITH PARSER `ngram`") {
+		t.Fatalf("可执行注释被误删：%q", got)
+	}
+	if strings.Contains(got, "普通块注释") || strings.Contains(got, "行注释") {
+		t.Fatalf("普通注释未被剥掉：%q", got)
+	}
+	if !strings.Contains(got, "/*!50100") || !strings.Contains(got, "*/") {
+		t.Fatalf("可执行注释的定界符必须原样保留：%q", got)
+	}
+}
+
 // TestSplitStatementsLargeStatement 覆盖大语句（分块读入的边界），确保跨缓冲不被截断。
 func TestSplitStatementsLargeStatement(t *testing.T) {
 	// 单条语句超过读缓冲（256 KiB），验证跨块拼接。

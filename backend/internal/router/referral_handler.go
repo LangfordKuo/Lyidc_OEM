@@ -137,6 +137,12 @@ func (h *referralHandler) updateReferral(c *gin.Context) {
 		return
 	}
 	h.logger.Info("邀请返现开关已更新", "member_id", member.ID, "enabled", *req.Enabled)
+	// R18：是否生成邀请码由服务端惰性决定，摘要只记开关动作本身。
+	if *req.Enabled {
+		setOplogSummary(c, "已开通邀请返现（首次开通会生成邀请码）")
+	} else {
+		setOplogSummary(c, "已关闭邀请返现")
+	}
 	response.Success(c, updatedView)
 }
 

@@ -159,6 +159,8 @@ func (h *financeHandler) createRecharge(c *gin.Context) {
 
 	h.logger.Info("充值单已创建", "recharge_id", recharge.ID, "trade_no", recharge.TradeNo,
 		"member_id", member.ID, "amount", amount, "pay_type", result.PayType)
+	// R18：只记「已发起充值」，到账以渠道回调入账为准；支付链接不落摘要。
+	setOplogSummary(c, "发起充值 "+amount+" 元（渠道 易支付/"+result.PayType+"，充值单 "+recharge.TradeNo+"）")
 	response.Success(c, createRechargeView{
 		Recharge: newRechargeView(recharge),
 		Pay: payView{

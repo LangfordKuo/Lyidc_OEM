@@ -295,7 +295,34 @@ func (h *productHandler) updateProduct(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	// R18：摘要写清改了哪个商品与哪几类字段（动作名「修改商品」来自映射表）。
+	setOplogSummary(c, fmt.Sprintf("已更新商品 #%d（%s）：%s", updated.ID, updated.Name,
+		strings.Join(changedProductFields(update), "、")))
 	response.Success(c, h.adminProductDetail(c, updated))
+}
+
+// changedProductFields 返回本次商品更新涉及的字段名（供操作日志摘要，不记字段值）。
+func changedProductFields(update store.ProductUpdate) []string {
+	fields := make([]string, 0, 6)
+	if update.PricingJSON != nil {
+		fields = append(fields, "定价")
+	}
+	if update.Status != nil {
+		fields = append(fields, "状态/上下架")
+	}
+	if update.Sort != nil {
+		fields = append(fields, "排序")
+	}
+	if update.CategoryID != nil {
+		fields = append(fields, "分类")
+	}
+	if update.RebatePercent != nil {
+		fields = append(fields, "返佣比例")
+	}
+	if update.RebateDisabled != nil {
+		fields = append(fields, "返佣开关")
+	}
+	return fields
 }
 
 // ensureSellable 校验「更新后处于上架状态」的商品至少有一个周期的可用价格，

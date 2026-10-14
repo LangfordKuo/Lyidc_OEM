@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,9 @@ func (h *memberHandler) register(c *gin.Context) {
 
 	username := strings.TrimSpace(req.Username)
 	email := strings.TrimSpace(req.Email)
+	// R18（契约 23.3）：失败路径也把**尝试的用户名**带进操作日志（成功路径稍后覆盖为账号本身）；
+	// 密码绝不进日志（请求体整体不落库）。
+	setOplogActor(c, 0, username)
 	if err := validateUsername(username); err != nil {
 		response.Fail(c, response.CodeInvalidParam, err.Error())
 		return
@@ -131,10 +135,19 @@ func (h *memberHandler) register(c *gin.Context) {
 		return
 	}
 
+	// R18：成功留痕（操作人 = 新注册的账号本身）。
+	setOplogActor(c, member.ID, member.Username)
+	summary := "注册成功"
+	if inviterID != 0 {
+		summary += "（邀请注册，邀请人 ID " + strconv.FormatUint(inviterID, 10) + "）"
+	}
+	setOplogSummary(c, summary)
 	response.Success(c, newMemberView(member))
 }
 
 // login 处理 POST /api/v1/auth/login：校验密码并签发会员 token。
+//
+// R18（契约 23.3）：登录成功与失败都进操作日志（会员端写操作）；失败只记**尝试的用户名**。
 func (h *memberHandler) login(c *gin.Context) {
 	var req loginRequest
 	if !bindJSON(c, &req) {
@@ -142,6 +155,7 @@ func (h *memberHandler) login(c *gin.Context) {
 	}
 
 	username := strings.TrimSpace(req.Username)
+	setOplogActor(c, 0, username)
 	if username == "" || req.Password == "" {
 		response.Fail(c, response.CodeInvalidParam, "用户名和密码不能为空")
 		return
@@ -151,6 +165,7 @@ func (h *memberHandler) login(c *gin.Context) {
 	member, err := h.store.MemberByUsername(ctx, username)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
+		setOplogSummary(c, "用户名或密码错误")
 		response.Fail(c, response.CodeUnauthorized, "用户名或密码错误")
 		return
 	case err != nil:
@@ -159,10 +174,13 @@ func (h *memberHandler) login(c *gin.Context) {
 	}
 
 	if !auth.VerifyPassword(member.PasswordHash, req.Password) {
+		setOplogSummary(c, "用户名或密码错误")
 		response.Fail(c, response.CodeUnauthorized, "用户名或密码错误")
 		return
 	}
 	if member.Status != model.StatusActive {
+		setOplogActor(c, member.ID, member.Username)
+		setOplogSummary(c, "账号已被禁用")
 		response.Fail(c, response.CodeForbidden, msgAccountDisabled)
 		return
 	}
@@ -179,6 +197,9 @@ func (h *memberHandler) login(c *gin.Context) {
 		return
 	}
 
+	// R18：成功留痕（操作人 = 该会员账号本身）。
+	setOplogActor(c, member.ID, member.Username)
+	setOplogSummary(c, "登录成功")
 	response.Success(c, memberLoginView{
 		Token:     token,
 		ExpiresAt: formatTime(expiresAt),
@@ -268,7 +289,24 @@ func (h *memberHandler) updateMe(c *gin.Context) {
 		return
 	}
 
+	// R18：只记**字段名**，不记字段值（新邮箱/手机号属个人信息，日志只作留痕不复制资料）。
+	setOplogSummary(c, "已更新资料字段："+strings.Join(changedProfileFields(upd), "、"))
 	response.Success(c, newMemberView(updated))
+}
+
+// changedProfileFields 返回本次资料更新涉及的字段名（供操作日志摘要）。
+func changedProfileFields(upd store.MemberProfileUpdate) []string {
+	fields := make([]string, 0, 3)
+	if upd.Nickname != nil {
+		fields = append(fields, "nickname")
+	}
+	if upd.Phone != nil {
+		fields = append(fields, "phone")
+	}
+	if upd.Email != nil {
+		fields = append(fields, "email")
+	}
+	return fields
 }
 
 // changePassword 处理 POST /api/v1/members/me/password：旧密码校验通过后更新密码。
@@ -308,5 +346,7 @@ func (h *memberHandler) changePassword(c *gin.Context) {
 		return
 	}
 
+	// R18：只记「改密成功」，新旧密码都不落库。
+	setOplogSummary(c, "密码修改成功（旧密码校验通过）")
 	response.Success(c, nil)
 }

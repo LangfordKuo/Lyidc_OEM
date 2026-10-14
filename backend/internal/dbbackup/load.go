@@ -354,6 +354,11 @@ func splitStatements(source io.Reader, emit func(statement string) error) error 
 
 // stripComments 去掉 SQL 文本里的注释（`--` 行注释、`#` 行注释与 `/* */` 块注释），
 // 保留字符串字面量与反引号标识符内部的原样内容（其中的 `--` 不是注释）。
+//
+// **例外（R18 修正）**：MySQL 的**可执行注释**（`/*! ... */`、`/*!50100 ... */`）不是注释而是语句内容，
+// 必须原样保留——`SHOW CREATE TABLE` 会把 FULLTEXT 的 ngram 解析器写成
+// `/*!50100 WITH PARSER `ngram` */`，其他版本化选项（分区、行格式等）同样如此；
+// 剥掉它们会让恢复出来的表结构**静默降级**（R18 的中文关键字检索就依赖 ngram 解析器）。
 func stripComments(text string) string {
 	var builder strings.Builder
 	builder.Grow(len(text))
@@ -387,6 +392,19 @@ func stripComments(text string) string {
 				i++
 			}
 		case c == '/' && i+1 < len(text) && text[i+1] == '*':
+			if i+2 < len(text) && text[i+2] == '!' {
+				// 可执行注释：整段原样保留（含两侧定界符）。
+				if end := strings.Index(text[i+2:], "*/"); end >= 0 {
+					stop := i + 2 + end + 2
+					builder.WriteString(text[i:stop])
+					i = stop
+					continue
+				}
+				// 未闭合：按原样写到结尾（与下方块注释的容错一致）。
+				builder.WriteString(text[i:])
+				i = len(text)
+				continue
+			}
 			i += 2
 			for i+1 < len(text) && !(text[i] == '*' && text[i+1] == '/') {
 				i++

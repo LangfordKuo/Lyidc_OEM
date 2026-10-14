@@ -156,6 +156,7 @@ func (h *instanceHandler) powerInstance(c *gin.Context) {
 	}
 	h.logger.Info("会员执行实例电源操作", "instance_id", instance.ID, "host_id", instance.HostID,
 		"member_id", member.ID, "op", op)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）电源操作 %s", instance.ID, instance.HostID, op))
 	response.Success(c, operationResultView{
 		InstanceID: instance.ID, Action: instanceops.PowerOp(op).AuditAction(), Message: message, Status: instance.Status,
 	})
@@ -212,6 +213,7 @@ func (h *instanceHandler) reinstallInstance(c *gin.Context) {
 	}
 	h.logger.Info("会员发起实例重装", "instance_id", instance.ID, "host_id", instance.HostID,
 		"member_id", member.ID, "os_id", req.OSID)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）重装系统 os_id=%d", instance.ID, instance.HostID, req.OSID))
 	response.Success(c, operationResultView{
 		InstanceID: instance.ID, Action: model.ActionReinstall, Message: message, Status: instance.Status,
 	})
@@ -237,6 +239,8 @@ func (h *instanceHandler) resetPasswordInstance(c *gin.Context) {
 		return
 	}
 	h.logger.Info("会员重置实例密码", "instance_id", instance.ID, "host_id", instance.HostID, "member_id", member.ID)
+	// R18：只留痕「重置了密码」，新旧密码都不落日志（操作日志本就只记方法/路由/状态码）。
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）重置密码成功", instance.ID, instance.HostID))
 	response.Success(c, operationResultView{
 		InstanceID: instance.ID, Action: model.ActionResetPassword,
 		Message: "密码已重置并落库（仅本人可见）", Status: instance.Status, Password: password,
@@ -352,6 +356,8 @@ func (h *instanceHandler) renewInstance(c *gin.Context) {
 
 	h.logger.Info("续费订单已创建", "order_id", order.ID, "trade_no", order.TradeNo,
 		"member_id", member.ID, "instance_id", instance.ID, "cycle", cycle, "amount", amount)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d 发起续费（订单 %s，周期 %s，金额 %s）",
+		instance.ID, order.TradeNo, cycle, amount))
 	response.Success(c, newOrderView(order, h.logger))
 }
 
@@ -385,6 +391,8 @@ func (h *instanceHandler) cancelInstance(c *gin.Context) {
 	h.logger.Info("会员提交实例取消申请", "instance_id", instance.ID, "host_id", instance.HostID,
 		"member_id", member.ID, "cancel_type", cancelType, "duplicate", result.Duplicate,
 		"cancel_request_id", result.CancelRequestID)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）提交终止申请（%s，重复申请=%t）",
+		instance.ID, instance.HostID, cancelType, result.Duplicate))
 	response.Success(c, newCancelResultView(result))
 }
 
@@ -426,6 +434,7 @@ func (h *instanceHandler) adminSuspendInstance(c *gin.Context) {
 	}
 	h.logger.Info("管理员暂停实例", "instance_id", instance.ID, "host_id", instance.HostID,
 		"admin_id", admin.ID, "reason", reason)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）已暂停，原因：%s", instance.ID, instance.HostID, reason))
 	response.Success(c, operationResultView{
 		InstanceID: instance.ID, Action: model.ActionSuspend, Message: message, Status: model.InstanceStatusSuspended,
 	})
@@ -449,6 +458,7 @@ func (h *instanceHandler) adminUnsuspendInstance(c *gin.Context) {
 		return
 	}
 	h.logger.Info("管理员恢复实例", "instance_id", instance.ID, "host_id", instance.HostID, "admin_id", admin.ID)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）已恢复", instance.ID, instance.HostID))
 	response.Success(c, operationResultView{
 		InstanceID: instance.ID, Action: model.ActionUnsuspend, Message: message, Status: model.InstanceStatusActive,
 	})
@@ -491,6 +501,8 @@ func (h *instanceHandler) adminCancelInstance(c *gin.Context) {
 	h.logger.Info("管理员提交实例取消申请", "instance_id", instance.ID, "host_id", instance.HostID,
 		"admin_id", admin.ID, "cancel_type", cancelType, "duplicate", result.Duplicate,
 		"cancel_request_id", result.CancelRequestID)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）提交终止申请（%s，重复申请=%t，原因：%s）",
+		instance.ID, instance.HostID, cancelType, result.Duplicate, reason))
 	response.Success(c, newCancelResultView(result))
 }
 
@@ -515,6 +527,8 @@ func (h *instanceHandler) adminSyncInstance(c *gin.Context) {
 	}
 	h.logger.Info("管理员同步实例", "instance_id", instance.ID, "host_id", instance.HostID,
 		"admin_id", admin.ID, "status_changed", result.StatusChanged, "power_state", result.PowerState)
+	setOplogSummary(c, fmt.Sprintf("实例 #%d（主机 %d）回读同步：状态%s，电源 %s",
+		instance.ID, instance.HostID, changedLabel(result.StatusChanged), result.PowerDesc))
 	response.Success(c, syncResultView{
 		operationResultView: operationResultView{
 			InstanceID: instance.ID, Action: model.ActionSync, Message: result.Message, Status: result.Instance.Status,

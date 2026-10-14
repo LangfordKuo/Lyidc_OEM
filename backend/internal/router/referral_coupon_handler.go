@@ -179,6 +179,7 @@ func (h *referralCouponHandler) createReferralCoupon(c *gin.Context) {
 	h.logger.Info("邀请人自建券已创建",
 		"member_id", member.ID, "coupon_id", coupon.ID, "value", value,
 		"cap", pricing.FormatPercent(cap.Cap))
+	setOplogSummary(c, "已创建自建券 "+coupon.Code+"（折扣 "+string(coupon.Value)+"%）")
 	response.Success(c, newCouponView(coupon))
 }
 
@@ -293,6 +294,7 @@ func (h *referralCouponHandler) updateReferralCoupon(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("已更新自建券 %s（当前状态 %s）", updated.Code, updated.Status))
 	response.Success(c, newCouponView(updated))
 }
 

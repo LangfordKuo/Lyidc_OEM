@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -69,6 +70,8 @@ func (h *updatesHandler) applyUpdate(c *gin.Context) {
 	}
 	h.logger.Info("一键升级已发起", "job_id", view.ID,
 		"from_version", view.FromVersion, "target_version", view.TargetVersion)
+	setOplogSummary(c, fmt.Sprintf("已发起一键升级：%s → %s（任务 %s，主进程随后重启）",
+		view.FromVersion, view.TargetVersion, view.ID))
 	response.JSON(c, http.StatusAccepted, response.New(response.CodeSuccess, response.Message(response.CodeSuccess), view))
 }
 

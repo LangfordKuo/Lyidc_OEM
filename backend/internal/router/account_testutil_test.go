@@ -145,6 +145,8 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"DELETE FROM product_group_category_maps",
 		"DELETE FROM coupons",
 		"DELETE FROM instance_operation_logs",
+		// 操作日志（R18）：三通道共用一张表。
+		"DELETE FROM operation_logs",
 		"DELETE FROM instances",
 		"DELETE FROM orders",
 		"DELETE FROM recharges",
@@ -168,6 +170,7 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 		"ALTER TABLE product_group_category_maps AUTO_INCREMENT = 1",
 		"ALTER TABLE coupons AUTO_INCREMENT = 1",
 		"ALTER TABLE instance_operation_logs AUTO_INCREMENT = 1",
+		"ALTER TABLE operation_logs AUTO_INCREMENT = 1",
 		"ALTER TABLE instances AUTO_INCREMENT = 1",
 		"ALTER TABLE orders AUTO_INCREMENT = 1",
 		"ALTER TABLE recharges AUTO_INCREMENT = 1",
@@ -186,13 +189,12 @@ func resetBusinessTables(t *testing.T, gdb *gorm.DB) {
 }
 
 // newAccountEngine 构造带真实数据库的 gin 引擎（httptest 集成测试）。
+//
+// R18：同时注入一个真实的操作日志写入器（测试结束由 Cleanup 关闭），
+// 使既有集成用例也顺带覆盖「写请求产生日志」的中间件埋点。
 func newAccountEngine(t *testing.T, gdb *gorm.DB) *gin.Engine {
 	t.Helper()
-	return New(Options{
-		Logger: silentLogger(),
-		DB:     gdb,
-		JWT:    config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-	})
+	return newOplogEngine(t, gdb)
 }
 
 // silentLogger 返回丢弃全部日志的 logger，避免测试输出噪音。

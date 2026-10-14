@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -66,6 +67,8 @@ func (h *dbBackupHandler) createBackup(c *gin.Context) {
 		h.fail(c, err, "备份失败")
 		return
 	}
+	// R18：只记备份 ID 与体积等元信息，备份内容绝不落日志（契约 21.4 第 4 条）。
+	setOplogSummary(c, "已创建数据库备份 "+record.FileName)
 	response.Success(c, record)
 }
 
@@ -111,6 +114,9 @@ func (h *dbBackupHandler) restoreBackup(c *gin.Context) {
 		"tables", result.TableCount, "dropped_tables", len(result.DroppedTables),
 		"from_schema_version", result.FromSchemaVersion, "to_schema_version", result.ToSchemaVersion,
 		"migrated", result.Migrated)
+	// R18：恢复是覆盖式的最高风险动作，留痕记 ID、表数与 schema 版本（**不记**任何数据内容）。
+	setOplogSummary(c, fmt.Sprintf("已从备份 %s 覆盖式恢复数据库（表 %d，schema %d→%d）",
+		result.FileName, result.TableCount, result.FromSchemaVersion, result.ToSchemaVersion))
 	response.Success(c, result)
 }
 
@@ -125,6 +131,7 @@ func (h *dbBackupHandler) deleteBackup(c *gin.Context) {
 		return
 	}
 	h.logger.Info("数据库备份已删除", "backup_id", record.ID)
+	setOplogSummary(c, "已删除数据库备份 "+record.FileName)
 	response.Success(c, gin.H{"deleted": true, "id": record.ID, "file_name": record.FileName})
 }
 

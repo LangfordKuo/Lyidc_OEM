@@ -3,6 +3,7 @@ package router
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -162,6 +163,9 @@ func (h *settingsHandler) updateEpaySettings(c *gin.Context) {
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyPaymentEpay, "admin_id", admin.ID,
 		"enabled", merged.Enabled, "key_changed", req.Key != nil)
+	// R18：操作日志摘要——只记开关与「是否更换密钥」，密钥明文绝不落库。
+	setOplogSummary(c, fmt.Sprintf("已保存易支付设置（enabled=%t，更换密钥=%t）",
+		merged.Enabled, req.Key != nil))
 	response.Success(c, epaySettingsViewOf(c, merged, settingMeta(setting)))
 }
 
@@ -231,6 +235,9 @@ func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyUpstream, "admin_id", admin.ID,
 		"api_key_changed", req.APIKey != nil)
+	// R18：操作日志摘要——API 密钥明文绝不落库（只记是否更换）。
+	setOplogSummary(c, fmt.Sprintf("已保存上游凭据设置（账号=%s，更换 API 密钥=%t，超时=%d 秒）",
+		merged.Username, req.APIKey != nil, merged.TimeoutSeconds))
 	response.Success(c, upstreamSettingsViewOf(h.upstreamBaseURL, merged, settingMeta(setting)))
 }
 
@@ -362,6 +369,9 @@ func (h *settingsHandler) updateEmailSMTPSettings(c *gin.Context) {
 	h.logger.Info("后台设置已更新", "key", settings.KeyEmailSMTP, "admin_id", admin.ID,
 		"enabled", merged.Enabled, "endpoint", merged.Endpoint(),
 		"encryption", merged.NormalizedEncryption(), "password_changed", req.Password != nil)
+	// R18：操作日志摘要——SMTP 口令明文绝不落库（只记是否更换）。
+	setOplogSummary(c, fmt.Sprintf("已保存 SMTP 设置（enabled=%t，%s，encryption=%s，更换口令=%t）",
+		merged.Enabled, merged.Endpoint(), merged.NormalizedEncryption(), req.Password != nil))
 	response.Success(c, emailSMTPViewOf(merged, settingMeta(setting)))
 }
 
@@ -407,6 +417,7 @@ func (h *settingsHandler) sendTestEmail(c *gin.Context) {
 		return
 	}
 	h.logger.Info("测试邮件已发送", "admin_id", admin.ID, "to", to)
+	setOplogSummary(c, "已发送测试邮件至 "+to)
 	response.Success(c, emailTestView{Sent: true, To: to})
 }
 
@@ -475,6 +486,8 @@ func (h *settingsHandler) updateNotificationSettings(c *gin.Context) {
 		"inapp_enabled", merged.InAppEnabled, "email_enabled", merged.EmailEnabled,
 		"expiry_reminder_enabled", merged.ExpiryReminderEnabled,
 		"expiry_reminder_days", merged.ExpiryReminderDays)
+	setOplogSummary(c, fmt.Sprintf("已保存通知设置（站内=%t，邮件=%t，到期提醒=%t/%d 天）",
+		merged.InAppEnabled, merged.EmailEnabled, merged.ExpiryReminderEnabled, merged.ExpiryReminderDays))
 	response.Success(c, notificationSettingsViewOf(merged, settingMeta(setting)))
 }
 
@@ -557,6 +570,8 @@ func (h *settingsHandler) updateReferralSettings(c *gin.Context) {
 	h.logger.Info("后台设置已更新", "key", settings.KeyReferral, "admin_id", admin.ID,
 		"enabled", merged.Enabled, "default_percent", merged.DefaultPercent,
 		"max_coupon_percent", merged.MaxCouponPercent)
+	setOplogSummary(c, fmt.Sprintf("已保存返佣设置（enabled=%t，默认比例=%s%%，自建券上限=%s%%）",
+		merged.Enabled, merged.DefaultPercent, merged.MaxCouponPercent))
 	response.Success(c, referralSettingsViewOf(merged, settingMeta(setting)))
 }
 
@@ -754,6 +769,9 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 	h.logger.Info("后台设置已更新", "key", settings.KeyUpdates, "admin_id", admin.ID,
 		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil,
 		"api_base", merged.APIBase, "download_base_changed", req.DownloadBase != nil)
+	// R18：操作日志摘要——GitHub Token 明文绝不落库（只记是否更换）。
+	setOplogSummary(c, fmt.Sprintf("已保存更新源设置（repo=%s，更换 Token=%t）",
+		merged.Repo, req.GitHubToken != nil))
 	response.Success(c, updatesSettingsViewOf(merged, settingMeta(setting)))
 }
 

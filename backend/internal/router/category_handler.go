@@ -183,6 +183,7 @@ func (h *categoryHandler) updateCategory(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("已更新分类 #%d（%s）", updated.ID, updated.Name))
 	response.Success(c, h.categoryView(c, updated))
 }
 

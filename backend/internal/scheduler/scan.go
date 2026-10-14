@@ -35,6 +35,7 @@ import (
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/instanceops"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/oplog"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
@@ -67,6 +68,11 @@ type Notifier interface {
 	ExpiryReminder(instanceID uint64)
 }
 
+// Oplog 是操作日志（R18，契约 23.3 定时任务通道）的写入入口；nil 时不写操作日志。
+type Oplog interface {
+	Enqueue(entry oplog.Entry)
+}
+
 // Options 是扫描器的构造参数（零值即生产默认）。
 type Options struct {
 	// Interval 扫描间隔；<=0 时取 DefaultInterval。
@@ -82,6 +88,8 @@ type Options struct {
 	Logger *slog.Logger
 	// Notifier 是扫描事件的通知回调（阶段 6b）；nil 时不发通知且跳过到期提醒扫描。
 	Notifier Notifier
+	// Oplog 是操作日志写入入口（R18）；nil 时不写操作日志（既有测试默认）。
+	Oplog Oplog
 }
 
 // ScanReport 是单轮扫描的统计。
@@ -113,6 +121,7 @@ type Scanner struct {
 	ops      *instanceops.Service
 	settings *settings.Reader
 	notifier Notifier
+	oplog    Oplog
 	logger   *slog.Logger
 
 	interval     time.Duration
@@ -152,6 +161,7 @@ func New(st *store.Store, provider upstream.Provider, opts Options) *Scanner {
 		ops:          instanceops.New(st, provider, instanceops.Options{Logger: logger}),
 		settings:     settings.NewReader(st),
 		notifier:     opts.Notifier,
+		oplog:        opts.Oplog,
 		logger:       logger,
 		interval:     interval,
 		initialDelay: initialDelay,
@@ -231,35 +241,93 @@ func (s *Scanner) runOnce() {
 // 返回的 error 只表示「扫描基础设施不可用」（数据库错误 / 上游未配置），
 // 单个实例的处理失败计入 report 对应字段并不中断本轮（下轮自动重试）。
 func (s *Scanner) ScanOnce(ctx context.Context) (ScanReport, error) {
+	start := time.Now()
 	var report ScanReport
 
 	now := s.clock().UTC()
 
+	// R18（契约 23.3）：每轮扫描都写一条操作日志汇总——任务名 / 结果 / 处理数 / 耗时 / 错误；
+	// 未接线（Oplog=nil）时不写，既有测试与既有调用方完全不受影响。
+	err := s.scanOnce(ctx, now, &report)
+	s.recordRound(start, &report, err)
+	return report, err
+}
+
+// scanOnce 是 ScanOnce 的执行体（不含操作日志汇总，便于集中在一处记录耗时与结果）。
+func (s *Scanner) scanOnce(ctx context.Context, now time.Time, report *ScanReport) error {
 	// 阶段零：到期提醒（与上游无关；开关关闭、未接线或上游未配置以外的情况均按本阶段自洽处理）。
-	if err := s.remindExpiring(ctx, now, &report); err != nil {
-		return report, err
+	if err := s.remindExpiring(ctx, now, report); err != nil {
+		return err
 	}
 
 	client, enabled, err := s.upstream.Current(ctx)
 	if err != nil {
 		if errors.Is(err, upstream.ErrNotConfigured) {
-			return report, fmt.Errorf("上游未配置（跳过本轮到期扫描）")
+			return fmt.Errorf("上游未配置（跳过本轮到期扫描）")
 		}
-		return report, fmt.Errorf("读取上游设置失败：%w", err)
+		return fmt.Errorf("读取上游设置失败：%w", err)
 	}
 	if !enabled {
-		return report, fmt.Errorf("上游未配置或未启用（跳过本轮到期扫描）")
+		return fmt.Errorf("上游未配置或未启用（跳过本轮到期扫描）")
 	}
 
 	// 阶段一：到期暂停（active 且已过到期时间，排除有在途取消申请的实例）。
-	if err := s.suspendDueInstances(ctx, client, now, &report); err != nil {
-		return report, err
+	if err := s.suspendDueInstances(ctx, client, now, report); err != nil {
+		return err
 	}
 	// 阶段二：取消申请收敛（回读上游，已删除/已终止 → 本地 terminated）。
-	if err := s.convergeCancels(ctx, client, now, &report); err != nil {
-		return report, err
+	if err := s.convergeCancels(ctx, client, now, report); err != nil {
+		return err
 	}
-	return report, nil
+	return nil
+}
+
+// 定时任务通道的日志动作名（契约 23.3：任务名 + 有实际动作时的明细）。
+const (
+	oplogActionScanRound   = "定时任务：到期扫描"
+	oplogActionScanSuspend = "到期自动暂停"
+	oplogActionScanCancel  = "终止收敛"
+	oplogActionScanRemind  = "到期提醒"
+)
+
+// recordRound 写一条本轮扫描的汇总：结果（成功/失败）、处理条数、耗时与错误原因。
+func (s *Scanner) recordRound(start time.Time, report *ScanReport, err error) {
+	if s.oplog == nil {
+		return
+	}
+	status := oplog.StatusSuccess
+	summary := fmt.Sprintf(
+		"到期扫描 %d（暂停 %d、失败 %d）；待收敛 %d（收敛 %d、失败 %d）；到期提醒 %d（投递 %d、失败 %d）",
+		report.Scanned, report.Suspended, report.Failed,
+		report.CancelScanned, report.CancelConverged, report.CancelFailed,
+		report.ExpiryScanned, report.ExpiryReminded, report.ExpiryFailed)
+	if err != nil {
+		status = oplog.StatusFailed
+		summary += "；错误：" + err.Error()
+	}
+	s.oplog.Enqueue(oplog.Entry{
+		Channel:    oplog.ChannelScheduler,
+		Action:     oplogActionScanRound,
+		Status:     status,
+		DurationMS: time.Since(start).Milliseconds(),
+		Summary:    summary,
+		CreatedAt:  time.Now().UTC(),
+	})
+}
+
+// recordDetail 写一条子步骤明细（**只在确有实际动作时调用**：暂停成功 / 终止收敛 / 投递提醒；
+// 失败尝试不进明细，只在汇总的计数与错误里体现，避免每轮刷屏）。
+func (s *Scanner) recordDetail(action, summary string) {
+	if s.oplog == nil {
+		return
+	}
+	s.oplog.Enqueue(oplog.Entry{
+		Channel:   oplog.ChannelScheduler,
+		Action:    action,
+		Status:    oplog.StatusSuccess,
+		Summary:   summary,
+		CreatedAt: time.Now().UTC(),
+	})
 }
 
 // remindExpiring 执行到期提醒扫描（契约 17.5，阶段 6b）：
@@ -321,6 +389,10 @@ func (s *Scanner) remindExpiring(ctx context.Context, now time.Time, report *Sca
 			report.ExpiryReminded++
 			s.logger.Info("已投递到期提醒", "instance_id", instance.ID, "member_id", instance.MemberID,
 				"next_due_date", formatDue(instance.NextDueDate), "days_before", days)
+			// R18 明细：确有实际动作（认领成功并投递）才写，避免每轮刷屏。
+			s.recordDetail(oplogActionScanRemind, fmt.Sprintf(
+				"实例 #%d（会员 #%d，到期 %s）已投递到期提醒（提前 %d 天）",
+				instance.ID, instance.MemberID, formatDue(instance.NextDueDate), days))
 			s.notifier.ExpiryReminder(instance.ID)
 		}
 	}
@@ -357,6 +429,10 @@ func (s *Scanner) suspendDueInstances(ctx context.Context, client *upstream.Clie
 				continue
 			}
 			report.Suspended++
+			// R18 明细：本轮确有实例被自动暂停（实例审计另有 instance_operation_logs 一条）。
+			s.recordDetail(oplogActionScanSuspend, fmt.Sprintf(
+				"实例 #%d（主机 %d，到期 %s）已自动暂停",
+				instance.ID, instance.HostID, formatDue(instance.NextDueDate)))
 			// 6b 通知挂点：到期自动暂停 → 通知会员（异步、失败不影响扫描结果）。
 			if s.notifier != nil {
 				s.notifier.InstanceSuspended(instance.ID)
@@ -404,6 +480,12 @@ func (s *Scanner) convergeCancels(ctx context.Context, client *upstream.Client, 
 				s.logger.Info("取消申请已收敛为 terminated",
 					"instance_id", instance.ID, "host_id", instance.HostID,
 					"status_changed", result.StatusChanged)
+				// R18 明细：只在**真的发生了状态变更**时写（幂等重复收敛不再刷一条）。
+				if result.StatusChanged {
+					s.recordDetail(oplogActionScanCancel, fmt.Sprintf(
+						"实例 #%d（主机 %d）上游已删除或已终止，本地已收敛为 terminated",
+						instance.ID, instance.HostID))
+				}
 				// 6b 通知挂点：终止收敛 → 通知会员（仅在**真的发生了状态变更**时发，
 				// 幂等重复收敛不再打扰会员）。
 				if result.StatusChanged && s.notifier != nil {

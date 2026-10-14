@@ -3,7 +3,7 @@
 岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
 后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui。
-接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v28）。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v29）。
 
 ## 快速部署
 

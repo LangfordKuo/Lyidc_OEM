@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,7 +30,9 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/install"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/oplog"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/router"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upgrade"
 )
 
@@ -86,17 +89,42 @@ func main() {
 
 	gin.SetMode(ginMode(cfg.Server.Mode))
 
+	// R18：操作日志写入器（契约 23.6：异步写入、缓冲满丢弃并记服务日志、关闭时 flush）。
+	// 它绑定当前数据库句柄，因此与正常模式引擎在同一处构造；关闭服务时由下方 closeOplog 冲出缓冲。
+	var oplogMu sync.Mutex
+	var oplogWriter *oplog.Writer
+	closeOplog := func() {
+		oplogMu.Lock()
+		writer := oplogWriter
+		oplogWriter = nil
+		oplogMu.Unlock()
+		if writer != nil {
+			writer.Close()
+		}
+	}
+
 	// Supervisor 同时负责：安装状态机、安装页/安装 API、正常模式引擎的构建与热切换。
 	supervisor, err := install.NewSupervisor(install.Options{
 		Logger:     logger,
 		Config:     cfg,
 		ConfigPath: cfg.SourcePath,
 		BuildEngine: func(gdb *gorm.DB, jwt config.JWTConfig) http.Handler {
+			writer := oplog.NewWriter(oplog.Options{Store: store.New(gdb), Logger: logger})
+			oplogMu.Lock()
+			previous := oplogWriter
+			oplogWriter = writer
+			oplogMu.Unlock()
+			if previous != nil {
+				// 热切换重建引擎时关掉上一个写入器（其数据库句柄也会被 Supervisor 退役）。
+				previous.Close()
+			}
 			return router.New(router.Options{
 				Logger: logger,
 				Ping:   db.PingFunc(gdb),
 				DB:     gdb,
 				JWT:    jwt,
+				// R18：操作日志（管理端/会员端写操作 + 定时任务）。
+				Oplog: writer,
 				// R17：上游地址由构建期注入（任何界面/接口都改不了），设置里只剩账号与密钥。
 				UpstreamBaseURL: buildinfo.UpstreamBaseURL,
 				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
@@ -157,6 +185,9 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	// R18：先冲出操作日志缓冲（在 Supervisor 关闭数据库句柄之前）。
+	closeOplog()
 
 	// 数据库连接由 Supervisor 统一管理（可能与启动时不同：安装向导会热切换）。
 	logger.Info("服务已退出")

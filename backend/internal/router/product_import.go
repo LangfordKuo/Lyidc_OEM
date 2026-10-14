@@ -257,6 +257,8 @@ func (h *productHandler) importProducts(c *gin.Context) {
 	h.logger.Info("商品导入完成", "groups", view.Groups, "created", view.Created,
 		"updated", view.Updated, "unchanged", view.Unchanged, "failed", view.Failed,
 		"selected_groups", view.SelectedGroups, "map_fallback_group_ids", view.MapFallbackGroupIDs)
+	setOplogSummary(c, fmt.Sprintf("已从上游导入商品：分组 %d、新建 %d、更新 %d、未变 %d、失败 %d",
+		view.Groups, view.Created, view.Updated, view.Unchanged, view.Failed))
 	response.Success(c, view)
 }
 

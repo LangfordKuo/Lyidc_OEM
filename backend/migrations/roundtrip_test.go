@@ -13,11 +13,12 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/migrations"
 )
 
-// 迁移 up/down 往返测试（R10-B 起硬性约束：最新迁移必须 up/down 成对；R12 扩到 0017；R16 扩到 0018）。
+// 迁移 up/down 往返测试（R10-B 起硬性约束：最新迁移必须 up/down 成对；
+// R12 扩到 0017；R16 扩到 0018；R18 扩到 0019）。
 //
-// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言最新迁移（0018）落表/落列且版本 18 →
-// down 一步 → 断言 0018 的改动全部撤销（列消失、host_id 回到无符号、枚举收起、占位行被清）且版本 17 →
-// 再 up 一次确认可重复应用。
+// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言最新迁移（0019）建出 operation_logs
+// （含三条索引与 ngram FULLTEXT）且版本 19 → down 一步 → 断言 0019 的表被删、0018 的改动仍在
+// 且版本退回 18 → 再 up 一次确认可重复应用。
 // 本机/CI 没有 MySQL 时 t.Skip（与集成测试同一口径）。
 
 const roundTripDSN = "root:lyidc123@tcp(127.0.0.1:3306)/lyidc_mig_check?charset=utf8mb4&parseTime=true&loc=UTC&multiStatements=true"
@@ -102,7 +103,29 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 		return strings.Contains(columnType, "unsigned") == unsigned
 	}
 
-	// 1) 全量 up：0017 建表仍在，0018 的三项改动落库，版本停在 18。
+	// countTable 返回指定表在临时库里是否存在（1/0）。
+	countTable := func(table string) int64 {
+		t.Helper()
+		var n int64
+		if err := sqlDB.QueryRow("SELECT COUNT(*) FROM information_schema.tables "+
+			"WHERE table_schema = 'lyidc_mig_check' AND table_name = ?", table).Scan(&n); err != nil {
+			t.Fatalf("查询表 %s 存在性失败: %v", table, err)
+		}
+		return n
+	}
+
+	// countIndex 返回指定索引在临时库里是否存在（1/0），用于断言 0019 的三条普通索引与 FULLTEXT。
+	countIndex := func(table, index string) int64 {
+		t.Helper()
+		var n int64
+		if err := sqlDB.QueryRow("SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics "+
+			"WHERE table_schema = 'lyidc_mig_check' AND table_name = ? AND index_name = ?", table, index).Scan(&n); err != nil {
+			t.Fatalf("查询索引 %s.%s 失败: %v", table, index, err)
+		}
+		return n
+	}
+
+	// 1) 全量 up：0017 建表、0018 三项改动与 0019 的 operation_logs 都在，版本停在 19。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("全量 up 失败: %v", err)
 	}
@@ -118,9 +141,31 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	if got := columnType("status"); !strings.Contains(got, "'provisioning'") {
 		t.Fatalf("up 后 status 枚举 = %q，期望含 provisioning", got)
 	}
+	// 0019（R18 操作日志）：表 + 三条普通索引 + ngram FULLTEXT 都要建成。
+	if n := countTable("operation_logs"); n != 1 {
+		t.Fatalf("up 后 operation_logs 存在性 = %d，期望 1", n)
+	}
+	for _, index := range []string{
+		"idx_operation_logs_channel_created",
+		"idx_operation_logs_actor_created",
+		"idx_operation_logs_created",
+		"ft_operation_logs_search",
+	} {
+		if n := countIndex("operation_logs", index); n != 1 {
+			t.Fatalf("up 后 operation_logs 索引 %s 存在性 = %d，期望 1", index, n)
+		}
+	}
+	// FULLTEXT 必须真的用上 ngram 解析器（否则中文关键字检索会静默失效——默认解析器把整句当一个词）。
+	var fulltextName, fulltextDDL string
+	if err := sqlDB.QueryRow("SHOW CREATE TABLE operation_logs").Scan(&fulltextName, &fulltextDDL); err != nil {
+		t.Fatalf("读取 operation_logs 建表语句失败: %v", err)
+	}
+	if !strings.Contains(fulltextDDL, "WITH PARSER `ngram`") {
+		t.Fatalf("operation_logs 的 FULLTEXT 未使用 ngram 解析器:\n%s", fulltextDDL)
+	}
 	version, dirty, err := migrator.Version()
-	if err != nil || version != 18 || dirty {
-		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 18/clean", version, dirty, err)
+	if err != nil || version != 19 || dirty {
+		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 19/clean", version, dirty, err)
 	}
 
 	// 占位行（status=provisioning、host_id=-订单号）与已交付行各插一条：
@@ -137,9 +182,24 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	insertInstance(7, -7, "provisioning")
 	insertInstance(8, 90001, "active")
 
-	// 2) down 一步：0018 撤销（列消失、host_id 回到无符号、枚举收起、占位行被清），版本退回 17。
+	// 2) down 一步：只撤销 0019（operation_logs 被删），0018 的改动原样保留，版本退回 18。
 	if err := migrator.Steps(-1); err != nil {
 		t.Fatalf("down 一步失败: %v", err)
+	}
+	if n := countTable("operation_logs"); n != 0 {
+		t.Fatalf("down 0019 后 operation_logs 仍存在（存在性 = %d），期望 0", n)
+	}
+	if got := columnType("downstream_token"); !strings.HasPrefix(got, "varchar(32)") {
+		t.Fatalf("down 0019 不应影响 0018 的列，downstream_token = %q", got)
+	}
+	version, dirty, err = migrator.Version()
+	if err != nil || version != 18 || dirty {
+		t.Fatalf("down 0019 后版本 = %d/dirty=%v err=%v，期望 18/clean", version, dirty, err)
+	}
+
+	// 3) 再 down 一步：0018 撤销（列消失、host_id 回到无符号、枚举收起、占位行被清），版本退回 17。
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("down 第二步失败: %v", err)
 	}
 	if n := countMaps(); n != 1 {
 		t.Fatalf("down 0018 不应影响 0017 的表，存在性 = %d，期望 1", n)
@@ -168,7 +228,7 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 		t.Fatalf("down 后版本 = %d/dirty=%v err=%v，期望 17/clean", version, dirty, err)
 	}
 
-	// 3) 再 up 一次：0018 可重复应用（up 幂等由版本号保证）。
+	// 4) 再全量 up：0018 与 0019 都可重复应用（up 幂等由版本号保证）。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("二次 up 失败: %v", err)
 	}
@@ -180,5 +240,15 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	}
 	if got := columnType("host_id"); !isInt(got, false) {
 		t.Fatalf("二次 up 后 host_id 列类型 = %q，期望带符号 int", got)
+	}
+	if n := countTable("operation_logs"); n != 1 {
+		t.Fatalf("二次 up 后 operation_logs 存在性 = %d，期望 1", n)
+	}
+	if n := countIndex("operation_logs", "ft_operation_logs_search"); n != 1 {
+		t.Fatalf("二次 up 后 FULLTEXT 索引存在性 = %d，期望 1", n)
+	}
+	version, dirty, err = migrator.Version()
+	if err != nil || version != 19 || dirty {
+		t.Fatalf("二次 up 后版本 = %d/dirty=%v err=%v，期望 19/clean", version, dirty, err)
 	}
 }

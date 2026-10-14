@@ -108,6 +108,8 @@ func (h *settingsHandler) updateDBBackupSettings(c *gin.Context) {
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyDBBackup, "admin_id", admin.ID,
 		"dir", value.Dir, "resolved_dir", report.Dir, "default", report.Default)
+	// R18：操作日志摘要记解析后的实际目录（留空保存时也能看出生效的是哪个缺省目录）。
+	setOplogSummary(c, "已保存备份目录设置（生效目录："+report.Dir+"）")
 	response.Success(c, dbBackupSettingsViewOf(value, report, settingMeta(setting)))
 }
 

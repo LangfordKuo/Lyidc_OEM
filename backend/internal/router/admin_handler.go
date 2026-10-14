@@ -3,6 +3,7 @@ package router
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -56,6 +57,9 @@ func (r *updateMemberRequest) provided() bool {
 }
 
 // login 处理 POST /api/v1/admin/auth/login：校验管理员密码并签发管理员 token。
+//
+// R18（契约 23.3）：登录成功与失败都进操作日志（管理端写操作）；失败只记**尝试的用户名**，
+// 密码绝不进日志（日志本来就只记方法/路由/状态码/耗时/IP，不落请求体）。
 func (h *adminHandler) login(c *gin.Context) {
 	var req adminLoginRequest
 	if !bindJSON(c, &req) {
@@ -64,6 +68,9 @@ func (h *adminHandler) login(c *gin.Context) {
 
 	username := strings.TrimSpace(req.Username)
 	if username == "" || req.Password == "" {
+		setOplogAction(c, "管理员登录失败")
+		setOplogActor(c, 0, username)
+		setOplogSummary(c, "用户名或密码为空")
 		response.Fail(c, response.CodeInvalidParam, "用户名和密码不能为空")
 		return
 	}
@@ -72,6 +79,9 @@ func (h *adminHandler) login(c *gin.Context) {
 	admin, err := h.store.AdminByUsername(ctx, username)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
+		setOplogAction(c, "管理员登录失败")
+		setOplogActor(c, 0, username)
+		setOplogSummary(c, "用户名或密码错误")
 		response.Fail(c, response.CodeUnauthorized, "用户名或密码错误")
 		return
 	case err != nil:
@@ -80,10 +90,16 @@ func (h *adminHandler) login(c *gin.Context) {
 	}
 
 	if !auth.VerifyPassword(admin.PasswordHash, req.Password) {
+		setOplogAction(c, "管理员登录失败")
+		setOplogActor(c, 0, username)
+		setOplogSummary(c, "用户名或密码错误")
 		response.Fail(c, response.CodeUnauthorized, "用户名或密码错误")
 		return
 	}
 	if admin.Status != model.StatusActive {
+		setOplogAction(c, "管理员登录失败")
+		setOplogActor(c, admin.ID, admin.Username)
+		setOplogSummary(c, "账号已被禁用")
 		response.Fail(c, response.CodeForbidden, msgAccountDisabled)
 		return
 	}
@@ -100,6 +116,10 @@ func (h *adminHandler) login(c *gin.Context) {
 		return
 	}
 
+	// R18：成功留痕（操作人 = 该管理员账号本身）。
+	setOplogAction(c, "管理员登录")
+	setOplogActor(c, admin.ID, admin.Username)
+	setOplogSummary(c, "登录成功（角色 "+admin.Role+"）")
 	response.Success(c, adminLoginView{
 		Token:     token,
 		ExpiresAt: formatTime(expiresAt),
@@ -190,6 +210,7 @@ func (h *adminHandler) updateMemberStatus(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	setOplogSummary(c, fmt.Sprintf("会员 #%d（%s）状态改为 %s", updated.ID, updated.Username, status))
 	response.Success(c, newMemberView(updated))
 }
 
@@ -246,9 +267,11 @@ func (h *adminHandler) updateMember(c *gin.Context) {
 
 	if value == nil {
 		h.logger.Info("会员返佣特批比例已清空", "admin_id", mustAdminID(c), "member_id", memberID)
+		setOplogSummary(c, fmt.Sprintf("会员 #%d 的返佣特批比例已清空（回落到全局默认）", memberID))
 	} else {
 		h.logger.Info("会员返佣特批比例已设置",
 			"admin_id", mustAdminID(c), "member_id", memberID, "rebate_percent_override", *value)
+		setOplogSummary(c, fmt.Sprintf("会员 #%d 的返佣特批比例设为 %s%%", memberID, *value))
 	}
 	response.Success(c, newMemberView(updated))
 }

@@ -240,6 +240,8 @@ func (h *ticketHandler) createTicket(c *gin.Context) {
 
 	h.logger.Info("工单已创建", "ticket_id", created.ticket.ID, "trade_no", created.ticket.TradeNo,
 		"member_id", member.ID, "category", category, "instance_id", instanceIDRef(req.InstanceID))
+	// R18：摘要只记工单号与分类，不复制标题/正文（正文可能含个人信息）。
+	setOplogSummary(c, "已提交工单 "+created.ticket.TradeNo+"（分类 "+category+"）")
 	// 6b 通知接线：工单创建 → 通知客服（站内扇出 admin+support；邮件发站点 admin_email）。
 	h.ticketCreated(created.ticket.ID)
 
@@ -397,6 +399,7 @@ func (h *ticketHandler) replyMyTicket(c *gin.Context) {
 
 	h.logger.Info("工单收到会员回复", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"member_id", member.ID, "status", updated.Status)
+	setOplogSummary(c, "已回复工单 "+updated.TradeNo)
 	// 6b 通知接线：会员回复 → 通知客服（ticket_replied 的管理端侧）。
 	h.ticketRepliedByMember(updated.ID)
 
@@ -598,6 +601,11 @@ func (h *ticketHandler) adminReplyTicket(c *gin.Context) {
 
 	h.logger.Info("工单收到管理员回复", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"admin_id", admin.ID, "role", admin.Role, "internal", req.Internal, "status", updated.Status)
+	if req.Internal {
+		setOplogSummary(c, "已添加内部备注（工单 "+updated.TradeNo+"，不通知会员）")
+	} else {
+		setOplogSummary(c, "已公开回复工单 "+updated.TradeNo)
+	}
 	// 6b 通知接线：管理员**公开**回复 → 通知会员（ticket_replied 的会员侧）；
 	// 内部备注（internal=true）不产生任何对外通知。
 	if !req.Internal {
@@ -660,6 +668,11 @@ func (h *ticketHandler) closeTicket(c *gin.Context, ticket *model.Ticket, author
 
 	h.logger.Info("工单已关闭", "ticket_id", updated.ID, "trade_no", updated.TradeNo,
 		"author_type", authorType, "author_id", authorID, "already_closed", !changed)
+	if changed {
+		setOplogSummary(c, "已关闭工单 "+updated.TradeNo)
+	} else {
+		setOplogSummary(c, "工单 "+updated.TradeNo+" 已处于关闭状态（幂等重复关闭）")
+	}
 	// 6b 通知接线：**客服**关闭 → 通知会员（契约 17.4 定稿；会员自行关闭不通知客服，
 	// 幂等重复关闭同样不再打扰会员）。
 	if authorType == model.TicketAuthorAdmin && changed {
