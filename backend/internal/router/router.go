@@ -12,6 +12,7 @@ import (
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/cache"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/dbbackup"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/delivery"
@@ -125,6 +126,12 @@ type Options struct {
 	// 显式构造并注入（关闭时 Close 冲出缓冲）；测试不关心日志时无需构造，
 	// 需要断言日志的测试显式注入自己的写入器（可 Flush 定序）。
 	Oplog *oplog.Writer
+	// Cache 是缓存管理器（R19 批 1，契约第 24 节）：两种驱动（文件 / Redis）+ 统计 + 降级。
+	//
+	// **nil 时构造默认实现**（构造本身不读设置也不连 Redis，由接口按当前设置应用配置）；
+	// 生产由 cmd/server 显式构造并注入（引擎热切换与进程退出时 Close，停掉文件缓存的清理协程）；
+	// 测试可注入带假驱动工厂的管理器，不连真实 Redis 也能覆盖降级分支。
+	Cache *cache.Manager
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -295,6 +302,13 @@ func New(opts Options) *gin.Engine {
 	referralPayouts := &referralPayoutHandler{store: st, logger: opts.Logger}
 	// R18：操作日志（契约第 23 节）——列表（高级搜索）与清空；清空接口自写留痕并跳过中间件默认入队。
 	operationLogs := &operationLogHandler{store: st, writer: oplogWriter, logger: opts.Logger}
+	// R19 批 1：缓存基础设施（契约第 24 节）——设置驱动选择与 Redis 参数、查看状态与命中率、
+	// 重置统计与清空缓存。**不接入任何业务读路径**（批 2 接线），因此本批不改变任何既有行为。
+	cacheManager := opts.Cache
+	if cacheManager == nil {
+		cacheManager = cache.NewManager(cache.Options{Logger: opts.Logger})
+	}
+	caches := &cacheHandler{store: st, reader: settingsReader, manager: cacheManager, logger: opts.Logger}
 
 	// R16：上游状态回推接收端（契约 22.3）——**顶层路由**，不在 /api/v1 之下：
 	// 路径由上游固定拼接（<downstream_url>/api/host/sync），响应格式由上游约定（不套统一响应包）。
@@ -475,7 +489,23 @@ func New(opts Options) *gin.Engine {
 					requireAdminRole(model.RoleAdmin), adminSettings.getSiteSettings)
 				settingsGroup.PUT("/site",
 					requireAdminRole(model.RoleAdmin), adminSettings.updateSiteSettings)
+
+				// 缓存设置（R19 批 1，契约 24.3）：驱动选择（file / redis）+ Redis 参数，**仅 admin**
+				// （含读取）；Redis 口令走三态与掩码回显，校验不过 40002 且不落库。
+				settingsGroup.GET("/cache",
+					requireAdminRole(model.RoleAdmin), caches.getCacheSettings)
+				settingsGroup.PUT("/cache",
+					requireAdminRole(model.RoleAdmin), caches.updateCacheSettings)
 			}
+
+			// 缓存状态与运维（R19 批 1，契约 24.4）：状态（含降级与原因）、重置命中统计、
+			// 清空缓存——**三个接口都仅 admin**（finance / support 403）。
+			adminGroup.GET("/cache/status",
+				requireAdminRole(model.RoleAdmin), caches.getCacheStatus)
+			adminGroup.POST("/cache/reset-stats",
+				requireAdminRole(model.RoleAdmin), caches.resetCacheStats)
+			adminGroup.POST("/cache/flush",
+				requireAdminRole(model.RoleAdmin), caches.flushCache)
 
 			// 系统版本与更新检查（R13-A，契约 19.3）：仅 admin（19.6）。读缓存不出网；检查更新强制出网。
 			// 一键升级（R13-B，契约 20.3 / 20.4）：发起会替换二进制并重启进程，同样仅 admin。

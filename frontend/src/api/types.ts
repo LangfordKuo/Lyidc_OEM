@@ -1409,3 +1409,96 @@ export interface ClearOperationLogsResult {
   /** 清空留痕写入的通道（未被清空的通道，契约 23.4.2）。 */
   record_channel: OplogChannel
 }
+
+// ---------------------------------------------------------------------------
+// 缓存（契约第 24 节，R19 批 1）
+// ---------------------------------------------------------------------------
+
+/** 缓存驱动（settings 键 `cache` 的 driver；默认 file，Redis 默认关闭）。 */
+export type CacheDriver = 'file' | 'redis'
+
+/** GET/PUT /api/v1/admin/settings/cache 的 redis 部分（契约 24.3）：口令只回配置标志与掩码。 */
+export interface CacheRedisSettings {
+  host: string
+  port: number
+  password_configured: boolean
+  password_masked: string
+  db: number
+  key_prefix: string
+  timeout_seconds: number
+}
+
+/** GET/PUT /api/v1/admin/settings/cache 的 data（契约 24.3）。 */
+export interface CacheSettings {
+  driver: CacheDriver
+  /** 启用状态：等价于 driver === 'redis'（Redis 默认关闭）。 */
+  redis_enabled: boolean
+  /** 实际生效的驱动（降级时为 file）。 */
+  effective_driver: CacheDriver
+  degraded: boolean
+  /** 降级原因（可读，如「连接被拒绝（127.0.0.1:6399）」）；未降级时为空串。 */
+  degraded_reason: string
+  /** 文件缓存目录（无论当前是否生效都给，便于排障）。 */
+  file_dir: string
+  redis: CacheRedisSettings
+  updated_by: number | null
+  updated_at: string | null
+}
+
+/** PUT /api/v1/admin/settings/cache 请求体（契约 24.3）：至少一个字段。 */
+export interface UpdateCacheSettingsInput {
+  driver?: CacheDriver
+  redis?: {
+    host?: string
+    port?: number
+    /** 三态：省略 = 保持不变、给值 = 替换、空串 = 清空。 */
+    password?: string
+    db?: number
+    key_prefix?: string
+    timeout_seconds?: number
+  }
+}
+
+/** GET /api/v1/admin/cache/status 的 data（契约 24.4）：**不含 Redis 口令**。 */
+export interface CacheStatus {
+  driver: CacheDriver
+  effective_driver: CacheDriver
+  degraded: boolean
+  degraded_reason: string
+  /** 当前生效驱动的键数量（文件按未过期文件数、Redis 按本前缀 SCAN 去重计数）。 */
+  keys: number
+  /** 进程内累计命中 / 未命中与命中率（百分比，两位小数）；重启归零、可重置。 */
+  hits: number
+  misses: number
+  hit_rate: number
+  stats_since: string
+  file: { dir: string }
+  redis: {
+    host: string
+    port: number
+    db: number
+    key_prefix: string
+    timeout_seconds: number
+    /** 服务端版本（最近一次成功探活取得；服务端不报时为空串）。 */
+    version: string
+    /** 最近一次成功 PING 的往返耗时（毫秒；Windows 计时精度下可能为 0）。 */
+    latency_ms: number
+  }
+}
+
+/** POST /api/v1/admin/cache/reset-stats 的 data（契约 24.4）：归零后的计数。 */
+export interface CacheStatsReset {
+  hits: number
+  misses: number
+  hit_rate: number
+  stats_since: string
+}
+
+/** POST /api/v1/admin/cache/flush 的 data（契约 24.4）。 */
+export interface CacheFlushResult {
+  /** 清空时实际生效的驱动。 */
+  driver: CacheDriver
+  flushed: boolean
+  /** 清空后的键数量（应为 0）。 */
+  keys: number
+}

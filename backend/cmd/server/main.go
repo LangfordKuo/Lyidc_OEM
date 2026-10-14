@@ -27,6 +27,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/cache"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/install"
@@ -103,6 +104,21 @@ func main() {
 		}
 	}
 
+	// R19 批 1：缓存管理器（契约第 24 节：文件 / Redis 两种驱动 + 降级 + 统计）。
+	// 与操作日志同一套生命周期：引擎热切换（安装完成）时换新实例并关掉上一个
+	// （停掉文件缓存的定期清理协程），进程退出时由下方 closeCache 关闭。
+	var cacheMu sync.Mutex
+	var cacheManager *cache.Manager
+	closeCache := func() {
+		cacheMu.Lock()
+		manager := cacheManager
+		cacheManager = nil
+		cacheMu.Unlock()
+		if manager != nil {
+			_ = manager.Close()
+		}
+	}
+
 	// Supervisor 同时负责：安装状态机、安装页/安装 API、正常模式引擎的构建与热切换。
 	supervisor, err := install.NewSupervisor(install.Options{
 		Logger:     logger,
@@ -118,6 +134,15 @@ func main() {
 				// 热切换重建引擎时关掉上一个写入器（其数据库句柄也会被 Supervisor 退役）。
 				previous.Close()
 			}
+			// R19 批 1：缓存管理器同理——引擎持有期内由它承载驱动与统计，热切换时关掉上一个。
+			manager := cache.NewManager(cache.Options{Logger: logger})
+			cacheMu.Lock()
+			previousCache := cacheManager
+			cacheManager = manager
+			cacheMu.Unlock()
+			if previousCache != nil {
+				_ = previousCache.Close()
+			}
 			return router.New(router.Options{
 				Logger: logger,
 				Ping:   db.PingFunc(gdb),
@@ -125,6 +150,8 @@ func main() {
 				JWT:    jwt,
 				// R18：操作日志（管理端/会员端写操作 + 定时任务）。
 				Oplog: writer,
+				// R19 批 1：缓存基础设施（默认文件缓存；Redis 由后台设置启用，不可用自动降级）。
+				Cache: manager,
 				// R17：上游地址由构建期注入（任何界面/接口都改不了），设置里只剩账号与密钥。
 				UpstreamBaseURL: buildinfo.UpstreamBaseURL,
 				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
@@ -188,6 +215,8 @@ func main() {
 
 	// R18：先冲出操作日志缓冲（在 Supervisor 关闭数据库句柄之前）。
 	closeOplog()
+	// R19 批 1：关掉缓存管理器（停文件缓存清理协程、关 Redis 连接池）。
+	closeCache()
 
 	// 数据库连接由 Supervisor 统一管理（可能与启动时不同：安装向导会热切换）。
 	logger.Info("服务已退出")

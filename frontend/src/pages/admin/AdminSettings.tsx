@@ -45,6 +45,7 @@ import type {
   UpstreamSettings,
 } from '@/api/types'
 import { useAdminAuth } from '@/auth/adminAuthContext'
+import CachePanel from '@/components/admin/CachePanel'
 import DbBackupsPanel from '@/components/admin/DbBackupsPanel'
 import FilterSelect from '@/components/admin/FilterSelect'
 import NoPermission from '@/components/admin/NoPermission'
@@ -95,12 +96,13 @@ export default function AdminSettings() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          系统更新、数据库备份、支付渠道、上游对接、站点对外地址、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
+          系统更新、数据库备份、缓存、支付渠道、上游对接、站点对外地址、邮件、通知与返佣。保存后立即生效（无需重启服务）；密钥与口令永不回显明文。
         </p>
       </header>
 
       <UpdatesSection />
       <DbBackupsPanel />
+      <CachePanel />
       <EpaySection />
       <UpstreamSection />
       <SiteSection />
