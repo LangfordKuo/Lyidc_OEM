@@ -3,7 +3,7 @@
 岭云互联 IDC 财务系统，代理对接专用：对标魔方财务 / WHMCS 的独立部署 IDC 财务与计费系统。
 
 后端 Go + Gin + GORM + MySQL 5.7，前端 React + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui。
-接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v31）。
+接口契约见 [docs/api-contract.md](docs/api-contract.md)（当前 v32）。
 
 ## 快速部署
 
@@ -45,9 +45,10 @@ docker compose up -d
   （保存时就校验：不在 Web 根内、按需创建、可写）；恢复为**覆盖式**（需当前管理员密码，
   低版本备份恢复后自动追迁移），不做自动清理；容器部署默认把备份目录绑定挂载到 `deploy/backups/`
 - **缓存**：默认**文件缓存**（系统临时目录，无需配置），可在后台设置里启用 **Redis**（官方 go-redis 客户端，
-  保存即生效、不用重启）；后台可查看**键数量 / 命中率 / 命中与未命中**、读取降级原因、重置统计与**清空缓存**
-  （只清缓存、不碰业务数据）；**Redis 不可用时自动降级到文件缓存、业务不中断**，界面标红并显示原因，
-  恢复后下一次探活自动切回（不必重启）
+  保存即生效、不用重启）；**已接到与身份无关的读路径上**（商品与分类、站点设置读取、商品统计与上游探活，
+  会员私有数据一律不缓存），写操作**按键族主动失效**、TTL 兜底；后台可查看**键数量 / 命中率 / 命中与未命中**
+  （随业务变化）、读取降级原因、重置统计与**清空缓存**（只清缓存、不碰业务数据）；
+  **Redis 不可用时自动降级到文件缓存、业务不中断**，界面标红并显示原因，恢复后下一次探活自动切回（不必重启）
 
 ## 目录结构
 
@@ -60,7 +61,8 @@ backend/                 Go 后端（module: github.com/LangfordKuo/Lyidc_OEM/ba
                          buildinfo（构建期版本注入）/ updates（检查更新）/
                          upgrade（一键自动升级：下载校验、helper 交接、替换迁移与回滚）/
                          dbbackup（数据库备份与恢复：纯 Go 导出 + 覆盖式恢复）/
-                         cache（缓存基础设施：文件 / Redis 两种驱动、降级自愈与命中统计）
+                         cache（缓存基础设施：文件 / Redis 两种驱动、降级自愈与命中统计）/
+                         router/biz_cache.go（业务缓存接线：键族、TTL 与按键族主动失效）
   migrations/            编号 SQL 迁移（go:embed 内嵌进二进制）
 frontend/                React 前端（src/api、src/app、src/pages、src/components…）
 deploy/                  compose 编排 + .env 示例 + 镜像内的 nginx/入口脚本模板

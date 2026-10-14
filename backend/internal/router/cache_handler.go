@@ -33,7 +33,9 @@ type cacheHandler struct {
 	store   *store.Store
 	reader  *settings.Reader
 	manager *cache.Manager
-	logger  *slog.Logger
+	// dir 是文件缓存目录的进程内覆盖（仅测试隔离用，见 router.Options.CacheDir）；空串 = 缺省目录。
+	dir    string
+	logger *slog.Logger
 }
 
 // cacheRedisView 是 Redis 参数的对外视图（口令只输出配置标志与掩码）。
@@ -193,7 +195,7 @@ func (h *cacheHandler) updateCacheSettings(c *gin.Context) {
 		return
 	}
 	// 立即生效：配置变化时重建驱动（Redis 探活失败即降级到文件缓存，业务不中断）。
-	h.manager.Configure(ctx, cacheConfigOf(merged))
+	h.manager.Configure(ctx, cacheConfigOf(merged, h.dir))
 	status := h.manager.Status(ctx)
 
 	h.logger.Info("后台设置已更新", "key", settings.KeyCache, "admin_id", admin.ID,
@@ -259,7 +261,7 @@ func (h *cacheHandler) configured(c *gin.Context) bool {
 		h.failSettings(c, err)
 		return false
 	}
-	h.manager.Configure(c.Request.Context(), cacheConfigOf(state.Value))
+	h.manager.Configure(c.Request.Context(), cacheConfigOf(state.Value, h.dir))
 	return true
 }
 
@@ -294,9 +296,13 @@ func cacheRedisUpdateOf(req *cacheRedisUpdateRequest) *settings.CacheRedisUpdate
 
 // cacheConfigOf 把设置值映射成缓存运行时配置。
 // 与 upstream 的映射同口径：映射放在路由层，避免 settings 包反向依赖 cache 包。
-func cacheConfigOf(value settings.Cache) cache.Config {
+//
+// dir 是文件缓存目录的进程内覆盖（仅测试隔离用，Options.CacheDir）：空串 = 契约 24.1 的缺省目录。
+// 管理端接口与业务读路径都经这里取配置，保证两侧看到的是同一个目录。
+func cacheConfigOf(value settings.Cache, dir string) cache.Config {
 	return cache.Config{
 		Driver: value.NormalizedDriver(),
+		Dir:    dir,
 		Redis: cache.RedisConfig{
 			Host:      value.Redis.Host,
 			Port:      value.PortOr(),

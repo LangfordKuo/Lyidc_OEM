@@ -36,7 +36,10 @@ type settingsHandler struct {
 	// backups 是数据库备份服务（R15，契约 21.10）：备份目录设置接口用它做解析、Web 根判定、
 	// 目录创建与写入探针（与备份运行时同一套口径）；nil 表示备份服务不可用，两个接口明确拒绝。
 	backups *dbbackup.Service
-	logger  *slog.Logger
+	// cache 是业务缓存门面（R19 批 2，契约 24.6）：站点的**对外地址读取**（settings:site）
+	// 与身份无关，入缓存、改地址时失效；其余设置键（密钥类）一律不进缓存。
+	cache  *bizCache
+	logger *slog.Logger
 }
 
 // epaySettingsView 是 payment.epay 设置的对外视图。
@@ -238,6 +241,9 @@ func (h *settingsHandler) updateUpstreamSettings(c *gin.Context) {
 	// R18：操作日志摘要——API 密钥明文绝不落库（只记是否更换）。
 	setOplogSummary(c, fmt.Sprintf("已保存上游凭据设置（账号=%s，更换 API 密钥=%t，超时=%d 秒）",
 		merged.Username, req.APIKey != nil, merged.TimeoutSeconds))
+	// R19 批 2：上游探活结果（upstream:health）里带密钥掩码与连通性，凭据一改就不再成立——
+	// 立即失效，**尽力而为**（失败只记日志，TTL 兜底）。
+	h.cache.invalidate(ctx, cachePrefixUpstreamHealth)
 	response.Success(c, upstreamSettingsViewOf(h.upstreamBaseURL, merged, settingMeta(setting)))
 }
 

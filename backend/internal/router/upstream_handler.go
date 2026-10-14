@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upstream"
 )
 
@@ -32,53 +31,57 @@ type upstreamHealthData struct {
 //
 // 探活失败属于业务结果而非接口错误，因此始终返回 HTTP 200 + code=0，
 // data.connected=false 并附带 error 说明；管理员 token 无效仍由中间件返回 401。
-func upstreamHealthHandler(provider upstream.Provider, timeout time.Duration) gin.HandlerFunc {
+//
+// R19 批 2：探活结果入缓存（键 upstream:health，**短 TTL 60 秒**）——上游只读数据，
+// 控制台仪表盘的「上游连通性」卡片每次打开都会打一次上游（登录 + 查余额）；
+// 结果与身份无关（不含任何会员维度），缓存 1 分钟即可。`checked_at` 是**那次探活的时刻**，
+// 因此命中缓存时同样能看出结果不新鲜（不会假装刚刚探过）。
+func upstreamHealthHandler(provider upstream.Provider, timeout time.Duration, biz *bizCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		data := upstreamHealthData{
-			CheckedAt: time.Now().UTC().Format(time.RFC3339),
-		}
+		cachedJSON(c, biz, cacheKeyUpstreamHealth, cacheTTLUpstreamHealth,
+			func() (upstreamHealthData, bool) {
+				data := upstreamHealthData{
+					CheckedAt: time.Now().UTC().Format(time.RFC3339),
+				}
 
-		if provider == nil {
-			data.Error = upstreamErrorNotConfigured
-			response.Success(c, data)
-			return
-		}
-		client, enabled, err := provider.Current(c.Request.Context())
-		if err != nil {
-			// 设置读取/构造失败（含未配置）：不发起请求，按未配置口径答复。
-			data.Error = upstreamProbeError(err)
-			response.Success(c, data)
-			return
-		}
-		if client != nil {
-			data.BaseURL = client.BaseURL()
-			data.APIKeyMasked = client.MaskedAPIKey()
-		}
-		if !enabled {
-			data.Error = upstreamErrorNotConfigured
-			response.Success(c, data)
-			return
-		}
+				if provider == nil {
+					data.Error = upstreamErrorNotConfigured
+					return data, true
+				}
+				client, enabled, err := provider.Current(c.Request.Context())
+				if err != nil {
+					// 设置读取/构造失败（含未配置）：不发起请求，按未配置口径答复。
+					data.Error = upstreamProbeError(err)
+					return data, true
+				}
+				if client != nil {
+					data.BaseURL = client.BaseURL()
+					data.APIKeyMasked = client.MaskedAPIKey()
+				}
+				if !enabled {
+					data.Error = upstreamErrorNotConfigured
+					return data, true
+				}
 
-		if timeout <= 0 {
-			timeout = defaultUpstreamProbeTimeout
-		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-		defer cancel()
+				if timeout <= 0 {
+					timeout = defaultUpstreamProbeTimeout
+				}
+				ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+				defer cancel()
 
-		start := time.Now()
-		probeErr := client.Probe(ctx)
-		data.LatencyMS = time.Since(start).Milliseconds()
+				start := time.Now()
+				probeErr := client.Probe(ctx)
+				data.LatencyMS = time.Since(start).Milliseconds()
 
-		if probeErr != nil {
-			data.Connected = false
-			data.Error = upstreamProbeError(probeErr)
-			response.Success(c, data)
-			return
-		}
+				if probeErr != nil {
+					data.Connected = false
+					data.Error = upstreamProbeError(probeErr)
+					return data, true
+				}
 
-		data.Connected = true
-		response.Success(c, data)
+				data.Connected = true
+				return data, true
+			})
 	}
 }
 

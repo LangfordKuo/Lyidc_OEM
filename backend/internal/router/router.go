@@ -131,7 +131,16 @@ type Options struct {
 	// **nil 时构造默认实现**（构造本身不读设置也不连 Redis，由接口按当前设置应用配置）；
 	// 生产由 cmd/server 显式构造并注入（引擎热切换与进程退出时 Close，停掉文件缓存的清理协程）；
 	// 测试可注入带假驱动工厂的管理器，不连真实 Redis 也能覆盖降级分支。
+	//
+	// R19 批 2 起业务读路径也用它（契约 24.6）：业务侧按设置节流应用配置（每分钟最多一次），
+	// 管理端保存缓存设置时仍然当场生效。
 	Cache *cache.Manager
+	// CacheDir 是**文件缓存目录的进程内覆盖**：空串 = 系统临时目录下的 lyidc-cache
+	// （契约 24.1 的缺省口径，生产一律留空）。
+	//
+	// 唯一用途是**测试隔离**：集成测试的每个引擎用各自的临时目录，避免共享缺省目录时
+	// 不同用例之间的缓存互相污染（业务接线后缓存键真的会被写）。
+	CacheDir string
 }
 
 // defaultUpstreamProbeTimeout 是上游探活缺省超时。
@@ -267,15 +276,24 @@ func New(opts Options) *gin.Engine {
 	}
 	dbBackups := &dbBackupHandler{service: backupService, logger: opts.Logger}
 
+	// R19 批 2：缓存管理器按设置应用到业务读路径（契约 24.6）。管理器始终存在（未注入时构造默认实现），
+	// 由 bizCache 负责「节流应用配置 + 读写容错 + 按键族失效」；读设置失败只记日志，业务照常。
+	cacheManager := opts.Cache
+	if cacheManager == nil {
+		cacheManager = cache.NewManager(cache.Options{Logger: opts.Logger})
+	}
+	bizCacheRuntime := newBizCache(cacheManager, settingsReader, opts.CacheDir, opts.Logger)
+
 	members := &memberHandler{store: st, tokens: tokens, logger: opts.Logger}
 	admins := &adminHandler{store: st, tokens: tokens, logger: opts.Logger}
 	products := &productHandler{
 		store:    st,
 		upstream: upstreamProvider,
+		cache:    bizCacheRuntime,
 		logger:   opts.Logger,
 	}
-	categories := &categoryHandler{store: st, logger: opts.Logger}
-	groupMaps := &groupMapHandler{store: st, logger: opts.Logger}
+	categories := &categoryHandler{store: st, cache: bizCacheRuntime, logger: opts.Logger}
+	groupMaps := &groupMapHandler{store: st, cache: bizCacheRuntime, logger: opts.Logger}
 	coupons := &couponHandler{store: st, logger: opts.Logger}
 	orders := &orderHandler{store: st, payments: payments, deliveries: deliveries, logger: opts.Logger}
 	finance := &financeHandler{store: st, payments: payments, logger: opts.Logger}
@@ -288,7 +306,10 @@ func New(opts Options) *gin.Engine {
 		// R17：上游地址是构建期注入值——GET 只读回显它，PUT 出现 base_url 一律 40002。
 		upstreamBaseURL: opts.UpstreamBaseURL,
 		// R15：备份目录设置接口与备份运行时共用同一个服务实例（同一套目录校验口径）。
-		backups: backupService, logger: opts.Logger,
+		backups: backupService,
+		// R19 批 2：站点对外地址读取（settings:site）的缓存门面。
+		cache:  bizCacheRuntime,
+		logger: opts.Logger,
 	}
 	// 阶段 6a：工单（纯本地域，不调用上游；管理端为 admin + support 的客服域）。
 	// 阶段 6b：工单事件（创建/会员回复/客服公开回复/客服关闭）在事务提交后触发通知。
@@ -303,12 +324,11 @@ func New(opts Options) *gin.Engine {
 	// R18：操作日志（契约第 23 节）——列表（高级搜索）与清空；清空接口自写留痕并跳过中间件默认入队。
 	operationLogs := &operationLogHandler{store: st, writer: oplogWriter, logger: opts.Logger}
 	// R19 批 1：缓存基础设施（契约第 24 节）——设置驱动选择与 Redis 参数、查看状态与命中率、
-	// 重置统计与清空缓存。**不接入任何业务读路径**（批 2 接线），因此本批不改变任何既有行为。
-	cacheManager := opts.Cache
-	if cacheManager == nil {
-		cacheManager = cache.NewManager(cache.Options{Logger: opts.Logger})
+	// 重置统计与清空缓存（管理端运维入口，与业务读路径共用同一个管理器）。
+	caches := &cacheHandler{
+		store: st, reader: settingsReader, manager: cacheManager,
+		dir: opts.CacheDir, logger: opts.Logger,
 	}
-	caches := &cacheHandler{store: st, reader: settingsReader, manager: cacheManager, logger: opts.Logger}
 
 	// R16：上游状态回推接收端（契约 22.3）——**顶层路由**，不在 /api/v1 之下：
 	// 路径由上游固定拼接（<downstream_url>/api/host/sync），响应格式由上游约定（不套统一响应包）。
@@ -435,7 +455,7 @@ func New(opts Options) *gin.Engine {
 			upstreamGroup := adminGroup.Group("/upstream")
 			{
 				upstreamGroup.GET("/health",
-					upstreamHealthHandler(upstreamProvider, opts.UpstreamTimeout))
+					upstreamHealthHandler(upstreamProvider, opts.UpstreamTimeout, bizCacheRuntime))
 			}
 
 			// 后台设置（阶段 4）：承载 payment.epay 与 upstream 两个键；**仅 admin 角色，含读取**

@@ -364,6 +364,104 @@ func TestFileStoreLargeValue(t *testing.T) {
 	}
 }
 
+// TestFileStoreDeletePrefix 覆盖按键族前缀删除（R19 批 2 的主动失效，契约 24.6）：
+// 只删键以该前缀开头的条目，其它键一个都不动；空前缀直接拒绝（清空全部请用 Flush）。
+func TestFileStoreDeletePrefix(t *testing.T) {
+	ctx := context.Background()
+	store := newTestFileStore(t, t.TempDir())
+
+	keys := []string{
+		"products:catalog",
+		"products:detail:1",
+		"products:admin:list:p1/s20",
+		"products:admin:groups",
+		"categories:list",
+		"settings:site",
+	}
+	for _, key := range keys {
+		if err := store.Set(ctx, key, []byte("v-"+key), time.Hour); err != nil {
+			t.Fatalf("写入键 %q 失败: %v", key, err)
+		}
+	}
+
+	if err := store.DeletePrefix(ctx, "products:"); err != nil {
+		t.Fatalf("按前缀删除失败: %v", err)
+	}
+	for _, key := range keys[:4] {
+		if _, found, err := store.Get(ctx, key); err != nil || found {
+			t.Fatalf("前缀内的键 %q 应已删除: found=%v, err=%v", key, found, err)
+		}
+	}
+	for _, key := range keys[4:] {
+		if value, found, err := store.Get(ctx, key); err != nil || !found || string(value) != "v-"+key {
+			t.Fatalf("前缀外的键 %q 必须原样保留: found=%v, value=%q, err=%v", key, found, value, err)
+		}
+	}
+	// 幂等：再删一次（此时无匹配）不报错。
+	if err := store.DeletePrefix(ctx, "products:"); err != nil {
+		t.Fatalf("重复按前缀删除应幂等: %v", err)
+	}
+	// 空前缀拒绝（语义等于全清，必须显式走 Flush）。
+	if err := store.DeletePrefix(ctx, ""); err == nil {
+		t.Fatal("空前缀必须拒绝")
+	}
+	if keys, err := store.Keys(ctx); err != nil || keys != 2 {
+		t.Fatalf("空前缀被拒后不应影响任何键: keys=%d, err=%v", keys, err)
+	}
+}
+
+// TestFileStoreDeletePrefixSurvivesReopen 覆盖「键记在文件里」这一点：
+// **重新打开**（新驱动实例，内存里没有任何键表）之后，按前缀仍能删掉旧条目——
+// 这正是批 2 需要把键写进文件（而不是只留哈希文件名）的原因。
+func TestFileStoreDeletePrefixSurvivesReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	first := newTestFileStore(t, dir)
+	if err := first.Set(ctx, "products:detail:7", []byte("旧值"), time.Hour); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	if err := first.Set(ctx, "categories:list", []byte("保留"), time.Hour); err != nil {
+		t.Fatalf("写入失败: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("关闭失败: %v", err)
+	}
+
+	second := newTestFileStore(t, dir)
+	if err := second.DeletePrefix(ctx, "products:"); err != nil {
+		t.Fatalf("重新打开后按前缀删除失败: %v", err)
+	}
+	if _, found, _ := second.Get(ctx, "products:detail:7"); found {
+		t.Fatal("重新打开后应能按前缀删掉旧条目（键记在文件里）")
+	}
+	if _, found, _ := second.Get(ctx, "categories:list"); !found {
+		t.Fatal("别的键串不应被删")
+	}
+}
+
+// TestFileStoreOldFormatTreatedAsMiss 覆盖格式升级：批 1 的旧格式（magic LYIDCC01、无键字段）
+// 文件一律按损坏处理——删掉并按未命中返回，绝不把旧内容当值读出来。
+func TestFileStoreOldFormatTreatedAsMiss(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newTestFileStore(t, dir)
+
+	// 手工构造一份批 1 格式的文件（16 字节头 + 值），放在新驱动该键的哈希文件名上。
+	header := make([]byte, headerSize)
+	copy(header, "LYIDCC01")
+	old := append(header, []byte("上一版缓存的值")...)
+	path := store.filePath("products:catalog")
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatalf("写入旧格式文件失败: %v", err)
+	}
+	if _, found, err := store.Get(ctx, "products:catalog"); err != nil || found {
+		t.Fatalf("旧格式文件应视为未命中: found=%v, err=%v", found, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("旧格式文件应被清掉: %v", err)
+	}
+}
+
 // TestFileStorePingCreatesDir 覆盖探活：目录不存在时探活会创建它。
 func TestFileStorePingCreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "cache")

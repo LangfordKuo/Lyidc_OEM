@@ -54,6 +54,7 @@ func newStage5Engine(t *testing.T, gdb *gorm.DB, client *upstream.Client, logs *
 	logger := slog.New(slog.NewTextHandler(handler, nil))
 	provider := upstream.StaticProvider{C: client}
 	return New(Options{
+		CacheDir: t.TempDir(),
 		Logger:   logger,
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
@@ -620,6 +621,7 @@ func newStage5EngineAsync(t *testing.T, gdb *gorm.DB, client *upstream.Client) *
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	provider := upstream.StaticProvider{C: client}
 	return New(Options{
+		CacheDir: t.TempDir(),
 		Logger:   logger,
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,13 +47,22 @@ func newCacheEngine(t *testing.T, gdb *gorm.DB, manager *cache.Manager) *gin.Eng
 }
 
 // newCacheEngineWith 同上，可额外注入操作日志写入器（断言留痕用）。
+// CacheDir 取本用例专属目录（R19 批 2 的测试隔离：业务读路径会真的往文件缓存里写键，
+// 共享缺省目录会让用例之间互相读到对方的旧值）。
 func newCacheEngineWith(t *testing.T, gdb *gorm.DB, manager *cache.Manager, writer *oplog.Writer) *gin.Engine {
+	t.Helper()
+	return newCacheEngineWithDir(t, gdb, manager, writer, t.TempDir())
+}
+
+// newCacheEngineWithDir 同 newCacheEngineWith，但显式指定文件缓存目录（断言目录口径用）。
+func newCacheEngineWithDir(t *testing.T, gdb *gorm.DB, manager *cache.Manager, writer *oplog.Writer, dir string) *gin.Engine {
 	t.Helper()
 	if manager == nil {
 		manager = cache.NewManager(cache.Options{Logger: silentLogger(), CleanupInterval: time.Hour})
 	}
 	t.Cleanup(func() { _ = manager.Close() })
 	return New(Options{
+		CacheDir: dir,
 		Logger:   silentLogger(),
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
@@ -112,7 +122,10 @@ func TestCacheEndpointsPermissions(t *testing.T) {
 // 三态口令、明文绝不回显。
 func TestCacheSettingsReadWrite(t *testing.T) {
 	gdb := testDatabase(t)
-	engine := newCacheEngine(t, gdb, nil)
+	// 显式指定目录：断言设置接口回显的就是进程内生效的那个文件缓存目录
+	// （缺省口径 = 系统临时目录下的 lyidc-cache，见契约 24.1；测试用隔离目录，见 Options.CacheDir）。
+	dir := filepath.Join(t.TempDir(), cache.DefaultDirName)
+	engine := newCacheEngineWithDir(t, gdb, nil, nil, dir)
 	admin := stage4AdminToken(t, engine, gdb, "cache", model.RoleAdmin)
 
 	// 1) 默认：文件缓存（Redis 未启用），Redis 参数取缺省。
@@ -130,8 +143,8 @@ func TestCacheSettingsReadWrite(t *testing.T) {
 	if view.Redis.PasswordConfigured || view.Redis.PasswordMasked != "" {
 		t.Fatalf("口令应未配置: %+v", view.Redis)
 	}
-	if !strings.HasSuffix(view.FileDir, "lyidc-cache") {
-		t.Fatalf("文件缓存目录应在临时目录下: %q", view.FileDir)
+	if !strings.HasSuffix(view.FileDir, "lyidc-cache") || view.FileDir != dir {
+		t.Fatalf("文件缓存目录应是进程内生效的那个目录（缺省名 lyidc-cache）: %q", view.FileDir)
 	}
 
 	// 2) 启用 Redis 并保存参数：口令落库但接口只回掩码。

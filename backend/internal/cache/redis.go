@@ -127,6 +127,54 @@ func (r *redisStore) Flush(ctx context.Context) error {
 	}
 }
 
+// DeletePrefix 删除**业务键以 prefix 开头**的全部键（R19 批 2 的按键族主动失效，契约 24.6）：
+// 在 `<key_prefix><prefix>*` 里 SCAN + 分批 DEL。
+//
+// 与 Flush 同一条硬边界：**只在系统命名空间内**（`key_prefix` 之内的业务前缀），
+// 同一个 DB 里别的应用、以及本系统其它前缀的键一律不动；**绝不 FLUSHDB**。
+func (r *redisStore) DeletePrefix(ctx context.Context, prefix string) error {
+	if prefix == "" {
+		return errEmptyPrefix
+	}
+	pattern := r.prefix + escapeRedisGlob(prefix) + "*"
+	cursor := uint64(0)
+	for {
+		keys, next, err := r.client.Scan(ctx, cursor, pattern, redisScanCount).Result()
+		if err != nil {
+			return err
+		}
+		for start := 0; start < len(keys); start += redisDelBatch {
+			end := start + redisDelBatch
+			if end > len(keys) {
+				end = len(keys)
+			}
+			if err := r.client.Del(ctx, keys[start:end]...).Err(); err != nil {
+				return err
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			return nil
+		}
+	}
+}
+
+// escapeRedisGlob 转义 Redis 匹配模式里的通配字符（`*?[]\`）：
+// 业务前缀（如 `products:`）本就不含这些字符，但转义后语义与「键前缀」严格一致，
+// 不会因为前缀里恰好出现 `*` 而误删别的键。
+func escapeRedisGlob(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, char := range value {
+		switch char {
+		case '*', '?', '[', ']', '\\':
+			builder.WriteByte('\\')
+		}
+		builder.WriteRune(char)
+	}
+	return builder.String()
+}
+
 // Ping 探活：PING 往返成功即视为可用（连接 / 认证 / 超时问题都在这里暴露）。
 func (r *redisStore) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()

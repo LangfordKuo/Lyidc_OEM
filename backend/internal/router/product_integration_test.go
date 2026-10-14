@@ -215,6 +215,7 @@ func standardCatalog() *fakeCatalog {
 func newProductEngine(t *testing.T, gdb *gorm.DB, client *upstream.Client) *gin.Engine {
 	t.Helper()
 	return New(Options{
+		CacheDir:        t.TempDir(),
 		Logger:          silentLogger(),
 		DB:              gdb,
 		JWT:             config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

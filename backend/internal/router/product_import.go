@@ -259,6 +259,9 @@ func (h *productHandler) importProducts(c *gin.Context) {
 		"selected_groups", view.SelectedGroups, "map_fallback_group_ids", view.MapFallbackGroupIDs)
 	setOplogSummary(c, fmt.Sprintf("已从上游导入商品：分组 %d、新建 %d、更新 %d、未变 %d、失败 %d",
 		view.Groups, view.Created, view.Updated, view.Unchanged, view.Failed))
+	// R19 批 2：导入会改商品与分类（覆盖上游字段、按映射/派生归类、写分组名与计数），
+	// products: 与 categories: 两个键族一起失效。**尽力而为**，失败只记日志（TTL 兜底）。
+	h.cache.invalidate(ctx, cachePrefixProducts, cachePrefixCategories)
 	response.Success(c, view)
 }
 

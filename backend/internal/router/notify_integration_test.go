@@ -555,6 +555,7 @@ func TestNotifyWithoutSMTPConfigSkipsEmail(t *testing.T) {
 		Async: false, Logger: silentLogger(),
 	})
 	engine := New(Options{
+		CacheDir: t.TempDir(),
 		Logger:   silentLogger(),
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

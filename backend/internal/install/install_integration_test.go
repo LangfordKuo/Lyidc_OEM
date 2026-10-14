@@ -159,6 +159,9 @@ func newInstallSupervisor(t *testing.T, cfg config.Config, configPath string) *S
 				Ping:   db.PingFunc(gdb),
 				DB:     gdb,
 				JWT:    jwt,
+				// R19 批 2：文件缓存目录用本用例专属目录（业务读路径会真的写缓存键，
+				// 共享缺省目录会让用例之间/多次运行之间互相读到旧值）。
+				CacheDir: t.TempDir(),
 			})
 		},
 		ProbeTimeout: 3 * time.Second,

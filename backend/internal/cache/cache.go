@@ -1,16 +1,18 @@
 // Package cache 是缓存基础设施（契约第 24 节，R19 批 1）：
 // 驱动抽象（Store）+ 两种驱动（文件 / Redis）+ 按后台设置构造与切换的 Manager（含统计与降级）。
 //
-// 本批**只做基础设施**：不接入任何业务读路径、不改变任何既有业务行为（契约 24.7 先把
-// 「允许缓存 / 不缓存」与失效策略定稿，接线留批 2）。
+// 批 1 只做基础设施（抽象 + 两种驱动 + 设置与状态接口）；批 2（契约 24.6）把缓存接到
+// **与身份无关**的业务读路径上，并加「写操作按键族主动失效」——为此 Store 多了
+// DeletePrefix（文件驱动扫目录按键匹配、Redis 用 SCAN + 分批 DEL）。
 //
 // 三条硬边界（契约 24.6）：
 //  1. **读写失败绝不让业务接口报错**：Get 把一切错误按「未命中」处理并记服务日志；
-//     Set / Delete 返回错误只供调用方（批 2 的接线处）记录，调用方不得因此改变业务结果。
+//     Set / Delete / DeletePrefix 返回错误只供调用方（批 2 的接线处）记录，
+//     调用方不得因此改变业务结果。
 //  2. **统计不参与业务事务**：命中 / 未命中是进程内累加（重启归零、可重置），
 //     统计读取失败不影响任何业务。
-//  3. **只清自己的缓存**：Redis 驱动的 Flush 只删本 key_prefix 下的键，**绝不 FLUSHDB**
-//     （同一个 DB 里可能有别的应用的数据）。
+//  3. **只清自己的缓存**：Redis 驱动的 Flush 与 DeletePrefix 只删本 key_prefix 命名空间
+//     （及其业务前缀）下的键，**绝不 FLUSHDB**（同一个 DB 里可能有别的应用的数据）。
 //
 // 生效方式：Manager 按后台设置（settings 键 `cache`）构造驱动，设置改动由调用方（管理端接口）
 // 翻译成 Config 后经 Configure 应用——**立即生效，不用重启**；配置未变且未降级时 Configure 无操作。
@@ -56,6 +58,8 @@ const DefaultTimeout = time.Second
 //   - Get 的第三返回值是「驱动层错误」；Manager 会把错误按未命中处理并自行降级，
 //     因此**业务层拿到的一定是 (value, found) 两个事实**；
 //   - Set 的 ttl <= 0 表示**不过期**；ttl > 0 表示相对当前时间的过期时长；
+//   - DeletePrefix 删除**业务键以 prefix 开头**的条目（R19 批 2 的按键族失效）；
+//     prefix 为空串一律拒绝（清空全部请用 Flush）；只作用于本驱动的命名空间；
 //   - Flush 只清本驱动的缓存（Redis 只清 key_prefix 下的键）；
 //   - Keys 返回当前键数量（驱动自己的口径：Redis 用 SCAN 计数、文件用目录计数）；
 //   - Close 释放资源（文件驱动停清理协程、Redis 关连接池），可重复调用。
@@ -63,6 +67,7 @@ type Store interface {
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Delete(ctx context.Context, keys ...string) error
+	DeletePrefix(ctx context.Context, prefix string) error
 	Flush(ctx context.Context) error
 	Ping(ctx context.Context) error
 	Keys(ctx context.Context) (int64, error)
@@ -300,6 +305,27 @@ func (m *Manager) Delete(ctx context.Context, keys ...string) error {
 	return nil
 }
 
+// DeletePrefix 删除**业务键以 prefix 开头**的全部条目（R19 批 2：写操作按键族主动失效，
+// 契约 24.6）。**尽力而为**：失败只记服务日志并返回错误，调用方（写接口）不得因此改变业务结果
+// ——每个键族都有 TTL 兜底，漏删最坏也只会多存活一个 TTL。
+//
+// 前缀为空串一律拒绝（语义等于全清，请显式走 Flush）；降级期间只清当前生效驱动（文件缓存），
+// 配置的 Redis 里的旧值靠 TTL 自然过期（与「降级期间读写都落在文件缓存」同口径，契约 24.5）。
+func (m *Manager) DeletePrefix(ctx context.Context, prefix string) error {
+	if prefix == "" {
+		return errEmptyPrefix
+	}
+	store := m.activeStore()
+	if store == nil {
+		return errNoStore
+	}
+	if err := store.DeletePrefix(ctx, prefix); err != nil {
+		m.handleFailure(store, err)
+		return err
+	}
+	return nil
+}
+
 // Flush 清空缓存（管理端排障用，契约 24.4）：
 //   - 清当前生效驱动；Redis 只清本 key_prefix 下的键，**绝不 FLUSHDB**；
 //   - 降级期间（生效驱动是文件缓存）**额外尽力清一次配置的 Redis**，避免恢复后命中残留旧值；
@@ -383,6 +409,9 @@ func (m *Manager) Close() error {
 
 // errNoStore 表示当前没有任何可用驱动（文件缓存目录都建不出来时的极端情形）。
 var errNoStore = errors.New("缓存驱动不可用")
+
+// errEmptyPrefix 表示按前缀删除时给了空串（清空全部必须显式走 Flush，防误清）。
+var errEmptyPrefix = errors.New("删除前缀不能为空（清空全部请用 Flush）")
 
 // activeStore 取当前生效的驱动（可能因降级是文件缓存；未配置时返回 nil）。
 func (m *Manager) activeStore() Store {

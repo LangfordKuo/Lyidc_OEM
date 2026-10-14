@@ -52,10 +52,11 @@ func TestUpgradeAdminEndpoints(t *testing.T) {
 	}
 
 	engine := New(Options{
-		Logger:  silentLogger(),
-		DB:      gdb,
-		JWT:     config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-		Upgrade: service,
+		CacheDir: t.TempDir(),
+		Logger:   silentLogger(),
+		DB:       gdb,
+		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		Upgrade:  service,
 	})
 	seedAdmin(t, gdb, "root", "admin123456", model.RoleAdmin, model.StatusActive)
 	seedAdmin(t, gdb, "fin", "admin123456", model.RoleFinance, model.StatusActive)

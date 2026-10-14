@@ -185,6 +185,7 @@ func newStage4Engine(t *testing.T, gdb *gorm.DB, upstreamBaseURL string, logs *b
 		handler = logs
 	}
 	return New(Options{
+		CacheDir:        t.TempDir(),
 		Logger:          slog.New(slog.NewTextHandler(handler, nil)),
 		DB:              gdb,
 		JWT:             config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

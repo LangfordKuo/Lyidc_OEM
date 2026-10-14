@@ -18,13 +18,21 @@ import (
 
 // 文件缓存的落盘口径（契约 24.2）：
 //
-//	<目录>/<sha256(键).hex>.cache —— 数据文件，内容是 16 字节文件头 + 值字节：
-//	  偏移 0-7：magic "LYIDCC01"（识别与格式版本）
-//	  偏移 8-15：过期时刻（Unix 纳秒，大端；0 = 永不过期）
+//	<目录>/<sha256(键).hex>.cache —— 数据文件，内容是文件头 + 键字节 + 值字节：
+//	  偏移 0-7：  magic "LYIDCC02"（识别与格式版本）
+//	  偏移 8-15： 过期时刻（Unix 纳秒，大端；0 = 永不过期）
+//	  偏移 16-17：键长度（uint16 大端，键按 UTF-8 字节计）
+//	  偏移 18..： 键字节
+//	  随后：      值字节（按字节原样）
 //	<目录>/.tmp-* —— 写入中的临时文件（同目录临时文件 + rename 原子替换）
 //
-// 键**不参与文件名**（只取哈希）：任何键（含 `/`、`..`、盘符、Windows 保留名、超长键）
+// 键**不参与文件名**（文件名只取哈希）：任何键（含 `/`、`..`、盘符、Windows 保留名、超长键）
 // 都不可能逃出缓存目录，也绝不会因非法字符写失败（契约 24.2）。
+// 键记在**文件内容里**（R19 批 2）——这是 DeletePrefix（按键族前缀主动失效）的唯一依据：
+// 文件名是哈希、不可反推，只有把键落在文件里，重启后与新进程才能按前缀命中要删的文件。
+// 读到 magic 或 sha256(键) 与文件名不符的条目一律按**损坏**处理（删掉并按未命中返回），
+// 因此批 1 写的旧格式文件会在升级后自然失效、被清掉——缓存内容本就随时可弃。
+//
 // 过期判定以文件头为准（不依赖 mtime：mtime 会被复制 / 解包 / 备份改写），
 // 删除策略是**惰性删除（读到过期即删）+ 定期清理（后台协程扫目录删过期文件）**（契约 24.2）。
 const (
@@ -35,9 +43,13 @@ const (
 	fileSuffix = ".cache"
 	tempPrefix = ".tmp-"
 
-	// fileMagic 是文件头前 8 字节；headerSize 是文件头总长度。
-	fileMagic  = "LYIDCC01"
+	// fileMagic 是文件头前 8 字节；headerSize 是文件头总长度；keyLenSize 是键长度字段宽度。
+	fileMagic  = "LYIDCC02"
 	headerSize = 16
+	keyLenSize = 2
+
+	// maxKeyBytes 是单个键的长度上限（受 uint16 的键长度字段约束）。
+	maxKeyBytes = 1<<16 - 1
 
 	// dirMode 是缓存目录权限（只给本进程用户：缓存里有业务数据，不共享）。
 	dirMode = 0o700
@@ -95,7 +107,7 @@ func newFileStore(dir string, cleanupInterval time.Duration, logger *slog.Logger
 	return store, nil
 }
 
-// Get 读取一个键：不存在返回 found=false；已过期 / 头部损坏则删除该文件并按未命中返回。
+// Get 读取一个键：不存在返回 found=false；已过期 / 头部损坏 / 键与文件名不符则删除该文件并按未命中返回。
 //
 // 实现细节（Windows）：**先把整个文件读完并关闭，再决定删不删**——文件仍打开时删除会被
 // 系统拒绝（删除挂起 / 共享冲突），先读后删才能保证惰性删除真的落地。
@@ -111,18 +123,20 @@ func (f *fileStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
 		}
 		return nil, false, fmt.Errorf("读取缓存文件失败：%w", err)
 	}
-	if len(data) < headerSize || string(data[:8]) != fileMagic {
-		// 头部不全 / magic 不对 = 文件损坏（只可能是写入被中断的残留，或外部改写）。
+	entry, ok := decodeEntry(data)
+	if !ok || entry.key != key {
+		// 头部不全 / magic 不对 / 键与文件名不符 = 文件损坏（写入被中断的残留、外部改写，
+		// 或批 1 的旧格式文件）。这里用**传入的键**再校验一次文件名哈希，杜绝读串。
 		f.removeQuietly(path)
 		return nil, false, nil
 	}
-	if expiry := expiryOf(data[:headerSize]); !expiry.IsZero() && !time.Now().Before(expiry) {
+	if !entry.expiry.IsZero() && !time.Now().Before(entry.expiry) {
 		// 惰性删除：读到过期文件立即删掉，不等定期清理。
 		f.removeQuietly(path)
 		return nil, false, nil
 	}
-	value := make([]byte, len(data)-headerSize)
-	copy(value, data[headerSize:])
+	value := make([]byte, len(entry.value))
+	copy(value, entry.value)
 	return value, true, nil
 }
 
@@ -132,14 +146,19 @@ func (f *fileStore) Set(ctx context.Context, key string, value []byte, ttl time.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if len(key) > maxKeyBytes {
+		return fmt.Errorf("缓存键过长：%d 字节超过上限 %d", len(key), maxKeyBytes)
+	}
 	unlock := f.lockKey(key)
 	defer unlock()
 
-	header := make([]byte, headerSize)
+	header := make([]byte, headerSize+keyLenSize+len(key))
 	copy(header, fileMagic)
 	if ttl > 0 {
 		binary.BigEndian.PutUint64(header[8:], uint64(time.Now().Add(ttl).UnixNano()))
 	}
+	binary.BigEndian.PutUint16(header[headerSize:], uint16(len(key)))
+	copy(header[headerSize+keyLenSize:], key)
 
 	temp, err := os.CreateTemp(f.dir, tempPrefix+"*")
 	if err != nil {
@@ -180,6 +199,46 @@ func (f *fileStore) Delete(ctx context.Context, keys ...string) error {
 		// 与同一键的写入互斥：避免「删除挂起」与「改名替换」相撞（Windows 下会 ACCESS_DENIED）。
 		unlock := f.lockKey(key)
 		err := removeWithRetry(f.filePath(key))
+		unlock()
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("删除缓存文件失败：%w", err)
+		}
+	}
+	return firstErr
+}
+
+// DeletePrefix 删除**键以 prefix 开头**的全部缓存条目（R19 批 2 的按键族主动失效，契约 24.6）。
+//
+// 文件名是键的哈希、不能反推，因此这里扫目录、逐个读文件头里的键来匹配（只读文件头与键字节，
+// 不读值字节）。损坏 / 过期的条目若键匹配同样删掉；键不匹配的一律不动。
+// prefix 为空串表示「全部」，调用方要用它应显式走 Flush —— 这里直接拒绝，避免误清空。
+func (f *fileStore) DeletePrefix(ctx context.Context, prefix string) error {
+	if prefix == "" {
+		return errEmptyPrefix
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(f.dir)
+	if err != nil {
+		return fmt.Errorf("读取缓存目录失败：%w", err)
+	}
+	var firstErr error
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), fileSuffix) {
+			continue
+		}
+		path := filepath.Join(f.dir, entry.Name())
+		key, ok := f.readKey(path)
+		if !ok || !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		// 与同一键的写入互斥：避免「删除挂起」与「改名替换」相撞（Windows 下会 ACCESS_DENIED）。
+		unlock := f.lockKey(key)
+		err := removeWithRetry(path)
 		unlock()
 		if err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("删除缓存文件失败：%w", err)
@@ -232,7 +291,7 @@ func (f *fileStore) Ping(ctx context.Context) error {
 }
 
 // Keys 返回当前缓存键数量（**计数口径**：目录里未过期的数据文件数；过期文件按惰性删除的
-// 同一判定视作不存在，不读值字节、只读文件头）。
+// 同一判定视作不存在；只读文件头与键字节，不读值字节）。
 func (f *fileStore) Keys(ctx context.Context) (int64, error) {
 	entries, err := os.ReadDir(f.dir)
 	if err != nil {
@@ -247,7 +306,7 @@ func (f *fileStore) Keys(ctx context.Context) (int64, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), fileSuffix) {
 			continue
 		}
-		expiry, ok := f.readExpiry(filepath.Join(f.dir, entry.Name()))
+		_, expiry, ok := f.readEntryMeta(filepath.Join(f.dir, entry.Name()))
 		if !ok || (!expiry.IsZero() && !now.Before(expiry)) {
 			continue
 		}
@@ -294,7 +353,7 @@ func (f *fileStore) cleanupExpired() {
 			continue
 		}
 		path := filepath.Join(f.dir, entry.Name())
-		expiry, ok := f.readExpiry(path)
+		_, expiry, ok := f.readEntryMeta(path)
 		switch {
 		case !ok:
 			// 头部损坏的残留（写入被中断 / 外部改写）：与 Get 的处置一致，删掉。
@@ -336,21 +395,69 @@ func (f *fileStore) filePath(key string) string {
 	return filepath.Join(f.dir, hex.EncodeToString(sum[:])+fileSuffix)
 }
 
-// readExpiry 读取数据文件的过期时刻；文件缺失 / 头损坏时返回 ok=false。
-func (f *fileStore) readExpiry(path string) (time.Time, bool) {
+// readEntryMeta 读取数据文件的「键 + 过期时刻」（只读文件头与键字节，不读值字节）；
+// 文件缺失 / 头部不全 / magic 不对 / 键与文件名哈希不符时返回 ok=false。
+func (f *fileStore) readEntryMeta(path string) (string, time.Time, bool) {
 	file, err := openRead(path)
 	if err != nil {
-		return time.Time{}, false
+		return "", time.Time{}, false
 	}
 	defer func() { _ = file.Close() }()
-	header := make([]byte, headerSize)
+	header := make([]byte, headerSize+keyLenSize)
 	if _, err := io.ReadFull(file, header); err != nil {
-		return time.Time{}, false
+		return "", time.Time{}, false
 	}
 	if string(header[:8]) != fileMagic {
-		return time.Time{}, false
+		return "", time.Time{}, false
 	}
-	return expiryOf(header), true
+	keyBytes := make([]byte, binary.BigEndian.Uint16(header[headerSize:]))
+	if _, err := io.ReadFull(file, keyBytes); err != nil {
+		return "", time.Time{}, false
+	}
+	key := string(keyBytes)
+	if !entryKeyMatchesPath(key, path) {
+		return "", time.Time{}, false
+	}
+	return key, expiryOf(header[:headerSize]), true
+}
+
+// readKey 读取数据文件里记录的键（供 DeletePrefix 按前缀匹配）；失败返回 ok=false。
+func (f *fileStore) readKey(path string) (string, bool) {
+	key, _, ok := f.readEntryMeta(path)
+	return key, ok
+}
+
+// entryKeyMatchesPath 校验「文件内容里的键」与「文件名（键的 sha256）」一致：
+// 不一致说明文件被外部改名 / 损坏，按损坏处理（绝不按未验证的内容作答）。
+func entryKeyMatchesPath(key, path string) bool {
+	sum := sha256.Sum256([]byte(key))
+	expected := hex.EncodeToString(sum[:]) + fileSuffix
+	return filepath.Base(path) == expected
+}
+
+// cacheEntry 是一条缓存条目的解析结果（Get 用）。
+type cacheEntry struct {
+	key    string
+	expiry time.Time
+	value  []byte
+}
+
+// decodeEntry 解析缓存文件内容（文件头 + 键 + 值）；格式不符 / 键哈希与文件名不符时返回 ok=false。
+// 这里不校验文件名（调用方用**请求的键**比对，见 Get：读串比读不到更危险）。
+func decodeEntry(data []byte) (cacheEntry, bool) {
+	if len(data) < headerSize+keyLenSize || string(data[:8]) != fileMagic {
+		return cacheEntry{}, false
+	}
+	keyLen := int(binary.BigEndian.Uint16(data[headerSize:]))
+	start := headerSize + keyLenSize
+	if len(data) < start+keyLen {
+		return cacheEntry{}, false
+	}
+	return cacheEntry{
+		key:    string(data[start : start+keyLen]),
+		expiry: expiryOf(data[:headerSize]),
+		value:  data[start+keyLen:],
+	}, true
 }
 
 // removeQuietly 删除文件并吞掉错误（过期清理与损坏文件处置都不该影响调用方）。

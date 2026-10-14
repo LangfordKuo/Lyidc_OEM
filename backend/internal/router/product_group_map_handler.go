@@ -20,6 +20,7 @@ import (
 // categories.write —— **仅 admin**，由路由注册处的 requireAdminRole 兜底。
 type groupMapHandler struct {
 	store  *store.Store
+	cache  *bizCache
 	logger *slog.Logger
 }
 
@@ -44,40 +45,46 @@ type upsertGroupMapRequest struct {
 
 // listGroupMaps 处理 GET /api/v1/admin/product-group-maps（契约 10.4）：
 // 列出全部映射，按 upstream_group_id 升序；目标分类已被删除时名字字段留空供前端提示。
+//
+// R19 批 2：入缓存（键 categories:group-maps）——映射配置与身份无关；
+// 增删映射、改分类、导入（改分组名）都整族失效。
 func (h *groupMapHandler) listGroupMaps(c *gin.Context) {
-	ctx := c.Request.Context()
+	cachedJSON(c, h.cache, cacheKeyAdminGroupMaps, cacheTTLCategories,
+		func() (groupMapListView, bool) {
+			ctx := c.Request.Context()
 
-	maps, err := h.store.ListGroupCategoryMaps(ctx)
-	if err != nil {
-		failDB(c, h.logger, err)
-		return
-	}
-	groups, err := h.store.ListProductGroups(ctx)
-	if err != nil {
-		failDB(c, h.logger, err)
-		return
-	}
-	categories, err := h.store.ListProductCategories(ctx)
-	if err != nil {
-		failDB(c, h.logger, err)
-		return
-	}
+			maps, err := h.store.ListGroupCategoryMaps(ctx)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return groupMapListView{}, false
+			}
+			groups, err := h.store.ListProductGroups(ctx)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return groupMapListView{}, false
+			}
+			categories, err := h.store.ListProductCategories(ctx)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return groupMapListView{}, false
+			}
 
-	groupNames := make(map[int]string, len(groups))
-	for _, group := range groups {
-		groupNames[group.UpstreamGroupID] = group.Name
-	}
-	byID := make(map[uint64]*model.ProductCategory, len(categories))
-	for i := range categories {
-		byID[categories[i].ID] = &categories[i]
-	}
+			groupNames := make(map[int]string, len(groups))
+			for _, group := range groups {
+				groupNames[group.UpstreamGroupID] = group.Name
+			}
+			byID := make(map[uint64]*model.ProductCategory, len(categories))
+			for i := range categories {
+				byID[categories[i].ID] = &categories[i]
+			}
 
-	items := make([]groupMapView, 0, len(maps))
-	for _, item := range maps {
-		items = append(items, buildGroupMapView(item.UpstreamGroupID, item.CategoryID,
-			groupNames[item.UpstreamGroupID], byID))
-	}
-	response.Success(c, groupMapListView{Items: items})
+			items := make([]groupMapView, 0, len(maps))
+			for _, item := range maps {
+				items = append(items, buildGroupMapView(item.UpstreamGroupID, item.CategoryID,
+					groupNames[item.UpstreamGroupID], byID))
+			}
+			return groupMapListView{Items: items}, true
+		})
 }
 
 // upsertGroupMap 处理 PUT /api/v1/admin/product-group-maps/:upstream_group_id（契约 10.4）：
@@ -139,6 +146,8 @@ func (h *groupMapHandler) upsertGroupMap(c *gin.Context) {
 	}
 	setOplogSummary(c, fmt.Sprintf("已保存分组映射：上游分组「%s」→ 分类 #%d（重新导入后生效）",
 		group.Name, saved.CategoryID))
+	// R19 批 2：映射列表本身变了（导入才用映射，故只失效 categories: 族）。
+	h.cache.invalidate(ctx, cachePrefixCategories)
 	response.Success(c, buildGroupMapView(saved.UpstreamGroupID, saved.CategoryID, group.Name, byID))
 }
 
@@ -150,7 +159,8 @@ func (h *groupMapHandler) deleteGroupMap(c *gin.Context) {
 		return
 	}
 
-	err := h.store.DeleteGroupCategoryMap(c.Request.Context(), upstreamGroupID)
+	ctx := c.Request.Context()
+	err := h.store.DeleteGroupCategoryMap(ctx, upstreamGroupID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		response.Fail(c, response.CodeNotFound, "该分组没有映射")
@@ -160,6 +170,8 @@ func (h *groupMapHandler) deleteGroupMap(c *gin.Context) {
 		return
 	}
 	setOplogSummary(c, fmt.Sprintf("已删除上游分组 #%d 的映射（该分组回到自动派生，需重新导入才生效）", upstreamGroupID))
+	// R19 批 2：映射列表变了——失效 categories: 族（同 upsert）。
+	h.cache.invalidate(ctx, cachePrefixCategories)
 	response.Success(c, nil)
 }
 

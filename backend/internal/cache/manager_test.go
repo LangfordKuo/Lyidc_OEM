@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -37,6 +38,7 @@ func (s *stubStore) Get(context.Context, string) ([]byte, bool, error) {
 
 func (s *stubStore) Set(context.Context, string, []byte, time.Duration) error { return s.setErr }
 func (s *stubStore) Delete(context.Context, ...string) error                  { return nil }
+func (s *stubStore) DeletePrefix(context.Context, string) error               { return nil }
 func (s *stubStore) Flush(context.Context) error                              { return nil }
 func (s *stubStore) Ping(context.Context) error                               { return s.pingErr }
 func (s *stubStore) Keys(context.Context) (int64, error)                      { return 0, nil }
@@ -428,6 +430,82 @@ func TestManagerFlushOnlyOwnNamespace(t *testing.T) {
 	}
 	if status := manager.Status(ctx); status.Keys != 0 {
 		t.Fatalf("清空后本命名空间键数量应为 0: %+v", status)
+	}
+}
+
+// TestManagerDeletePrefixOnlyMatchingKeys 覆盖按键族前缀删除（R19 批 2，契约 24.6）：
+// 只删键以该前缀开头的条目，其它键族一个都不动；空前缀拒绝。
+func TestManagerDeletePrefixOnlyMatchingKeys(t *testing.T) {
+	ctx := context.Background()
+	manager := newTestManager(t, Options{})
+	manager.Configure(ctx, Config{Driver: DriverFile, Dir: t.TempDir()})
+
+	for _, key := range []string{"products:catalog", "products:detail:9", "categories:list", "settings:site"} {
+		if err := manager.Set(ctx, key, []byte("v"), time.Hour); err != nil {
+			t.Fatalf("写入键 %q 失败: %v", key, err)
+		}
+	}
+	if err := manager.DeletePrefix(ctx, "products:"); err != nil {
+		t.Fatalf("按前缀删除失败: %v", err)
+	}
+	if _, found := manager.Get(ctx, "products:catalog"); found {
+		t.Fatal("前缀内的键应已删除")
+	}
+	if _, found := manager.Get(ctx, "products:detail:9"); found {
+		t.Fatal("前缀内的键应已删除（含带参数的键）")
+	}
+	if _, found := manager.Get(ctx, "categories:list"); !found {
+		t.Fatal("其它键族不应受影响")
+	}
+	if _, found := manager.Get(ctx, "settings:site"); !found {
+		t.Fatal("其它键族不应受影响")
+	}
+	if err := manager.DeletePrefix(ctx, ""); err == nil {
+		t.Fatal("空前缀必须拒绝（清空全部请用 Flush）")
+	}
+}
+
+// TestManagerDeletePrefixOnRedisOnlyTouchesNamespace 覆盖 Redis 驱动的按前缀删除：
+// 只删 `<key_prefix><业务前缀>*`，同一个 DB 里别的应用、以及本系统其它业务前缀的键一律不动
+// （绝不 FLUSHDB）。
+func TestManagerDeletePrefixOnRedisOnlyTouchesNamespace(t *testing.T) {
+	ctx := context.Background()
+	server := startMiniRedis(t)
+	if err := server.Set("other-app:key", "别人的数据"); err != nil {
+		t.Fatalf("写入外部键失败: %v", err)
+	}
+
+	manager := newTestManager(t, Options{})
+	manager.Configure(ctx, Config{Driver: DriverRedis, Dir: t.TempDir(), Redis: redisConfigFor(t, server)})
+	for _, key := range []string{"products:catalog", "products:admin:list:p1/s20", "categories:list"} {
+		if err := manager.Set(ctx, key, []byte("v"), 0); err != nil {
+			t.Fatalf("写入键 %q 失败: %v", key, err)
+		}
+	}
+
+	if err := manager.DeletePrefix(ctx, "products:"); err != nil {
+		t.Fatalf("按前缀删除失败: %v", err)
+	}
+	remaining := server.Keys()
+	sort.Strings(remaining)
+	want := []string{DefaultKeyPrefix + "categories:list", "other-app:key"}
+	sort.Strings(want)
+	if len(remaining) != len(want) {
+		t.Fatalf("删除后剩余键不符: got=%v want=%v", remaining, want)
+	}
+	for i := range want {
+		if remaining[i] != want[i] {
+			t.Fatalf("删除后剩余键不符: got=%v want=%v", remaining, want)
+		}
+	}
+}
+
+// TestManagerDeletePrefixOnUnconfiguredManager 覆盖未配置管理器上的按前缀删除：
+// 返回错误但不 panic（业务侧只记日志，不影响结果）。
+func TestManagerDeletePrefixOnUnconfiguredManager(t *testing.T) {
+	manager := NewManager(Options{Logger: silentTestLogger()})
+	if err := manager.DeletePrefix(context.Background(), "products:"); err == nil {
+		t.Fatal("未配置驱动时应返回错误")
 	}
 }
 

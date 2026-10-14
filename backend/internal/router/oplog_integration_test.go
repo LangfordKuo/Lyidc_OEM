@@ -35,10 +35,11 @@ func newOplogEngineWithWriter(t *testing.T, gdb *gorm.DB) (*gin.Engine, *oplog.W
 	})
 	t.Cleanup(writer.Close)
 	engine := New(Options{
-		Logger: silentLogger(),
-		DB:     gdb,
-		JWT:    config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-		Oplog:  writer,
+		CacheDir: t.TempDir(),
+		Logger:   silentLogger(),
+		DB:       gdb,
+		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		Oplog:    writer,
 	})
 	return engine, writer
 }
@@ -666,10 +667,11 @@ func TestOperationLogWriteDoesNotBlockRequests(t *testing.T) {
 	})
 
 	engine := New(Options{
-		Logger: silentLogger(),
-		DB:     gdb,
-		JWT:    config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
-		Oplog:  writer,
+		CacheDir: t.TempDir(),
+		Logger:   silentLogger(),
+		DB:       gdb,
+		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		Oplog:    writer,
 	})
 	adminToken, _ := loginAdmin(t, engine, "logadmin", "admin-pass-123")
 

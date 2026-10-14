@@ -51,6 +51,7 @@ func TestDBBackupSettingsEndpoints(t *testing.T) {
 		t.Fatalf("构造备份服务失败：%v", err)
 	}
 	engine := New(Options{
+		CacheDir:    t.TempDir(),
 		Logger:      silentLogger(),
 		DB:          gdb,
 		JWT:         config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

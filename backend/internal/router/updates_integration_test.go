@@ -41,6 +41,7 @@ func TestUpdatesAdminEndpoints(t *testing.T) {
 		Notes:       "说明",
 	}}
 	engine := New(Options{
+		CacheDir:      t.TempDir(),
 		Logger:        silentLogger(),
 		DB:            gdb,
 		JWT:           config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -37,11 +38,33 @@ type siteSettingsUpdateRequest struct {
 }
 
 // getSiteSettings 处理 GET /api/v1/admin/settings/site（契约 22.4）。
+//
+// R19 批 2：读取结果入缓存（键 settings:site）——站点地址与身份无关（它本就是发给上游的
+// 回推地址），改地址时主动失效。注意**只缓存与请求无关的取值与审计字段**：
+// `url_recommended` 按当前请求 Host 现算，不进缓存。
 func (h *settingsHandler) getSiteSettings(c *gin.Context) {
-	state, err := h.reader.Site(c.Request.Context())
+	ctx := c.Request.Context()
+	if h.cache != nil {
+		h.cache.configure(ctx)
+		if raw, ok := h.cache.get(ctx, cacheKeySiteSettings); ok {
+			var entry siteSettingsEntry
+			if err := json.Unmarshal(raw, &entry); err == nil {
+				response.Success(c, entry.viewOf(c))
+				return
+			}
+			// 缓存体损坏：按未命中处理，继续回源（绝不按读不出的内容作答）。
+		}
+	}
+
+	state, err := h.reader.Site(ctx)
 	if err != nil {
 		h.failSettings(c, err)
 		return
+	}
+	if h.cache != nil {
+		if payload, err := json.Marshal(siteSettingsEntryOf(state)); err == nil {
+			h.cache.set(ctx, cacheKeySiteSettings, payload, cacheTTLSiteSettings)
+		}
 	}
 	response.Success(c, siteSettingsViewOf(c, state.Value, state.Meta))
 }
@@ -94,6 +117,8 @@ func (h *settingsHandler) updateSiteSettings(c *gin.Context) {
 	} else {
 		setOplogSummary(c, "已保存站点对外地址设置（"+merged.URL+"）")
 	}
+	// R19 批 2：站点设置的读取缓存立即失效（**尽力而为**，失败只记日志、TTL 兜底）。
+	h.cache.invalidate(ctx, cachePrefixSiteSettings)
 	response.Success(c, siteSettingsViewOf(c, merged, settingMeta(setting)))
 }
 

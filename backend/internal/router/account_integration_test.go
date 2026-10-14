@@ -524,7 +524,7 @@ func TestDisabledMemberIsRejectedEverywhere(t *testing.T) {
 }
 
 func TestAccountRoutesRegistered(t *testing.T) {
-	engine := New(Options{Logger: silentLogger()})
+	engine := New(Options{Logger: silentLogger(), CacheDir: t.TempDir()})
 
 	expected := map[string]bool{
 		http.MethodPost + " /api/v1/auth/register":           false,

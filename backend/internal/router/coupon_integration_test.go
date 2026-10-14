@@ -25,9 +25,10 @@ import (
 func newCouponEngine(t *testing.T, gdb *gorm.DB) *gin.Engine {
 	t.Helper()
 	return New(Options{
-		Logger: silentLogger(),
-		DB:     gdb,
-		JWT:    config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		CacheDir: t.TempDir(),
+		Logger:   silentLogger(),
+		DB:       gdb,
+		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
 	})
 }
 

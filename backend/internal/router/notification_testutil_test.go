@@ -92,6 +92,7 @@ func newTicketNotifyEngine(t *testing.T, gdb *gorm.DB) (*gin.Engine, *notify.Ser
 	t.Helper()
 	service, sender := newTestNotifier(t, gdb)
 	engine := New(Options{
+		CacheDir: t.TempDir(),
 		Logger:   silentLogger(),
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
@@ -108,6 +109,7 @@ func newStage6Engine(t *testing.T, gdb *gorm.DB, client *upstream.Client) (*gin.
 	service, sender := newTestNotifier(t, gdb)
 	provider := upstream.StaticProvider{C: client}
 	engine := New(Options{
+		CacheDir: t.TempDir(),
 		Logger:   logger,
 		DB:       gdb,
 		JWT:      config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},

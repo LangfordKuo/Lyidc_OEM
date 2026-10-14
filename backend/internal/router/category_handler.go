@@ -22,8 +22,13 @@ const (
 )
 
 // categoryHandler 承载 R7 商品两级分类的管理端接口（契约 10.4）。
+//
+// cache 是业务缓存门面（R19 批 2，契约 24.6）：分类树 + 子分类商品计数是**与身份无关**的公开数据；
+// 改分类（改名 / 改排序 / 改挂）会同时影响分类树与商品视图（商品视图带分类归属），
+// 因此 categories: 与 products: 两个键族一起失效。
 type categoryHandler struct {
 	store  *store.Store
+	cache  *bizCache
 	logger *slog.Logger
 }
 
@@ -67,57 +72,62 @@ type adminCategoryListView struct {
 
 // listCategories 处理 GET /api/v1/admin/categories：分类树 + 每个子分类的商品计数。
 // 只读，三类角色都可访问（矩阵见契约 10.5 / 12.7）。
+//
+// R19 批 2：入缓存（键 categories:list，含商品计数）——与身份无关；改分类 / 导入 / 改商品整族失效。
 func (h *categoryHandler) listCategories(c *gin.Context) {
-	ctx := c.Request.Context()
-	categories, err := h.store.ListProductCategories(ctx)
-	if err != nil {
-		failDB(c, h.logger, err)
-		return
-	}
-	counts, err := h.store.ProductCategoryCounts(ctx)
-	if err != nil {
-		failDB(c, h.logger, err)
-		return
-	}
-
-	items := make([]adminCategoryView, 0)
-	for i := range categories {
-		main := &categories[i]
-		if !main.IsMain() {
-			continue
-		}
-		subs := make([]adminSubcategoryView, 0)
-		for j := range categories {
-			sub := &categories[j]
-			if sub.IsMain() || sub.ParentIDValue() != main.ID {
-				continue
+	cachedJSON(c, h.cache, cacheKeyAdminCategories, cacheTTLCategories,
+		func() (adminCategoryListView, bool) {
+			ctx := c.Request.Context()
+			categories, err := h.store.ListProductCategories(ctx)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return adminCategoryListView{}, false
 			}
-			count := counts[sub.ID]
-			subs = append(subs, adminSubcategoryView{
-				ID:   sub.ID,
-				Key:  sub.Key,
-				Name: sub.Name,
-				Sort: sub.Sort,
-				Products: adminGroupCountsView{
-					Total: count.Total,
-					On:    count.On,
-					Off:   count.Off,
-				},
-				CreatedAt: formatTime(sub.CreatedAt),
-				UpdatedAt: formatTime(sub.UpdatedAt),
-			})
-		}
-		items = append(items, adminCategoryView{
-			ID:            main.ID,
-			Key:           main.Key,
-			Name:          main.Name,
-			Sort:          main.Sort,
-			CreatedAt:     formatTime(main.CreatedAt),
-			UpdatedAt:     formatTime(main.UpdatedAt),
-			Subcategories: subs,
+			counts, err := h.store.ProductCategoryCounts(ctx)
+			if err != nil {
+				failDB(c, h.logger, err)
+				return adminCategoryListView{}, false
+			}
+
+			items := make([]adminCategoryView, 0)
+			for i := range categories {
+				main := &categories[i]
+				if !main.IsMain() {
+					continue
+				}
+				subs := make([]adminSubcategoryView, 0)
+				for j := range categories {
+					sub := &categories[j]
+					if sub.IsMain() || sub.ParentIDValue() != main.ID {
+						continue
+					}
+					count := counts[sub.ID]
+					subs = append(subs, adminSubcategoryView{
+						ID:   sub.ID,
+						Key:  sub.Key,
+						Name: sub.Name,
+						Sort: sub.Sort,
+						Products: adminGroupCountsView{
+							Total: count.Total,
+							On:    count.On,
+							Off:   count.Off,
+						},
+						CreatedAt: formatTime(sub.CreatedAt),
+						UpdatedAt: formatTime(sub.UpdatedAt),
+					})
+				}
+				items = append(items, adminCategoryView{
+					ID:            main.ID,
+					Key:           main.Key,
+					Name:          main.Name,
+					Sort:          main.Sort,
+					CreatedAt:     formatTime(main.CreatedAt),
+					UpdatedAt:     formatTime(main.UpdatedAt),
+					Subcategories: subs,
+				})
+			}
+			return adminCategoryListView{Items: items}, true
 		})
-	}
-	response.Success(c, adminCategoryListView{Items: items})
 }
 
 // updateCategory 处理 PUT /api/v1/admin/categories/:id：改名 / 改排序 / 子分类改挂主分类。
@@ -163,7 +173,8 @@ func (h *categoryHandler) updateCategory(c *gin.Context) {
 		update.ParentID = req.ParentID
 	}
 
-	updated, err := h.store.UpdateProductCategory(c.Request.Context(), id, update)
+	ctx := c.Request.Context()
+	updated, err := h.store.UpdateProductCategory(ctx, id, update)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		response.Fail(c, response.CodeNotFound, "分类不存在")
@@ -183,6 +194,8 @@ func (h *categoryHandler) updateCategory(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
+	// R19 批 2：分类名 / 排序 / 归属同时出现在分类树与商品视图（商品带分类归属）——两族一起失效。
+	h.cache.invalidate(ctx, cachePrefixCategories, cachePrefixProducts)
 	setOplogSummary(c, fmt.Sprintf("已更新分类 #%d（%s）", updated.ID, updated.Name))
 	response.Success(c, h.categoryView(c, updated))
 }
