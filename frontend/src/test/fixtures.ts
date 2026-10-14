@@ -15,6 +15,7 @@ import type {
   LedgerEntry,
   Member,
   Notification,
+  OperationLog,
   Order,
   ProductCatalog,
   ProductDetail,
@@ -705,6 +706,29 @@ export function makeDbBackupSettings(overrides: Partial<DbBackupSettings> = {}):
     message: '',
     updated_by: 1,
     updated_at: '2026-10-14T06:00:00Z',
+    ...overrides,
+  }
+}
+
+/**
+ * 操作日志（R18，契约 23.4.1 的响应示例）：默认是一条成功的管理员改设置留痕。
+ * `actor_name` 是用户名快照；定时任务与被鉴权拒绝的尝试是空串（actor_id=0）。
+ */
+export function makeOperationLog(overrides: Partial<OperationLog> = {}): OperationLog {
+  return {
+    id: 1,
+    channel: 'admin',
+    actor_id: 1,
+    actor_name: 'admin',
+    action: '修改站点地址设置',
+    method: 'PUT',
+    path: '/api/v1/admin/settings/site',
+    http_status: 200,
+    status: 'success',
+    ip: '203.0.113.9',
+    duration_ms: 12,
+    summary: '已保存站点对外地址设置（https://oem.example.com）',
+    created_at: '2026-10-14T07:15:00Z',
     ...overrides,
   }
 }

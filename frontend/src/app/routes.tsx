@@ -29,6 +29,7 @@ import AdminInstances from '@/pages/admin/AdminInstances'
 import AdminLogin from '@/pages/admin/AdminLogin'
 import AdminMembers from '@/pages/admin/AdminMembers'
 import AdminNotifications from '@/pages/admin/AdminNotifications'
+import AdminOperationLogs from '@/pages/admin/AdminOperationLogs'
 import AdminOrderDetail from '@/pages/admin/AdminOrderDetail'
 import AdminOrders from '@/pages/admin/AdminOrders'
 import AdminProducts from '@/pages/admin/AdminProducts'
@@ -107,6 +108,8 @@ export const routes: RouteObject[] = [
               { path: 'tickets', element: <AdminTickets /> },
               { path: 'tickets/:id', element: <AdminTicketDetail /> },
               { path: 'settings', element: <AdminSettings /> },
+              // 操作日志（R18 批 2）：三个通道共用本页，通道由 ?channel= 预置。
+              { path: 'logs', element: <AdminOperationLogs /> },
               { path: 'notifications', element: <AdminNotifications /> },
             ],
           },

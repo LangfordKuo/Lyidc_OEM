@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertCircleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -11,6 +12,7 @@ import {
 } from '@/api/adminMembers'
 import { errorMessage } from '@/api/client'
 import type { LedgerEntry, LedgerType, Member, MemberStatus, Recharge } from '@/api/types'
+import { paths } from '@/app/paths'
 import { useAdminAuth } from '@/auth/adminAuthContext'
 import AdminTable, { type AdminColumn } from '@/components/admin/AdminTable'
 import FilterSelect, { AdminFilterBar } from '@/components/admin/FilterSelect'
@@ -218,6 +220,10 @@ export default function AdminMembers() {
           <span className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => setDetail(member)}>
               详情
+            </Button>
+            {/* 该会员的操作留痕（契约 23.11）：跳日志页并预置 channel=member + actor_id */}
+            <Button size="sm" variant="outline" asChild>
+              <Link to={paths.adminMemberOperationLogs(member.id)}>日志</Link>
             </Button>
             {/* support 无 members.status 权限：入口保留但禁用，原因见页面头部说明 */}
             <Button

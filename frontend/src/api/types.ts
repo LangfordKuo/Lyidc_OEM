@@ -1366,3 +1366,46 @@ export interface SiteSettings {
 export interface UpdateSiteSettingsInput {
   url: string
 }
+
+// ---------------------------------------------------------------------------
+// 操作日志（契约第 23 节，R18）
+// ---------------------------------------------------------------------------
+
+/** 操作日志通道（operation_logs.channel）：管理员 / 会员 / 定时任务三类留痕。 */
+export type OplogChannel = 'admin' | 'member' | 'scheduler'
+
+/** 操作日志结果（operation_logs.status）。 */
+export type OplogStatus = 'success' | 'failed'
+
+/**
+ * GET /api/v1/admin/operation-logs 的列表项（契约 23.4.1）。
+ * `actor_name` 是**用户名快照**（账号改名或删除后仍可读）；`summary` 已由后端脱敏。
+ */
+export interface OperationLog {
+  id: number
+  channel: OplogChannel
+  /** 按通道解释为 admins.id / members.id；0 = 系统、定时任务与未登录尝试。 */
+  actor_id: number
+  /** 用户名快照；定时任务与未登录尝试为空串。 */
+  actor_name: string
+  action: string
+  method: string
+  /** 路由模板（如 /api/v1/admin/products/:id）；定时任务为空串。 */
+  path: string
+  http_status: number
+  status: OplogStatus
+  ip: string
+  duration_ms: number
+  summary: string
+  created_at: string
+}
+
+/** DELETE /api/v1/admin/operation-logs?channel=… 的 data（契约 23.4.2）。 */
+export interface ClearOperationLogsResult {
+  /** 本次清空的通道（all = 清空全部）。 */
+  channel: OplogChannel | 'all'
+  /** 删除条数（清空全部时是 TRUNCATE 前的总条数）。 */
+  deleted: number
+  /** 清空留痕写入的通道（未被清空的通道，契约 23.4.2）。 */
+  record_channel: OplogChannel
+}

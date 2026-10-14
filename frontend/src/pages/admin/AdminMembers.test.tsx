@@ -222,6 +222,26 @@ describe('管理后台 · 会员管理', () => {
     })
   })
 
+  it('会员行的「日志」入口跳到日志页并预置 channel=member 与 actor_id（契约 23.11）', async () => {
+    const fetchMock = await renderMembers()
+    const user = userEvent.setup()
+
+    await user.click(screen.getAllByRole('link', { name: '日志' })[0])
+
+    expect(await screen.findByRole('heading', { name: '操作日志' })).toBeInTheDocument()
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes('/api/v1/admin/operation-logs'),
+      )
+      expect(call).toBeTruthy()
+      const url = new URL(String(call?.[0]), 'http://localhost')
+      expect(url.searchParams.get('channel')).toBe('member')
+      expect(url.searchParams.get('actor_id')).toBe('1')
+    })
+    expect(screen.getAllByText(/当前通道：用户日志/).length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('操作人 ID')).toHaveValue('1')
+  })
+
   it('返佣特批比例：客服只读，保存与清空按钮禁用', async () => {
     const fetchMock = await renderMembers('support')
     const user = userEvent.setup()

@@ -1,3 +1,5 @@
+import type { OplogChannel } from '@/api/types'
+
 // 路由路径常量：全站统一引用，避免各处硬编码字符串。
 // 路由命名对齐旧版（第二期范围：官网 + 认证 + 商品 + 下单支付 + 会员区）。
 export const paths = {
@@ -38,6 +40,13 @@ export const paths = {
   adminTicketDetail: (id: number | string) => `/admin/tickets/${id}`,
   adminSettings: '/admin/settings',
   adminNotifications: '/admin/notifications',
+  // 操作日志页（R18 批 2，契约 23.11）：三个通道共用同一个页面，通道由查询参数预置
+  // （可分享、可刷新），侧栏「日志」展开后的三项就是它的三个带参链接。
+  adminOperationLogs: '/admin/logs',
+  adminOperationLogsOf: (channel: OplogChannel) => `/admin/logs?channel=${channel}`,
+  // 会员页的「日志」入口（契约 23.11）：预置 channel=member 与该会员的 actor_id。
+  adminMemberOperationLogs: (memberId: number | string) =>
+    `/admin/logs?channel=member&actor_id=${memberId}`,
 } as const
 
 /** 官网顶栏导航项。 */
@@ -83,5 +92,17 @@ export const adminNavItems = [
   { to: paths.adminInstances, label: '实例', end: false, page: 'instances', description: '实例状态与操作' },
   { to: paths.adminTickets, label: '工单', end: false, page: 'tickets', description: '客服工单处理' },
   { to: paths.adminSettings, label: '设置', end: false, page: 'settings', description: '支付、上游、邮件与通知' },
+  // 日志（R18 批 2）：侧栏的**可展开入口**，展开后是三个通道各自的链接（见 adminOplogNavItems）。
+  { to: paths.adminOperationLogs, label: '日志', end: false, page: 'logs', description: '操作留痕查询与清空' },
   { to: paths.adminNotifications, label: '通知', end: false, page: 'notifications', description: '我的收件箱' },
+] as const
+
+/**
+ * 侧栏「日志」展开后的三项（R18 批 2，契约 23.11）：三项进入**同一个日志页**，
+ * 只是预置的 `channel` 不同；`end` 无意义（同一条路径），选中态由页面按 channel 自行判定。
+ */
+export const adminOplogNavItems = [
+  { to: paths.adminOperationLogsOf('member'), channel: 'member', label: '用户日志' },
+  { to: paths.adminOperationLogsOf('scheduler'), channel: 'scheduler', label: '定时任务日志' },
+  { to: paths.adminOperationLogsOf('admin'), channel: 'admin', label: '管理员日志' },
 ] as const

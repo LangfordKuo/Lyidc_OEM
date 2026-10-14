@@ -128,6 +128,11 @@ func (h *operationLogHandler) listOperationLogs(c *gin.Context) {
 	case errors.Is(err, store.ErrOperationLogKeyword):
 		response.Fail(c, response.CodeInvalidParam, err.Error())
 		return
+	case errors.Is(err, store.ErrOperationLogKeywordTimeout):
+		// 命中过多导致关键字检索被 MySQL 中断（契约 23.5 第 5 条）：回**业务错误** 40002 +
+		// 可读的收窄建议，而不是 500——请求本身没错，是命中集合太大没有参考价值。
+		response.Fail(c, response.CodeValidationFailed, err.Error())
+		return
 	case err != nil:
 		failDB(c, h.logger, err)
 		return

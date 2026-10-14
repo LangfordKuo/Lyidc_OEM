@@ -61,7 +61,7 @@ function sidebarLabels(): string[] {
 }
 
 describe('管理后台 · 角色权限矩阵', () => {
-  it('admin 侧栏含全部 9 个入口（商品与分类合并为一项，R9-B；返佣管理 R10-C）', async () => {
+  it('admin 侧栏含全部 9 个链接入口（商品与分类合并为一项，R9-B）与可展开的「日志」入口（R18 批 2）', async () => {
     await renderAs('admin', '/admin')
     await screen.findByRole('heading', { name: '仪表盘' })
 
@@ -127,6 +127,32 @@ describe('管理后台 · 角色权限矩阵', () => {
     expect(
       fetchMock.mock.calls.some(([input]) => String(input).includes('/admin/settings')),
     ).toBe(false)
+  })
+
+  it('侧栏「日志」入口仅 admin 可见（finance / support 不渲染，直连也不发请求）', async () => {
+    for (const role of ['admin', 'finance', 'support'] as const) {
+      await renderAs(role, '/admin')
+      await screen.findByRole('heading', { name: '仪表盘' })
+
+      const nav = within(screen.getByRole('navigation', { name: '管理后台导航' }))
+      if (role === 'admin') {
+        // 点击展开三项（用户 / 定时任务 / 管理员日志）
+        expect(nav.getByRole('button', { name: '日志' })).toBeInTheDocument()
+      } else {
+        expect(nav.queryByRole('button', { name: '日志' })).not.toBeInTheDocument()
+      }
+      cleanupRender()
+    }
+  })
+
+  it('finance 直接访问日志页：无权占位且不请求日志接口', async () => {
+    const fetchMock = await renderAs('finance', '/admin/logs?channel=admin')
+
+    expect(await screen.findByText('无权访问操作日志')).toBeInTheDocument()
+    expect(screen.getByText(/无权查看与清空操作日志/)).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/admin/operation-logs'))).toBe(
+      false,
+    )
   })
 
   it('订单页为查看类：三个角色都可读', async () => {

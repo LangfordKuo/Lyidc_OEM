@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	gomysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
@@ -25,6 +27,35 @@ const clearOperationLogsBatch = 1000
 
 // ErrOperationLogKeyword 表示关键字搜索的关键字不合法（单字符无法被 ngram 全文索引命中）。
 var ErrOperationLogKeyword = errors.New("关键字至少 2 个字符（中文按字、英文按字母），且不能包含单字符的词")
+
+// ErrOperationLogKeywordTimeout 表示关键字检索命中过多、超出执行超时被 MySQL 中断（契约 23.5 第 5 条）。
+//
+// 背景（契约 23.10 实测）：MySQL 5.7 InnoDB 的 FULLTEXT 会**物化全部命中**，`LIMIT` 截断不了、
+// 加时间窗也帮不上——命中 4.3 万条要 6 秒左右，单个搜索请求会长时间占住一条数据库连接。
+// 因此关键字路径的语句带 MAX_EXECUTION_TIME 提示，超时由 MySQL 中断该语句（连接不受影响），
+// 这里把 MySQL 的中断错误翻译成**可读的业务错误**（接口层回 40002，**不是 500**），
+// 提示用户收窄条件后重试——而不是让请求一直等，也不是丢掉日志表数据。
+var ErrOperationLogKeywordTimeout = errors.New(
+	"关键字命中过多，检索超出执行超时：请缩小范围（加时间窗或通道过滤），或换更精确的关键字")
+
+// OperationLogKeywordTimeoutMS 是关键字检索语句的 MySQL 执行超时预算（毫秒，契约 23.5 第 5 条）。
+//
+// 取值 5 秒的依据见契约 23.10：命中 6 千条约 70 ms、命中 4.5 万条约 3.2 s（耗时与命中集合成正比），
+// 5 秒足以放行所有「有参考价值」的检索，只掐掉命中数万的泛词搜索。
+//
+// **这条保护能做什么、不能做什么（真机实测定稿，见契约 23.10）**：
+//   - 能做：语句超过预算时由 MySQL 中断（错误码 3024），接口回可读的业务错误（40002），
+//     而不是 500、也不是让请求无限等下去；
+//   - 不能做：MySQL 5.7 InnoDB 的**全文索引物化阶段本身不可中断**，超时只在阶段边界的
+//     检查点生效——实测取页语句给 1189 ms 预算仍要 ~3.2 s 才报错（物化跑完才检查）。
+//     因此「语句在预算内跑完」的检索照旧返回结果，这正是想要的语义（结果秒级可得就不该报错）。
+//
+// 声明为变量而非常量：集成测试需要把它调到很小才能稳定构造真实的超时场景；
+// 生产代码只读不写（每次查询现读，故测试改完即生效）。
+var OperationLogKeywordTimeoutMS = 5000
+
+// mysqlQueryTimeout 是 MySQL 的 ER_QUERY_TIMEOUT（语句执行超时被中断）错误码。
+const mysqlQueryTimeout = 3024
 
 // OperationLogInput 是写入一条操作日志的输入（Summary 由调用方保证已脱敏）。
 type OperationLogInput struct {
@@ -113,10 +144,17 @@ func normalizeOperationLogStatus(status string, httpStatus int) string {
 }
 
 // ListOperationLogs 分页查询操作日志（新记录在前），返回当页与总数。
+//
+// 两条路径（契约 23.5）：**无关键字**走常规构建器（毫秒级，索引路径齐备，保持原样）；
+// **有关键字**走 listOperationLogsByKeyword（带 MAX_EXECUTION_TIME 执行超时保护）。
 func (s *Store) ListOperationLogs(ctx context.Context, filter OperationLogFilter) ([]model.OperationLog, int64, error) {
 	db, err := s.session(ctx)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	if filter.Keyword != "" {
+		return s.listOperationLogsByKeyword(db, filter)
 	}
 
 	query := db.Model(&model.OperationLog{})
@@ -135,14 +173,6 @@ func (s *Store) ListOperationLogs(ctx context.Context, filter OperationLogFilter
 	if filter.End != nil {
 		query = query.Where("created_at <= ?", filter.End.UTC())
 	}
-	if filter.Keyword != "" {
-		expr, err := OperationLogKeywordExpr(filter.Keyword)
-		if err != nil {
-			return nil, 0, err
-		}
-		// MATCH 的列必须与迁移 0019 的 ft_operation_logs_search 列序完全一致。
-		query = query.Where("MATCH(action, summary, actor_name) AGAINST (? IN BOOLEAN MODE)", expr)
-	}
 
 	var total int64
 	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
@@ -158,6 +188,94 @@ func (s *Store) ListOperationLogs(ctx context.Context, filter OperationLogFilter
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// listOperationLogsByKeyword 是带关键字的查询路径（契约 23.5 第 5 条）。
+//
+// 为什么手写 SQL 而不用构建器：**只有这一条路径**要在 `SELECT` 之后插入 MySQL 优化器提示
+// `/*+ MAX_EXECUTION_TIME(N) */`（MySQL 要求提示紧跟语句关键字，构建器给不出这个位置）；
+// 条件与取值仍是**参数绑定**（`?` + args），不存在字符串拼接注入。
+// 计数与取页两条语句都带提示（两条都要物化全部命中），且**共用同一个预算**：
+// 第二句只拿「总预算 − 第一句已用时间」，保证一个请求的整体耗时被压在预算附近。
+func (s *Store) listOperationLogsByKeyword(db *gorm.DB, filter OperationLogFilter) ([]model.OperationLog, int64, error) {
+	expr, err := OperationLogKeywordExpr(filter.Keyword)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// MATCH 的列必须与迁移 0019 的 ft_operation_logs_search 列序完全一致。
+	conditions := []string{"MATCH(action, summary, actor_name) AGAINST (? IN BOOLEAN MODE)"}
+	args := []any{expr}
+	if filter.Channel != "" {
+		conditions = append(conditions, "channel = ?")
+		args = append(args, filter.Channel)
+	}
+	if filter.ActorID != nil {
+		conditions = append(conditions, "actor_id = ?")
+		args = append(args, *filter.ActorID)
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.Start != nil {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, filter.Start.UTC())
+	}
+	if filter.End != nil {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, filter.End.UTC())
+	}
+
+	where := " FROM operation_logs WHERE " + strings.Join(conditions, " AND ")
+	budget := OperationLogKeywordTimeoutMS
+
+	var total int64
+	if err := db.Raw(operationLogKeywordCountSQL(budget, where), args...).Row().Scan(&total); err != nil {
+		return nil, 0, classifyOperationLogQueryError(err)
+	}
+
+	items := make([]model.OperationLog, 0)
+	pageArgs := append(append([]any{}, args...), filter.PageSize, (filter.Page-1)*filter.PageSize)
+	if err := db.Raw(operationLogKeywordPageSQL(budget, where), pageArgs...).Scan(&items).Error; err != nil {
+		return nil, 0, classifyOperationLogQueryError(err)
+	}
+	return items, total, nil
+}
+
+// operationLogKeywordCountSQL 组装计数语句（提示紧跟 SELECT）。
+func operationLogKeywordCountSQL(budgetMS int, where string) string {
+	return "SELECT " + operationLogKeywordHint(budgetMS) + "COUNT(*)" + where
+}
+
+// operationLogKeywordPageSQL 组装取页语句（提示紧跟 SELECT）。
+func operationLogKeywordPageSQL(budgetMS int, where string) string {
+	return "SELECT " + operationLogKeywordHint(budgetMS) + "*" + where + " ORDER BY id DESC LIMIT ? OFFSET ?"
+}
+
+// operationLogKeywordHint 返回关键字检索语句的 MySQL 优化器提示（紧跟 SELECT 关键字，契约 23.5 第 5 条）。
+// 它必须出现在 SELECT 之后、结果列之前——这是 MySQL 5.7 认这个提示的唯一位置。
+// timeoutMS 是该语句的可用预算（毫秒；0 在 MySQL 里表示「不限时」，调用方必须保证为正）。
+//
+// **返回值末尾带一个空格**，调用方必须原样拼接：提示的 `*/` 直接接上后面的内容会有坑——
+// `... */COUNT(*)` 尚可，但 `... */*`（提示紧接结果列的 `*`）会让**整个提示被静默忽略**
+// （真机实测：预算 1839 ms 的取页语句照跑 3.17 s，超时保护形同虚设），CLI 里甚至是语法错误。
+func operationLogKeywordHint(timeoutMS int) string {
+	return "/*+ MAX_EXECUTION_TIME(" + strconv.Itoa(timeoutMS) + ") */ "
+}
+
+// classifyOperationLogQueryError 把关键字查询的底层错误归一：
+// MySQL 因超出 MAX_EXECUTION_TIME 中断语句（错误码 3024）时翻译为 ErrOperationLogKeywordTimeout，
+// 由接口层回可读的业务错误；其余错误原样返回（仍走 50001）。
+func classifyOperationLogQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var mysqlErr *gomysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlQueryTimeout {
+		return ErrOperationLogKeywordTimeout
+	}
+	return err
 }
 
 // ClearOperationLogsByChannel 清空单个通道的操作日志，返回删除条数。

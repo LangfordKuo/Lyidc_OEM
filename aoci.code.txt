@@ -8,7 +8,7 @@ AGENTS.md[SG7S]: F:宿主 Agent 使用 AOCI 仓库认知层的接入与收尾合
 Dockerfile.backend[OV8T]: F:多阶段构建后端镜像：golang 静态编译到 alpine 运行 | R:code:deploy/docker/backend-entrypoint.sh,code:backend/cmd/server/main.go,code:backend/cmd/migrate/main.go | A:- | S:构建上下文必须是仓库根；容器内必须监听 0.0.0.0:8080；ARG VERSION/COMMIT/BUILT_AT/UPSTREAM_BASE_URL 注入 buildinfo（R17 上游地址与版本号同机制，缺省空串）；容器里不做一键升级（升级=换镜像+手动 migrate up）
 Dockerfile.frontend[OV7T]: F:多阶段构建前端镜像：node 产物交 nginx 托管并反代后端 | R:code:deploy/docker/nginx-default.conf.template | A:- | S:BACKEND_UPSTREAM 填错表现为首页正常但 /api 与 /install 返回 502；模板由 entrypoint envsubst 渲染，换后端不需重建镜像
 LICENSE[SZ3L]: F:GNU GPL v3 许可证全文 | R:- | A:- | S:-
-README.md[SG6S]: F:项目总览：部署方式、功能清单、目录结构与本地开发命令 | R:code:docs/deploy.md,code:docs/api-contract.md,code:docs/RELEASE.md | A:- | S:改接口先改 docs/api-contract.md 且引用的版本号必须同步（当前 v29）；功能清单含一键自动升级、数据库备份（不提供下载）、上游状态回推、上游地址构建期固定与操作日志三通道
+README.md[SG6S]: F:项目总览：部署方式、功能清单、目录结构与本地开发命令 | R:code:docs/deploy.md,code:docs/api-contract.md,code:docs/RELEASE.md | A:- | S:改接口先改 docs/api-contract.md 且版本号同步（当前 v30）；功能清单含一键升级、数据库备份（不可下载）、上游回推、上游地址构建期固定与操作日志三通道及日志页
 
 ===D:/Project/Lyidc_OEM/.github/workflows/===
 ci.yml[OQ6T]: F:持续集成：后端 gofmt/vet/test 与前端 tsc/build/vitest | R:code:backend/go.mod,code:frontend/package.json | A:- | S:后端集成测试靠 LYIDC_TEST_DSN 指向 MySQL5.7 测试库；gofmt 列出未格式化文件即失败拒绝合并
@@ -145,7 +145,7 @@ host_sync_handler.go[EI8M]: F:上游状态回推接收端 POST /api/host/sync：
 host_sync_rule.go[KI8T]: F:上游回推的签名算法与 domainstatus 状态映射纯逻辑 | R:code:backend/internal/router/host_sync_handler.go,code:backend/internal/model/instance.go | A:hostSyncSignature,hostSyncSignPayload,hostSyncStatus | S:签名 = upper(md5(json_encode(ksort({id,rand_str,token}))))：id 必须为字符串（PHP 口径）、键序 id<rand_str<token、关 HTML 转义（否则与 PHP 不一致；改算法必同步 golden）；映射只认 Active/Suspended/Deleted，其余值不改本地状态（Cancelled 依 5c 定稿刻意不映射：cancelled 保留不再写入，写它会让主机仍在运行的会员失去操作能力）
 settings_site_handler.go[EC6S]: F:「站点对外地址」设置接口：site 键里 url 一项的读写（该地址即回推用的 downstream_url） | R:code:backend/internal/settings/site.go,code:backend/internal/router/settings_handler.go,code:backend/internal/router/router.go | A:getSiteSettings,updateSiteSettings,siteSettingsViewOf | S:仅 admin（含读取）；url 必填（缺席 40001）、非法地址 40002 且不落库；只改 url，向导写入的 name/admin_email 保留；url_recommended 按当前请求推断；保存写日志摘要记生效地址
 oplog_actions.go[EB7T]: F:「方法 + 路由模板 → 中文动作名」映射表与兜底（R18 操作日志单一维护点） | R:code:backend/internal/router/oplog_middleware.go | A:oplogActionName,changedLabel | S:新增写路由必须在此补中文动作名；漏补不会漏日志——兜底是「METHOD /path」；键必须与 gin 的 FullPath 完全一致（含 :id 参数名）
-oplog_handler.go[EB7M]: F:操作日志管理端接口：列表（高级搜索）与清空（仅 admin，无按条删改） | R:code:backend/internal/store/operation_log.go,code:backend/internal/oplog/writer.go,code:backend/internal/router/oplog_middleware.go | A:listOperationLogs,clearOperationLogs,oplogTimeQuery | S:清空前先 Flush 在途缓冲，返回时被清通道确实为空；留痕写未被清空的通道（默认 admin，范围含 admin 时改写 scheduler）；清空请求自身 skipOplog；纯日期 end 按当日 23:59:59
+oplog_handler.go[EB7M]: F:操作日志管理端接口：列表（高级搜索）与清空（仅 admin，无按条删改） | R:code:backend/internal/store/operation_log.go,code:backend/internal/oplog/writer.go,code:backend/internal/router/oplog_middleware.go | A:listOperationLogs,clearOperationLogs,oplogTimeQuery | S:清空前先 Flush 缓冲（返回时被清通道确实为空）；留痕写未被清空的通道（默认 admin，含 admin 改写 scheduler）；该请求自身 skipOplog；日期型 end 含当日；检索超时回 40002
 oplog_middleware.go[MB9S]: F:管理端/会员端写操作的操作日志兜底中间件与处理器补充助手 | R:code:backend/internal/router/oplog_actions.go,code:backend/internal/oplog/writer.go,code:backend/internal/router/router.go | A:recordOperation,setOplogAction,setOplogSummary,setOplogActor,skipOplog | S:挂在鉴权中间件之前故 401/403 也留痕；只记写方法且未注册路径的 404 不经过它（防扫描器刷表）；处理器补充值优先于映射表；skipOplog 仅清空接口使用（它自写留痕）
 
 ===D:/Project/Lyidc_OEM/backend/internal/scheduler/===
@@ -183,7 +183,7 @@ ticket.go[PB7M]: F:工单与消息落库：创建、回复、关闭 | R:code:bac
 payout.go[PB8L]: F:提现/转余额申请落库、冻结与审核打款事务 | R:code:backend/internal/model/referral_payout.go,code:backend/internal/model/ledger.go,code:backend/internal/store/store.go | A:CreatePayout,ListPayouts,PayoutByID,ReviewPayout,MarkPayoutPaid,SetMemberRebateOverride | S:withdraw 提交即冻结返现余额、reject 退回；convert 审核通过才换算（返现减+消费加+两端各一条 ledger），reject 不动钱；可用余额=rebate_balance−在途 convert 且在行锁下校验；reviewed_at/paid_at 首写不覆盖，重复动作回 already=true
 referral.go[PB8L]: F:邀请码生成、邀请绑定、返佣发放/回滚与返现余额事务 | R:code:backend/internal/model/referral_rebate.go,code:backend/internal/model/ledger.go,code:backend/internal/pricing/referral.go | A:EnsureInviteCode,MemberByInviteCode,BindInviter,RollbackReferralRebate,ListReferralRebates,ReferralSummary | S:返佣挂在入账口不挂在交付，referral_rebates.order_id 唯一为幂等锚点；不发放条件（总开关关/未绑邀请人/商品禁用/结果为 0）一律返回 nil 不阻断入账；rebate_balance 可为负且变动时不校验余额不足；首绑不改
 product_group_map.go[PB7S]: F:「上游分组 → 本地子分类」映射落库：列表、按分组查询、upsert 与删除（契约 10.4） | R:code:backend/internal/model/product.go | A:ListGroupCategoryMaps,GroupCategoryMapByUpstreamID,UpsertGroupCategoryMap,DeleteGroupCategoryMap | S:唯一键 upstream_group_id 决定 upsert 语义（已存在则改 category_id，否则新建）；调用方必须先校验 category_id 指向存在的子分类——store 只落库不查分类表；删除不存在返回 ErrNotFound
-operation_log.go[PO8M]: F:操作日志落库：批量写入、分页查询（含 FULLTEXT 关键字）与按通道/全表清空 | R:code:backend/internal/model/operation_log.go,code:backend/internal/oplog/writer.go | A:AppendOperationLogs,ListOperationLogs,ClearOperationLogsByChannel,TruncateOperationLogs,OperationLogKeywordExpr | S:关键字编译成布尔模式引号短语（多词 AND），单字符返回 ErrOperationLogKeyword——ngram_token_size=2 索引不到单字，绝不退回全表 LIKE；MATCH 列序必须与迁移 0019 的 ft_operation_logs_search 一致；按通道清空分批 DELETE（每批 1000），清空全部用 TRUNCATE（自增归零）
+operation_log.go[PO8M]: F:操作日志落库：批量写入、分页查询（含 FULLTEXT 关键字与执行超时保护）与按通道/全表清空 | R:code:backend/internal/model/operation_log.go,code:backend/internal/oplog/writer.go,code:backend/internal/router/oplog_handler.go | A:AppendOperationLogs,ListOperationLogs,ClearOperationLogsByChannel,TruncateOperationLogs,OperationLogKeywordExpr | S:关键字编译成布尔短语（多词 AND），单字符回 ErrOperationLogKeyword（ngram=2 索引不到单字，不退 LIKE）；MATCH 列序须与迁移 0019 一致；手写 SQL 只为把 MAX_EXECUTION_TIME 放到 SELECT 后，`*/` 后须留空格（`*/*` 会被 MySQL 静默忽略）；超时只在阶段边界生效（FTS 物化不可中断），3024 译成 ErrOperationLogKeywordTimeout
 
 ===D:/Project/Lyidc_OEM/backend/internal/upstream/===
 actions.go[IL8L]: F:上游主机模块操作：电源/重装/改密/暂停与开通续费 | R:code:backend/internal/upstream/client.go,code:backend/internal/upstream/types.go | A:CreateHost,RenewHost,Reinstall,ResetPassword,Suspend,Unsuspend | S:上游受理即返回属异步语义；func 参数名取自上游 v3.7.5 ProvisionController，升级上游须核对方法名
@@ -245,7 +245,7 @@ nginx-default.conf.template[OV7T]: F:前端 nginx 站点配置模板（envsubst 
 
 ===D:/Project/Lyidc_OEM/docs/===
 RELEASE.md[SO6T]: F:发版流程、tag 命名规则与发布后核对清单 | R:code:.github/workflows/release.yml | A:- | S:tag 必须 v 前缀才触发流水线；latest 只在 v* tag 更新；发布后用上一版部署在「系统更新」核对新版本与产物
-api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码；最新 v29（R18 操作日志：第 23 节 + 迁移 0019，三通道/列表/清空/仅 admin/无按条删改；恢复保留可执行注释），v28 为 R17 上游地址构建期固定（PUT 出现 base_url 一律 40002），v27 为 R16 回推（第 22 节，不套统一响应包 + 签名向量）；23.10 记录 5 万条性能实测
+api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码；最新 v30（R18 批 2：管理端日志页 23.11 + 关键字检索 5 秒执行超时 23.5），v29 为 R18 三通道日志（第 23 节 + 迁移 0019）；23.10 的实测数字（4.5 万命中 ~6.5 s、12 万命中单条 22 s 被超时中断）是超时口径的依据
 deploy.md[SO7M]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种部署方式收尾都走同一安装向导（compose 第 2 步填 mysql）；备份默认挂载 deploy/backups/；容器不适用一键升级；上游地址构建期固定，本地打包要给 UPSTREAM_BASE_URL
 
 ===D:/Project/Lyidc_OEM/docs/references/upstream/===
@@ -302,17 +302,18 @@ orders.ts[EB6S]: F:会员订单与支付接口封装 | R:code:frontend/src/api/c
 products.ts[EB5T]: F:商品目录公开接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchProductCatalog,fetchProductDetail | S:只暴露已上架商品且不含任何上游 ID
 tickets.ts[EB6S]: F:会员工单接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:createTicket,fetchMyTickets,replyTicket,closeTicket | S:标题 5-100、正文 1-5000 字符；未关闭工单上限 20
 tokens.ts[CS8T]: F:会员/管理端 token 与资料缓存的本地存取 | R:code:frontend/src/api/client.ts | A:getMemberToken,setMemberToken,getAdminToken,clearAdminToken | S:两类 token 存储键完全分离互不覆盖；token 只注入 Authorization 头不写日志
-types.ts[CG8L]: F:前后端契约响应类型的前端映射 | R:code:docs/api-contract.md,code:backend/internal/response/response.go | A:Paged,UpdateStatus,DbBackupSettings,SiteSettings,UpdateSiteSettingsInput | S:类型与契约响应包 examples 一一对应，改契约须同步本文件；UpstreamSettings.base_url 只读且恒带 base_url_fixed，UpdateUpstreamSettingsInput 刻意不含 base_url（提交即被后端 40002）；ConfigOption.tiers 是数量型挑档位的唯一依据（values[].qty_* 是并集）；SiteSettings 对应 22.4
+types.ts[CG8L]: F:前后端契约响应类型的前端映射 | R:code:docs/api-contract.md,code:backend/internal/response/response.go | A:Paged,OperationLog,ClearOperationLogsResult,DbBackupSettings,SiteSettings,UpdateSiteSettingsInput | S:类型与契约响应包 examples 一一对应，改契约须同步本文件；UpstreamSettings.base_url 只读且恒带 base_url_fixed，UpdateUpstreamSettingsInput 刻意不含 base_url（提交即被后端 40002）；ConfigOption.tiers 是数量型挑档位的唯一依据（values[].qty_* 是并集）；SiteSettings 对应 22.4；OperationLog 对应 23.4（actor_name 是用户名快照、summary 已脱敏）
 adminReferral.ts[EB7T]: F:管理端返佣管理接口封装（提现/转余额审核与打款） | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:listAdminWithdrawals,listAdminConversions,reviewAdminWithdrawal,markAdminWithdrawalPaid,reviewAdminConversion | S:审核与打款仅 admin 调用、查看类 admin/finance；返回的账号信息已脱敏，禁止在界面二次还原或写日志
 referral.ts[EB7S]: F:会员邀请返现与自建券/提现/转余额接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts | A:fetchReferral,updateReferral,listReferralRebates,listReferralInvitees,createReferralCoupon | S:全部要求会员 token 且只能操作本人数据；金额一律定点小数字符串勿转 number 计算；开通返现会惰性生成邀请码，概览返回的 invite_link 直接展示不再拼接
 adminUpdates.ts[EI5T]: F:系统更新与一键升级的管理端接口封装 | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts,code:frontend/src/hooks/useAdminUpdateStatus.ts | A:fetchAdminUpdateStatus,checkAdminUpdates,applyAdminUpdate,fetchAdminUpdateJob | S:全部要求 admin token；检查与发起超时放宽到 30 秒；前置检查拒绝以 ApiError 抛出，由页面展示 message
 adminBackups.ts[EI6T]: F:管理端数据库备份与恢复接口封装（无任何下载接口） | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts,code:docs/api-contract.md | A:fetchDbBackups,createDbBackup,restoreDbBackup,deleteDbBackup | S:只回元信息、没有下载入口；导出与恢复是同步操作，超时放宽到 5 分钟；恢复必须回传 confirm=true 与当前管理员密码
+adminOperationLogs.ts[EO6T]: F:管理端操作日志接口封装：列表（高级搜索）与清空（仅 admin，无按条删改） | R:code:frontend/src/api/client.ts,code:frontend/src/api/types.ts,code:docs/api-contract.md | A:listOperationLogs,clearOperationLogs | S:列表与清空都仅 admin（finance/support 403），界面按同一矩阵隐藏入口；关键字至少 2 个字符（单字符后端 40001）；**没有**按条删除或修改的接口，只允许整体清空
 
 ===D:/Project/Lyidc_OEM/frontend/src/app/===
-paths.ts[AU6T]: F:全站路由路径常量与导航配置 | R:code:frontend/src/app/routes.tsx | A:paths,siteNavItems,consoleNavItems,adminNavItems | S:管理端商品与分类合并为单一入口，分类用 ?tab=categories 页签表示；adminCategories 常量只是旧地址重定向源，不得再加回独立「分类」导航项
+paths.ts[AU6T]: F:全站路由路径常量与导航配置 | R:code:frontend/src/app/routes.tsx,code:frontend/src/components/admin/AdminLayout.tsx | A:paths,siteNavItems,consoleNavItems,adminNavItems,adminOplogNavItems | S:管理端商品与分类合并为单一入口，分类用 ?tab=categories；adminCategories 只是旧地址重定向源；日志只有一个路径 /admin/logs，三通道靠 adminOperationLogsOf 的 ?channel= 区分
 providers.tsx[EA6T]: F:应用级 Provider 装配：双认证上下文与全局 toast | R:code:frontend/src/auth/AuthProvider.tsx,code:frontend/src/auth/AdminAuthProvider.tsx | A:AppProviders | S:会员与管理端登录态完全隔离，测试 harness 复用同一份 Provider
 router.tsx[EA5T]: F:浏览器路由实例 | R:code:frontend/src/app/routes.tsx | A:router | S:测试用 createMemoryRouter(routes) 复用同一套路由定义
-routes.tsx[EG7S]: F:全站路由表：官网、会员区与管理后台 | R:code:frontend/src/app/paths.ts,code:frontend/src/auth/RequireAuth.tsx,code:frontend/src/auth/RequireAdmin.tsx | A:routes | S:会员区经 RequireAuth、管理后台经 RequireAdmin 守卫；旧地址 /admin/categories 重定向到 /admin/products?tab=categories 不得 404；改路由须同步 paths.ts
+routes.tsx[EG7S]: F:全站路由表：官网、会员区与管理后台 | R:code:frontend/src/app/paths.ts,code:frontend/src/auth/RequireAuth.tsx,code:frontend/src/auth/RequireAdmin.tsx | A:routes | S:会员区经 RequireAuth、管理后台经 RequireAdmin 守卫；旧地址 /admin/categories 重定向到商品页分类页签不得 404；改路由须同步 paths.ts；/admin/logs 三通道共用同一组件
 
 ===D:/Project/Lyidc_OEM/frontend/src/auth/===
 AdminAuthProvider.tsx[IS7S]: F:管理端登录态 Provider：资料拉取、登录与 401 清理 | R:code:frontend/src/api/adminAuth.ts,code:frontend/src/api/tokens.ts,code:frontend/src/auth/adminAuthContext.ts | A:AdminAuthProvider | S:与会员侧完全隔离互不影响；管理端 401 只清 admin token 并通知守卫跳后台登录页
@@ -323,7 +324,7 @@ adminAuthContext.ts[IS6T]: F:管理端登录态上下文定义与 hook | R:code:
 authContext.ts[IS6T]: F:会员登录态上下文定义与 hook | R:code:frontend/src/auth/AuthProvider.tsx | A:AuthContext,useAuth | S:setBalance 供支付后同步本地余额，服务端数据始终为准
 
 ===D:/Project/Lyidc_OEM/frontend/src/components/admin/===
-AdminLayout.tsx[AU7M]: F:管理后台布局：侧边导航与内容出口 | R:code:frontend/src/app/paths.ts,code:frontend/src/lib/adminRoles.ts,code:frontend/src/hooks/useAdminUpdateStatus.ts | A:AdminLayout | S:导航入口按角色矩阵显隐；红点只在 settings.access 为真时请求（非 admin 不发越权请求）；登出必须 reset 账号状态，防下一位登录者沿用
+AdminLayout.tsx[AU7M]: F:管理后台布局：侧边导航与内容出口（含可展开的「日志」入口） | R:code:frontend/src/app/paths.ts,code:frontend/src/lib/adminRoles.ts,code:frontend/src/hooks/useAdminUpdateStatus.ts | A:AdminLayout,OplogNavGroup | S:导航按角色矩阵显隐；红点只在 settings.access 为真时请求；登出须 reset 账号状态；「日志」是按钮（aria-expanded 展开），子项同路径带参，选中态比 channel（NavLink 只看 pathname）
 AdminTable.tsx[AU5T]: F:管理端表格封装：列头、空态与行渲染 | R:code:frontend/src/components/common/PageState.tsx | A:AdminTable | S:-
 FilterSelect.tsx[AU5T]: F:管理端筛选下拉与筛选条封装 | R:code:frontend/src/components/ui/select.tsx | A:FilterSelect,AdminFilterBar | S:空串表示不筛选，但 Radix Select 不接受空串 value，内部用哨兵值 __all__ 承接
 NoPermission.tsx[MS6T]: F:整页无权限统一占位 | R:code:frontend/src/lib/adminRoles.ts,code:frontend/src/app/paths.ts | A:NoPermission | S:与隐藏入口加服务端 403 配套，直接敲 URL 也不发无权限请求
@@ -413,7 +414,7 @@ useUnreadCount.ts[EM5S]: F:会员未读通知计数的模块级 store | R:code:f
 useAdminUpdateStatus.ts[EO5T]: F:管理端更新状态的模块级 store：红点数据源与缓存读取 | R:code:frontend/src/api/adminUpdates.ts,code:frontend/src/components/admin/AdminLayout.tsx,code:frontend/src/components/admin/UpdateDot.tsx | A:useAdminUpdateStatus,useAdminUpdateStatusEffect,setAdminUpdateStatus,refreshAdminUpdateStatus,resetAdminUpdateStatus | S:与未读通知 store 同构但完全独立（防切换登录态串号）；红点只读缓存不出网；enabled=false 时不发请求；登出必须 reset
 
 ===D:/Project/Lyidc_OEM/frontend/src/lib/===
-adminRoles.ts[MS8S]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,permissionHint,canAccessAdminPage,AdminPermission,AdminPage | S:无权限入口隐藏或禁用且不发无权限请求，服务端仍独立 403；商品与分类合并页只有一个页面键 products；referral.read=admin/finance、referral.review=仅 admin
+adminRoles.ts[MS8S]: F:管理端角色矩阵与权限判定 | R:code:docs/api-contract.md,code:frontend/src/api/types.ts | A:hasPermission,permissionHint,canAccessAdminPage,AdminPermission,AdminPage | S:无权限入口隐藏或禁用且不发无权限请求，服务端仍独立 403；商品与分类合并页只有一个页面键 products；referral.read=admin/finance、referral.review=仅 admin；logs.read=仅 admin，既是侧栏「日志」入口也是整页闸门（直连 URL 同样按它给无权占位）
 checkout.ts[KB6S]: F:下单草稿与最近订单的会话存储 | R:code:frontend/src/lib/storage.ts | A:saveCheckoutDraft,readCheckoutDraft,rememberOrder | S:存 sessionStorage 关标签页即失效；草稿键带 product_id 防互相覆盖
 clipboard.ts[CS4T]: F:剪贴板复制兜底封装 | R:- | A:copyText | S:navigator.clipboard 在非安全上下文缺失，失败返回 false 不抛错
 configControl.ts[KB8L]: F:配置项控件形态判定与数量取值规则 | R:code:frontend/src/api/types.ts | A:configControl,isQuantityOption,quantityRange,defaultConfigValue | S:option_type 到控件的映射来自上游 159 个商品实测；数量型传数量而非子项 id，与后端口径一致
@@ -439,6 +440,7 @@ ticketStatus.ts[PB5T]: F:工单状态与分类文案映射 | R:code:frontend/src
 utils.ts[CZ2T]: F:cn 类名合并工具再导出 | R:- | A:cn | S:-
 validate.ts[CS7M]: F:表单校验 schema 与各业务字段校验纯逻辑 | R:code:docs/api-contract.md,code:frontend/src/lib/format.ts | A:loginSchema,registerSchema,validateRechargeAmount,validateUpdatesRepo | S:密码按 UTF-8 字节（8-72）与后端 bcrypt 口径一致；充值 1.00~50000.00 与后端一致；前端校验只做提示，最终以后端 40001/40002 为准
 referralText.ts[PB6T]: F:返佣出账与返佣流水的文案和色调映射 | R:code:frontend/src/lib/orderStatus.ts | A:PAYOUT_STATUS_LABELS,PAYOUT_KIND_LABELS,payoutStatusLabel,referralRebateStatusLabel,ratioSourceLabel | S:未知状态/类型原样回退返回入参不抛错；StatusTone 缺省归 pending
+oplogText.ts[PO5T]: F:操作日志的通道/结果文案与结果色调映射 | R:code:frontend/src/api/types.ts,code:frontend/src/lib/orderStatus.ts | A:OPLOG_CHANNEL_LABELS,OPLOG_STATUS_LABELS,oplogStatusTone,oplogActorName,oplogLargeResultHint | S:色调只从 statusTone 出口取（页面不得硬编码颜色）；actor_name 空串表示定时任务或被拒的写请求，显示占位符不猜操作人；命中较多提示阈值 1000，对应契约 23.10 的实测
 
 ===D:/Project/Lyidc_OEM/frontend/src/pages/===
 Checkout.tsx[EB8L]: F:下单结算页：配置确认、优惠码试算与支付发起 | R:code:frontend/src/lib/checkout.ts,code:frontend/src/api/orders.ts,code:frontend/src/components/checkout/PayDialog.tsx | A:Checkout | S:优惠码校验通过不代表下单一定成功，下单接口会重新判定；下单成功后取消入口仅限 pending
@@ -464,7 +466,7 @@ AdminDashboard.tsx[EB6M]: F:管理后台仪表盘：指标卡与快捷入口 | R
 AdminInstanceDetail.tsx[DU8L]: F:管理端实例详情：同步、暂停恢复与终止收敛 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/lib/adminRoles.ts | A:AdminInstanceDetail | S:同步发现上游已删除会走终止收敛；暂停必须填原因，恢复仅 suspended 可用
 AdminInstances.tsx[DU6M]: F:管理端实例列表页 | R:code:frontend/src/api/adminInstances.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminInstances | S:-
 AdminLogin.tsx[IS6S]: F:管理端登录页 | R:code:frontend/src/auth/adminAuthContext.ts,code:frontend/src/lib/redirect.ts | A:AdminLogin | S:登录后回跳地址走 safeRedirect 校验防开放重定向
-AdminMembers.tsx[EI7L]: F:管理端会员管理：列表、状态、财务查询与返佣特批 | R:code:frontend/src/api/adminMembers.ts,code:frontend/src/lib/adminRoles.ts | A:AdminMembers | S:改会员状态仅 admin/finance，support 只读；禁用立即生效使已发 token 失效；特批比例写走 members.rebate 权限点且三态提交
+AdminMembers.tsx[EI7L]: F:管理端会员管理：列表、状态、财务查询、返佣特批与会员日志直达入口 | R:code:frontend/src/api/adminMembers.ts,code:frontend/src/lib/adminRoles.ts,code:frontend/src/app/paths.ts | A:AdminMembers,MemberDetailDialog,RebateOverrideEditor | S:改会员状态仅 admin/finance，support 只读；禁用立即生效使已发 token 失效；特批比例走 members.rebate 三态提交；行内「日志」跳 /admin/logs?channel=member&actor_id=本人
 AdminNotifications.tsx[EM6S]: F:管理端站内通知页 | R:code:frontend/src/api/adminNotifications.ts,code:frontend/src/hooks/useAdminUnreadCount.ts | A:AdminNotifications | S:-
 AdminOrderDetail.tsx[EB7M]: F:管理端订单详情：交付重试与明细 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/lib/adminRoles.ts | A:AdminOrderDetail | S:重试交付仅限 failed 订单，认领失败说明已在交付中或已完成
 AdminOrders.tsx[EB6M]: F:管理端订单列表页 | R:code:frontend/src/api/adminOrders.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminOrders | S:三角色均可读列表与详情，便于客服协助查询
@@ -473,9 +475,10 @@ AdminSettings.tsx[EC9L]: F:后台设置页：系统更新、数据库备份、�
 AdminTicketDetail.tsx[EB7M]: F:管理端工单详情：公开回复、内部备注与关闭 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/lib/adminRoles.ts | A:AdminTicketDetail | S:内部备注不改变工单状态且会员不可见；公开回复后状态转 replied
 AdminTickets.tsx[EB6M]: F:管理端工单列表页 | R:code:frontend/src/api/adminTickets.ts,code:frontend/src/components/admin/AdminTable.tsx | A:AdminTickets | S:-
 AdminReferral.tsx[EI8L]: F:管理端返佣管理：提现/转余额审核、打款与返佣流水对账 | R:code:frontend/src/api/adminReferral.ts,code:frontend/src/lib/referralText.ts,code:frontend/src/lib/adminRoles.ts | A:AdminReferral | S:查看类 referral.read=admin/finance、审核打款 referral.review=仅 admin，按钮按权限禁用并给原因；返佣流水复用 GET /admin/ledger?type=referral_rebate 对账
+AdminOperationLogs.tsx[EO7L]: F:管理后台「日志」页：三通道留痕的查询、高级搜索、分页与整体清空 | R:code:frontend/src/api/adminOperationLogs.ts,code:frontend/src/lib/oplogText.ts,code:frontend/src/components/admin/NoPermission.tsx | A:AdminOperationLogs | S:闸门 logs.read（仅 admin）：非 admin 直连只给无权占位且不发请求；channel/actor_id 由 URL 预置（变化时渲染期校正 state）；清空只有整体清空；无按条删改控件
 
 ===D:/Project/Lyidc_OEM/frontend/src/test/===
-fixtures.ts[TG6L]: F:前端测试的契约数据夹具 | R:code:frontend/src/api/types.ts,code:docs/api-contract.md | A:fixtures,makeUpdateStatus,makeUpdateJob,makeDbBackupList,makeDbBackupSettings | S:夹具形状必须与契约响应包一致，改契约须同步否则测试失真；多档位数量型须同时给并集 values 与真实 tiers；makeDbBackupSettings 缺省态与 makeDbBackupList 的缺省目录口径一致
+fixtures.ts[TG6L]: F:前端测试的契约数据夹具 | R:code:frontend/src/api/types.ts,code:docs/api-contract.md | A:fixtures,makeUpdateStatus,makeDbBackupList,makeDbBackupSettings,makeOperationLog | S:夹具形状必须与契约响应包一致，改契约须同步否则测试失真；多档位数量型须同时给并集 values 与真实 tiers；makeOperationLog 取自契约 23.4.1 示例
 harness.tsx[TG6S]: F:测试渲染 harness：真实路由表与 Provider | R:code:frontend/src/app/routes.tsx,code:frontend/src/app/providers.tsx | A:renderApp,mockFetch | S:用 createMemoryRouter 复用真实路由，mock 只替换 fetch 不改组件结构
 setup.ts[TQ5T]: F:测试环境 setup：jsdom 浏览器 API 补齐 | R:- | A:- | S:Radix 组件在 jsdom 依赖 scrollIntoView/pointer capture，缺失会直接抛错
 

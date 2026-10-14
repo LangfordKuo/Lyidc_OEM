@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -770,5 +771,98 @@ func TestOperationLogSchedulerRoundAndSuspendDetail(t *testing.T) {
 	if detail.Action != "到期自动暂停" || detail.Status != model.OplogStatusSuccess ||
 		!strings.Contains(detail.Summary, "实例 #"+itoa(instance.ID)) {
 		t.Fatalf("暂停明细留痕异常: %+v", detail)
+	}
+}
+
+// seedOperationLogKeywordRows 造 count 条命中同一中文关键字的日志（分批写入，避免单条 INSERT 过大）。
+func seedOperationLogKeywordRows(t *testing.T, gdb *gorm.DB, count int) {
+	t.Helper()
+	const batch = 2000
+	for written := 0; written < count; written += batch {
+		size := batch
+		if remaining := count - written; remaining < size {
+			size = remaining
+		}
+		entries := make([]store.OperationLogInput, 0, size)
+		for i := 0; i < size; i++ {
+			entries = append(entries, store.OperationLogInput{
+				Channel:   model.OplogChannelScheduler,
+				Action:    "定时任务：到期扫描",
+				Summary:   "修改上游设置的备份目录（性能造数）",
+				Status:    model.OplogStatusSuccess,
+				CreatedAt: time.Now().UTC(),
+			})
+		}
+		seedOperationLogs(t, gdb, entries...)
+	}
+	// InnoDB 全文索引先把新文档放进内存缓存（innodb_ft_cache_size），**缓存未同步到磁盘索引前搜不到**：
+	// 实测分批插入 2 万行后只能搜到 1 万行。OPTIMIZE（recreate + analyze）按表数据重建 FTS 索引，
+	// 使全部行立即可检索，断言才不随缓存同步时机飘移。
+	if err := gdb.Exec("OPTIMIZE TABLE operation_logs").Error; err != nil {
+		t.Fatalf("重建操作日志全文索引失败: %v", err)
+	}
+}
+
+// TestOperationLogKeywordSearchTimeout 覆盖关键字检索的执行超时保护（契约 23.5 第 5 条）：
+// 命中数很大时不再让请求一直等下去，而是回可读的业务错误（40002 + 收窄建议）；
+// 无关键字的列表/筛选**不受影响**（同样把超时压到 1 毫秒也照常返回）。
+//
+// 真机口径：造 1.2 万条命中同一中文关键字的日志——MySQL 5.7 InnoDB 的 FULLTEXT 会物化全部命中，
+// 本机实测该规模的计数语句约 0.2–0.3 秒（契约 23.10 的同口径实测：耗时与命中集合成正比）。
+// 超时阈值不写死：先量一次真实耗时当基线（用默认 5 秒，不会被打断），再把超时压到基线的 1/8
+// （下限 20 毫秒）——机器再快也跑不出 8 倍差距，因此断言稳定，而不是赌某个固定毫秒数。
+func TestOperationLogKeywordSearchTimeout(t *testing.T) {
+	gdb := testDatabase(t)
+	engine := newOplogEngine(t, gdb)
+	seedAdmin(t, gdb, "logtimeout", "admin-pass-123", model.RoleAdmin, model.StatusActive)
+	token, _ := loginAdmin(t, engine, "logtimeout", "admin-pass-123")
+
+	const rows = 12000
+	seedOperationLogKeywordRows(t, gdb, rows)
+
+	original := store.OperationLogKeywordTimeoutMS
+	t.Cleanup(func() { store.OperationLogKeywordTimeoutMS = original })
+
+	keywordQuery := "?keyword=" + url.QueryEscape("上游设置")
+
+	// ① 基线：默认 5 秒超时下量一次真实耗时（同时也是「关键字检索本身没有被禁掉」的断言）。
+	baselineStart := time.Now()
+	view := listOperationLogsRequest(t, engine, keywordQuery, token)
+	baseline := time.Since(baselineStart)
+	if view.Total != rows || len(view.Items) == 0 {
+		t.Fatalf("关键字检索结果 = total %d / 当页 %d 条，期望 total=%d 且有数据",
+			view.Total, len(view.Items), rows)
+	}
+	if baseline < 20*time.Millisecond {
+		t.Fatalf("基线耗时 %v 过短，无法构造可信的超时场景（造数未生效？）", baseline)
+	}
+
+	// ② 把预算压到基线的 1/8：语句必定超出预算 → MySQL 中断（3024）→ 40002 + 可读提示
+	// （**不是 500**、也不是让请求无限等下去）。
+	// 断言只看「结局」不看具体在哪个检查点被掐断：MySQL 5.7 InnoDB 的全文索引物化阶段
+	// 不可中断，超时只在阶段边界的检查点生效（真机实测：预算 1189 ms 也要 ~3.2 s 才报错）。
+	timeoutMS := int(baseline.Milliseconds() / 8)
+	if timeoutMS < 20 {
+		timeoutMS = 20
+	}
+	store.OperationLogKeywordTimeoutMS = timeoutMS
+	rec, envelope := doAPI(t, engine, http.MethodGet, "/api/v1/admin/operation-logs"+keywordQuery, token, nil)
+	if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+		t.Fatalf("超出预算的关键字检索应回 HTTP 400 + 40002（预算设为 %d ms、基线 %v），实际 HTTP %d, code=%d, body=%s",
+			timeoutMS, baseline, rec.Code, envelope.Code, rec.Body.String())
+	}
+	for _, want := range []string{"命中过多", "缩小范围", "时间窗", "通道过滤", "关键字"} {
+		if !strings.Contains(envelope.Message, want) {
+			t.Errorf("超时提示缺少关键要素 %q，实际 message=%q", want, envelope.Message)
+		}
+	}
+
+	// ③ 无关键字的列表与筛选不挂超时提示：把超时压到 1 毫秒（任何语句都活不过）也照常成功。
+	store.OperationLogKeywordTimeoutMS = 1
+	for _, query := range []string{"?page=1&page_size=20", "?channel=scheduler&status=success"} {
+		view := listOperationLogsRequest(t, engine, query, token)
+		if view.Total < rows {
+			t.Fatalf("无关键字列表%s 的 total = %d，期望 ≥ %d", query, view.Total, rows)
+		}
 	}
 }

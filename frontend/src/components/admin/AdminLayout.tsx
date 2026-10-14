@@ -1,18 +1,21 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Fragment, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BellIcon,
+  ChevronDownIcon,
   ExternalLinkIcon,
   LayoutDashboardIcon,
   LifeBuoyIcon,
   LogOutIcon,
   PackageIcon,
   ReceiptTextIcon,
+  ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
   UsersIcon,
 } from 'lucide-react'
 
-import { adminNavItems, paths } from '@/app/paths'
+import { adminNavItems, adminOplogNavItems, paths } from '@/app/paths'
 import { useAdminAuth } from '@/auth/adminAuthContext'
 import UpdateDot from '@/components/admin/UpdateDot'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -45,6 +48,7 @@ const NAV_ICONS: Record<string, typeof LayoutDashboardIcon> = {
   [paths.adminInstances]: ServerIcon,
   [paths.adminTickets]: LifeBuoyIcon,
   [paths.adminSettings]: SettingsIcon,
+  [paths.adminOperationLogs]: ScrollTextIcon,
   [paths.adminNotifications]: BellIcon,
 }
 
@@ -55,6 +59,64 @@ function sidebarLinkClass({ isActive }: { isActive: boolean }): string {
     isActive
       ? 'border-primary bg-accent font-medium text-primary'
       : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+  )
+}
+
+/**
+ * OplogNavGroup 是侧栏的「日志」入口（R18 批 2，契约 23.11）：**点击展开**三个通道子项
+ * （用户日志 / 定时任务日志 / 管理员日志），三项进入同一个日志页、只是预置的 `channel` 不同。
+ * 展开状态默认跟随当前地址（在日志页时自动展开），也允许手动折叠/展开。
+ */
+function OplogNavGroup() {
+  const location = useLocation()
+  const onLogsPage = location.pathname === paths.adminOperationLogs
+  const currentChannel = new URLSearchParams(location.search).get('channel') ?? ''
+  const [manual, setManual] = useState<boolean | null>(null)
+  const expanded = manual ?? onLogsPage
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setManual(!expanded)}
+        className={cn(
+          'flex w-full items-center gap-2.5 rounded-lg border-l-[3px] px-3 py-2 text-sm transition-colors',
+          onLogsPage
+            ? 'border-primary bg-accent font-medium text-primary'
+            : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+        )}
+      >
+        <ScrollTextIcon className="size-4.5" aria-hidden />
+        日志
+        <ChevronDownIcon
+          className={cn('ml-auto size-3.5 transition-transform', expanded && 'rotate-180')}
+          aria-hidden
+        />
+      </button>
+      {expanded ? (
+        <div className="mt-1 space-y-1 pl-4">
+          {adminOplogNavItems.map((item) => {
+            const active = onLogsPage && currentChannel === item.channel
+            return (
+              <Link
+                key={item.channel}
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'block rounded-lg border-l-[3px] px-3 py-1.5 text-sm transition-colors',
+                  active
+                    ? 'border-primary bg-accent font-medium text-primary'
+                    : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -168,6 +230,10 @@ export default function AdminLayout() {
         <aside className="hidden w-52 shrink-0 md:block">
           <nav className="sticky top-20 space-y-1" aria-label="管理后台导航">
             {navItems.map((item) => {
+              if (item.page === 'logs') {
+                // 「日志」是**可展开入口**（点击展开三个通道），不是一个链接。
+                return <OplogNavGroup key={item.to} />
+              }
               const Icon = NAV_ICONS[item.to] ?? LayoutDashboardIcon
               return (
                 <NavLink key={item.to} to={item.to} end={item.end} className={sidebarLinkClass}>
@@ -188,25 +254,47 @@ export default function AdminLayout() {
             className="mb-4 flex gap-2 overflow-x-auto pb-1 md:hidden"
             aria-label="管理后台导航（移动端）"
           >
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  cn(
-                    'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs',
-                    isActive
-                      ? 'border-transparent bg-primary text-primary-foreground'
-                      : 'border-border text-muted-foreground',
-                  )
-                }
-              >
-                {item.label}
-                {item.to === paths.adminNotifications ? <UnreadBadge count={unread} /> : null}
-                {item.to === paths.adminSettings && hasUpdate ? <UpdateDot /> : null}
-              </NavLink>
-            ))}
+            {navItems.map((item) =>
+              item.page === 'logs' ? (
+                // 移动端是横向滚动条：折叠面板不好用，直接把三个通道入口平铺出来。
+                <Fragment key={item.to}>
+                  {adminOplogNavItems.map((sub) => (
+                    <NavLink
+                      key={sub.channel}
+                      to={sub.to}
+                      className={({ isActive }) =>
+                        cn(
+                          'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs',
+                          isActive
+                            ? 'border-transparent bg-primary text-primary-foreground'
+                            : 'border-border text-muted-foreground',
+                        )
+                      }
+                    >
+                      {sub.label}
+                    </NavLink>
+                  ))}
+                </Fragment>
+              ) : (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs',
+                      isActive
+                        ? 'border-transparent bg-primary text-primary-foreground'
+                        : 'border-border text-muted-foreground',
+                    )
+                  }
+                >
+                  {item.label}
+                  {item.to === paths.adminNotifications ? <UnreadBadge count={unread} /> : null}
+                  {item.to === paths.adminSettings && hasUpdate ? <UpdateDot /> : null}
+                </NavLink>
+              ),
+            )}
           </nav>
           <Outlet />
         </div>
