@@ -31,6 +31,8 @@ export type AdminPermission =
   | 'products.read'
   | 'products.write'
   | 'products.import'
+  // 商品同步（R20，契约 10.5）：只刷新已存在商品的上游字段，**仅 admin**
+  | 'products.sync'
   | 'groups.write'
   // 分类（契约 10.5 / 12.7）：树三角色可读，写操作仅 admin
   | 'categories.write'
@@ -66,6 +68,7 @@ const PERMISSION_ROLES: Record<AdminPermission, AdminRole[]> = {
   'products.read': ['admin', 'finance', 'support'],
   'products.write': ['admin', 'finance'],
   'products.import': ['admin', 'finance'],
+  'products.sync': ['admin'],
   'groups.write': ['admin', 'finance'],
   'categories.write': ['admin'],
 
@@ -101,6 +104,7 @@ const PERMISSION_LABELS: Record<AdminPermission, string> = {
   'products.read': '查看商品',
   'products.write': '修改定价或上下架',
   'products.import': '上游导入商品',
+  'products.sync': '从上游同步商品',
   'groups.write': '修改商品分组',
   'categories.write': '修改分类（改名 / 排序 / 改挂）',
   'orders.read': '查看订单',

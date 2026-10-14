@@ -419,6 +419,82 @@ func (s *Store) ProductByID(ctx context.Context, id uint64) (*model.Product, err
 	return productBy(db, "id = ?", id)
 }
 
+// ProductsByIDs 按本地主键批量查询商品（R20「同步」，契约 10.7）：一次取回全部待同步商品，
+// 避免逐条查库；不存在的 ID 不返回（调用方按「缺失 = 商品不存在」逐条记失败）。
+func (s *Store) ProductsByIDs(ctx context.Context, ids []uint64) ([]model.Product, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []model.Product{}, nil
+	}
+
+	items := make([]model.Product, 0, len(ids))
+	if err := db.Where("id IN ?", ids).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// SyncProductUpstream 把**单个商品**的上游来源字段刷成新值（R20「同步」，契约 10.7）。
+//
+// 与导入共用同一套写入边界，不另起一套口径：
+//   - 只比较与写入 productUpstreamColumns 列出的上游列（upstream_group_id / name / description /
+//     type / module / config_json / upstream_prices_json / stock_qty / ontrial_max）；
+//   - 分类归属走导入的同一优先级（映射 MappedCategoryID 优先于派生 Category），且
+//     **category_source=manual 的商品一律不覆盖**（与导入一致）；
+//   - 本地字段（pricing_json / status / sort / rebate_percent / rebate_disabled）不在比较与写入范围内，
+//     同步**永不改动**；
+//   - 缺失的分类按导入的同一稳定键 find-or-create（与 ImportCatalog 同路径），已存在的分类不改名/排序。
+//
+// 返回 changed=false 表示上游字段与库内完全一致（本次同步「未变」）。
+func (s *Store) SyncProductUpstream(ctx context.Context, id uint64, in ProductInput) (bool, error) {
+	db, err := s.session(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	changed := false
+	err = db.Transaction(func(tx *gorm.DB) error {
+		current, err := productBy(tx, "id = ?", id)
+		if err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		// 默认保持原归属：无分类信息或 manual 商品时 category_id 不变（productUpstreamColumns 只在
+		// 有分类归属且非 manual 时才会比较与写入 category_id）。
+		categoryID := current.CategoryID
+		if hasCategoryAssignment(in) && current.CategorySource != model.CategorySourceManual {
+			if in.MappedCategoryID > 0 {
+				categoryID = in.MappedCategoryID
+			} else {
+				ids, err := importCategories(tx, []ProductInput{in}, now)
+				if err != nil {
+					return err
+				}
+				categoryID = ids[in.Category.SubKey]
+			}
+		}
+
+		columns := productUpstreamColumns(current, in, categoryID)
+		if len(columns) == 0 {
+			return nil
+		}
+		columns["updated_at"] = now
+		if err := tx.Model(&model.Product{}).Where("id = ?", id).Updates(columns).Error; err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
 // UpdateProduct 更新商品的本地字段（定价/状态/排序/分类/返佣）并返回最新记录。
 func (s *Store) UpdateProduct(ctx context.Context, id uint64, upd ProductUpdate) (*model.Product, error) {
 	db, err := s.session(ctx)

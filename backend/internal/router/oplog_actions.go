@@ -57,6 +57,7 @@ var oplogActionNames = map[string]string{
 	"POST /api/v1/admin/instances/:id/sync":                      "同步实例状态",
 	"POST /api/v1/admin/instances/:id/cancel":                    "终止实例申请",
 	"POST /api/v1/admin/products/import":                         "导入上游商品",
+	"POST /api/v1/admin/products/sync":                           "同步上游商品",
 	"PUT /api/v1/admin/products/:id":                             "修改商品",
 	"PUT /api/v1/admin/product-groups/:id":                       "修改商品分组",
 	"PUT /api/v1/admin/product-group-maps/:upstream_group_id":    "保存分组映射",

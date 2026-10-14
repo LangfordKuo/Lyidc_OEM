@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { AlertCircleIcon } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -20,6 +20,7 @@ import ProductGroupMapsPanel from '@/components/admin/ProductGroupMapsPanel'
 import ProductGroupsPanel from '@/components/admin/ProductGroupsPanel'
 import ProductImportDialog from '@/components/admin/ProductImportDialog'
 import ProductPricingDialog from '@/components/admin/ProductPricingDialog'
+import ProductSyncDialog from '@/components/admin/ProductSyncDialog'
 import ConfirmDialog from '@/components/common/ConfirmDialog'
 import Pager from '@/components/common/Pager'
 import { EmptyBlock, ErrorState, LoadingBlock } from '@/components/common/PageState'
@@ -27,6 +28,7 @@ import StatusBadge from '@/components/common/StatusBadge'
 import StatusFilter from '@/components/common/StatusFilter'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -80,6 +82,7 @@ export default function AdminProducts() {
   const { role } = useAdminAuth()
   const canWrite = hasPermission(role, 'products.write')
   const canImport = hasPermission(role, 'products.import')
+  const canSync = hasPermission(role, 'products.sync')
   const canEditGroups = hasPermission(role, 'groups.write')
   const canWriteCategories = hasPermission(role, 'categories.write')
 
@@ -96,6 +99,9 @@ export default function AdminProducts() {
   const [refreshKey, setRefreshKey] = useState(0)
 
   const [importOpen, setImportOpen] = useState(false)
+  // R20 同步：勾选集合按本地商品 ID 记录（跨筛选保留；刷新列表后按当前页重新裁剪）。
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const [syncOpen, setSyncOpen] = useState(false)
 
   const [pricingTarget, setPricingTarget] = useState<AdminProduct | null>(null)
   const [statusTarget, setStatusTarget] = useState<AdminProduct | null>(null)
@@ -128,6 +134,31 @@ export default function AdminProducts() {
 
   /** 刷新列表 / 分组 / 分类（写操作成功后调用，保证各处数据一致）。 */
   const refresh = () => setRefreshKey((value) => value + 1)
+
+  // R20 同步的勾选：只对**当前页可见列表**有效——翻页、改筛选或刷新后自动清空，
+  // 保证「按钮上的已选数」与「提交的条数」永远一致（不做隐式的跨页勾选）。
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [page, groupId, categoryId, status, keyword, refreshKey])
+
+  const selectedProducts = products.filter((product) => selectedIds.has(product.id))
+  const allOnPageSelected = products.length > 0 && selectedProducts.length === products.length
+
+  const toggleProductSelection = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }
+
+  const toggleAllOnPage = (checked: boolean) => {
+    setSelectedIds(new Set(checked ? products.map((product) => product.id) : []))
+  }
 
   /** 页签切换：分类页签写入 `?tab=categories`，商品页签恢复干净 URL（其余查询参数保留）。 */
   const changeTab = (value: string) => {
@@ -182,6 +213,27 @@ export default function AdminProducts() {
   }
 
   const columns: AdminColumn<AdminProduct>[] = [
+    {
+      // R20 同步的行多选：勾选若干商品后可点右上角「同步」。
+      key: 'select',
+      header: (
+        <Checkbox
+          aria-label="全选本页商品"
+          checked={
+            allOnPageSelected ? true : selectedProducts.length > 0 ? 'indeterminate' : false
+          }
+          onCheckedChange={(checked) => toggleAllOnPage(checked === true)}
+        />
+      ),
+      cell: (row) => (
+        <Checkbox
+          aria-label={`选择商品 ${row.name}`}
+          checked={selectedIds.has(row.id)}
+          onCheckedChange={(checked) => toggleProductSelection(row.id, checked === true)}
+        />
+      ),
+      className: 'w-10',
+    },
     {
       key: 'name',
       header: '商品',
@@ -298,9 +350,27 @@ export default function AdminProducts() {
             商品目录：从上游导入、配置定价、上架或下架、改挂分类；分类树：改名、改排序与子分类改挂。
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={refresh}>
             刷新
+          </Button>
+          {selectedProducts.length > 0 ? (
+            <span className="text-xs text-muted-foreground">已选 {selectedProducts.length} 个商品</span>
+          ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canSync || selectedProducts.length === 0}
+            title={
+              !canSync
+                ? permissionHint('products.sync')
+                : selectedProducts.length === 0
+                  ? '请先勾选要同步的商品'
+                  : undefined
+            }
+            onClick={() => setSyncOpen(true)}
+          >
+            同步
           </Button>
           <Button
             size="sm"
@@ -519,6 +589,17 @@ export default function AdminProducts() {
           </Alert>
         ) : null}
       </ConfirmDialog>
+
+      {syncOpen ? (
+        <ProductSyncDialog
+          products={selectedProducts}
+          onClose={() => setSyncOpen(false)}
+          onSynced={() => {
+            refresh()
+            toast.success('商品同步完成')
+          }}
+        />
+      ) : null}
 
       {importOpen ? (
         <ProductImportDialog

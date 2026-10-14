@@ -7,6 +7,8 @@ import type {
   Paged,
   ProductGroupCategoryMap,
   ProductImportResult,
+  ProductSyncResult,
+  SyncProductsInput,
   UpdateProductInput,
 } from './types'
 
@@ -58,6 +60,21 @@ export function importAdminProducts(input?: ImportProductsInput): Promise<Produc
     auth: 'admin',
     // 导入整次上限 5 分钟（契约 10.4），前端超时放宽到 5 分钟 + 缓冲。
     timeoutMs: 320_000,
+  })
+}
+
+/**
+ * POST /api/v1/admin/products/sync —— 把选中的**已存在**商品刷成上游最新（R20，**仅 admin**，契约 10.7）。
+ *
+ * 语义边界：只更新已存在的商品，**不新增、不删除**；上游来源字段按导入同一口径刷新，
+ * 本地字段（定价/售价/上下架/排序/返佣/手工分类）一律不动。
+ * 单条失败不影响其它条目——响应里逐条给出成功/失败与可读原因。
+ */
+export function syncAdminProducts(input: SyncProductsInput): Promise<ProductSyncResult> {
+  return http.post<ProductSyncResult>('/admin/products/sync', input, {
+    auth: 'admin',
+    // 后端整次同步的上游调用预算 2 分钟（契约 10.7），前端超时放宽到 3 分钟 + 缓冲。
+    timeoutMs: 200_000,
   })
 }
 

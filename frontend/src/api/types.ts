@@ -686,6 +686,38 @@ export interface ImportProductsInput {
 }
 
 /**
+ * POST /admin/products/sync 的请求体（R20，契约 10.7）：
+ * **本地商品 ID** 列表（不是上游 pid），去重后 1-100 个。
+ */
+export interface SyncProductsInput {
+  product_ids: number[]
+}
+
+/** 单条同步结果（契约 10.7）：只更新已存在商品；失败条目带可读原因。 */
+export interface ProductSyncItem {
+  product_id: number
+  /** 上游 pid；本地 ID 不存在时为 0 */
+  upstream_pid: number
+  /** 库内当前商品名（失败条目用于指明是哪个商品；本地 ID 不存在时为空串） */
+  name: string
+  status: 'updated' | 'unchanged' | 'failed'
+  /** 仅失败条目出现 */
+  reason?: string
+}
+
+/** 商品同步结果（契约 10.7）：逐条结果 + 汇总计数；total = succeeded + failed。 */
+export interface ProductSyncResult {
+  total: number
+  succeeded: number
+  failed: number
+  /** 上游字段发生变化的商品数 */
+  updated: number
+  /** 与库内完全一致的数 */
+  unchanged: number
+  items: ProductSyncItem[]
+}
+
+/**
  * 上游分组 → 本地子分类映射（R12，契约 10.4 的 GET /admin/product-group-maps）。
  * 目标分类已被删除时 category_name / category_parent_name 为空串（前端提示「目标分类已失效」）。
  */

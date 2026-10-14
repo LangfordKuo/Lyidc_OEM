@@ -590,6 +590,10 @@ func New(opts Options) *gin.Engine {
 			adminGroup.GET("/products/:id", products.getProduct)
 			adminGroup.POST("/products/import",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.importProducts)
+			// 商品同步（R20，契约 10.7）：把**已存在**商品的上游来源字段刷成上游最新（不新增、不删除）。
+			// 与导入不同，它不创建商品，因此权限收紧到**仅 admin**（10.5 矩阵）。
+			adminGroup.POST("/products/sync",
+				requireAdminRole(model.RoleAdmin), products.syncProducts)
 			adminGroup.PUT("/products/:id",
 				requireAdminRole(model.RoleAdmin, model.RoleFinance), products.updateProduct)
 
