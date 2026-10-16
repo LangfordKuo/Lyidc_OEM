@@ -112,6 +112,14 @@ func (h *paymentHandler) applyOrderPayment(ctx context.Context, n *payment.Notif
 		PaidAt:         time.Now().UTC(),
 	})
 	if err != nil {
+		// P4：迁移 0020 之前下单的历史单没有占用标记，入账时按老口径补记占用；券已用尽则
+		// **拒绝入账**（契约 12.5 第 5 行）——事务已回滚、订单保持 pending，应答 fail 让渠道
+		// 知道这笔没有入账（人工按 12.5 的口径处置：用户按新价重新下单）。
+		if errors.Is(err, store.ErrCouponExhausted) {
+			h.logger.Warn("易支付回调：订单所用优惠码已用尽（迁移前下单的历史单），拒绝入账",
+				"out_trade_no", n.OutTradeNo, "order_id", order.ID, "channel_trade_no", n.TradeNo)
+			return false
+		}
 		h.logger.Error("易支付回调：订单入账失败", "error", err, "out_trade_no", n.OutTradeNo)
 		return false
 	}
@@ -130,10 +138,6 @@ func (h *paymentHandler) applyOrderPayment(ctx context.Context, n *payment.Notif
 		h.logger.Warn("易支付回调：订单已取消，回调不处理（按成功应答，不再重试）",
 			"order_id", result.Order.ID, "trade_no", result.Order.TradeNo,
 			"channel_trade_no", n.TradeNo, "amount", string(result.Order.FinalAmount))
-	}
-	if result.CouponNotCounted {
-		h.logger.Warn("优惠码使用次数已达上限，本次未计数（并发边界，不阻断入账）",
-			"order_id", result.Order.ID, "trade_no", result.Order.TradeNo)
 	}
 	return true
 }

@@ -28,6 +28,9 @@ const (
 	msgOrderStatusInvalid = "status 只能是 pending / paid / provisioning / active / failed / cancelled"
 	// msgOrderTypeInvalid 是管理端订单类型筛选取值非法时的提示。
 	msgOrderTypeInvalid = "type 只能是 new（新购）或 renew（续费）"
+	// msgCouponExhaustedOnPay 是历史遗留单支付时券已用尽的提示（P4，契约 12.4 / 12.5）：
+	// 迁移 0020 之前下单的 pending 单没有占用标记，支付时按老口径补记占用；券已用尽则拒绝入账。
+	msgCouponExhaustedOnPay = "优惠码使用次数已用尽，无法按原优惠价入账，请重新下单"
 )
 
 // orderHandler 处理订单接口：创建（含优惠码抵扣）/ 列表 / 详情 / 发起支付 / 取消 /
@@ -299,6 +302,13 @@ func (h *orderHandler) createOrder(c *gin.Context) {
 			failRuleError(c, fmt.Errorf("%w: 该优惠码仅限未绑定邀请关系的客户使用", errReferralRule))
 			return
 		}
+		// P4：下单即占用失败（券在下单瞬间被抢空）——与第 5 步预检同一文案，订单不落库（契约 12.4 第 5b 行）。
+		if errors.Is(err, store.ErrCouponExhausted) {
+			h.logger.Warn("优惠码下单占用失败（券已用尽，含并发抢占）",
+				"member_id", member.ID, "coupon", stringOrDash(input.CouponCode))
+			failRuleError(c, fmt.Errorf("%w: %s", errFinanceRule, couponReasonMessage[ReasonCouponUsedUp]))
+			return
+		}
 		failDB(c, h.logger, err)
 		return
 	}
@@ -425,12 +435,20 @@ func (h *orderHandler) payOrder(c *gin.Context) {
 	h.payOrderWithChannel(c, order, strings.TrimSpace(req.PayType))
 }
 
-// payOrderWithBalance 余额支付：本地单事务扣款 + 写流水 + 订单转 paid + 优惠码计数。
+// payOrderWithBalance 余额支付：本地单事务扣款 + 写流水 + 订单转 paid。
+//
+// 优惠码占用在下单时已完成（P4，契约 12.5），本路径不再计数；只有迁移前下单的历史单
+// （coupon_counted=0）在此补记一次，券已用尽则 40002 拒绝入账（不扣余额、订单保持 pending）。
 func (h *orderHandler) payOrderWithBalance(c *gin.Context, order *model.Order) {
 	result, err := h.store.PayOrderWithBalance(c.Request.Context(), order.ID, order.MemberID)
 	switch {
 	case errors.Is(err, store.ErrInsufficientBalance):
 		response.Fail(c, response.CodeValidationFailed, "余额不足，请先充值或改用在线支付")
+		return
+	case errors.Is(err, store.ErrCouponExhausted):
+		h.logger.Warn("历史订单支付时优惠码已用尽，拒绝入账",
+			"order_id", order.ID, "trade_no", order.TradeNo)
+		response.Fail(c, response.CodeValidationFailed, msgCouponExhaustedOnPay)
 		return
 	case err != nil:
 		failDB(c, h.logger, err)
@@ -444,10 +462,6 @@ func (h *orderHandler) payOrderWithBalance(c *gin.Context, order *model.Order) {
 	case store.OutcomeSkipped:
 		response.Fail(c, response.CodeValidationFailed, "订单已取消，无法支付")
 		return
-	}
-	if result.CouponNotCounted {
-		h.logger.Warn("优惠码使用次数已达上限，本次未计数（并发边界，不阻断支付）",
-			"order_id", result.Order.ID, "trade_no", result.Order.TradeNo)
 	}
 
 	balanceAfter := ""
@@ -519,7 +533,8 @@ func (h *orderHandler) payOrderWithChannel(c *gin.Context, order *model.Order, p
 
 // cancelOrder 处理 POST /api/v1/orders/:id/cancel：仅本人 + 仅 pending。
 //
-// 取消不涉及优惠码回退：下单不计数，只有支付成功才计数（契约 12.5）。
+// P4 起取消会**释放本单占用的优惠码次数**（`used_count` 减 1、订单标记置 0，与状态流转同事务，
+// 契约 12.5）；paid 及之后的订单不可取消，因此「成交即消耗」由状态机保证。
 func (h *orderHandler) cancelOrder(c *gin.Context) {
 	member, ok := memberFromContext(c)
 	if !ok {

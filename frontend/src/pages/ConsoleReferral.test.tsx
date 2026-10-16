@@ -105,6 +105,16 @@ describe('会员区 · 邀请有礼', () => {
     expect(screen.getByText('ABCD2345')).toBeInTheDocument()
   })
 
+  it('自建券列表：占用次数按「已占用（含待支付订单）」口径展示', async () => {
+    await renderReferral(makeReferralOverview())
+
+    // P4（finding#09）起 used_count = 已占用次数（含待支付订单的在途占用，取消后释放），
+    // 不再是「已成交次数」——文案与后端语义保持一致（契约 12.5）。
+    expect(
+      await screen.findByText('折扣 20.00% · 已占用 2 次（含待支付订单，取消后释放） / 不限次数'),
+    ).toBeInTheDocument()
+  })
+
   it('开通切换：PUT /referral 的 enabled 为 true', async () => {
     const fetchMock = await renderReferral(
       makeReferralOverview({ enabled: false, invite_code: '', invite_link: '' }),

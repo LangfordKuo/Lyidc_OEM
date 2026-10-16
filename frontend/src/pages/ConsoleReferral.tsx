@@ -522,8 +522,11 @@ function CouponRow({ coupon, onMutated }: { coupon: MemberCoupon; onMutated: () 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="font-mono text-sm font-medium text-foreground">{coupon.code}</p>
+          {/* P4 起 used_count 的语义是「已占用次数」（含待支付订单的在途占用），
+              不是「已成交次数」——下单即 +1、取消即释放，文案必须与后端口径一致
+              （见 docs/api-contract.md 12.5），否则会把在途占用误读成成交。 */}
           <p className="mt-0.5 text-xs text-muted-foreground">
-            折扣 {coupon.value}% · 用于 {coupon.used_count} 次
+            折扣 {coupon.value}% · 已占用 {coupon.used_count} 次（含待支付订单，取消后释放）
             {coupon.max_uses > 0 ? ` / 上限 ${coupon.max_uses} 次` : ' / 不限次数'}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">

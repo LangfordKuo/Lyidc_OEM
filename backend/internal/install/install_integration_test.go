@@ -251,11 +251,11 @@ func TestInstallFullFlow(t *testing.T) {
 	rec, envelope = doRequest(t, supervisor, http.MethodGet, PathEnvironment, nil, nil)
 	env := decodeData[environmentView](t, envelope)
 	expectSuccess(t, rec, envelope, "环境检查")
-	if !env.OK || len(env.Runtime.Migrations) != 19 {
+	if !env.OK || len(env.Runtime.Migrations) != 20 {
 		t.Fatalf("环境检查结果异常: ok=%t migrations=%d", env.OK, len(env.Runtime.Migrations))
 	}
-	if env.Runtime.Migrations[18].Name != "0019_create_operation_logs" {
-		t.Errorf("最后一个迁移 = %s", env.Runtime.Migrations[18].Name)
+	if env.Runtime.Migrations[19].Name != "0020_add_order_coupon_counted" {
+		t.Errorf("最后一个迁移 = %s", env.Runtime.Migrations[19].Name)
 	}
 
 	// —— 第 2 步：测试连接 + 保存 ——
@@ -283,7 +283,7 @@ func TestInstallFullFlow(t *testing.T) {
 	rec, envelope = doRequest(t, supervisor, http.MethodPost, PathInitialize, map[string]any{}, nil)
 	initResult := decodeData[initView](t, envelope)
 	expectSuccess(t, rec, envelope, "初始化建表")
-	if initResult.FromVersion != 0 || initResult.ToVersion != 19 || len(initResult.Applied) != 19 {
+	if initResult.FromVersion != 0 || initResult.ToVersion != 20 || len(initResult.Applied) != 20 {
 		t.Fatalf("迁移结果异常: %+v", initResult.migrationResult)
 	}
 	if initResult.State != string(StateAdminMissing) || initResult.FirstStep != 4 {

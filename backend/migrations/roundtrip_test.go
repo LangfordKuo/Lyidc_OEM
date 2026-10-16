@@ -14,11 +14,12 @@ import (
 )
 
 // 迁移 up/down 往返测试（R10-B 起硬性约束：最新迁移必须 up/down 成对；
-// R12 扩到 0017；R16 扩到 0018；R18 扩到 0019）。
+// R12 扩到 0017；R16 扩到 0018；R18 扩到 0019；P4 扩到 0020）。
 //
-// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言最新迁移（0019）建出 operation_logs
-// （含三条索引与 ngram FULLTEXT）且版本 19 → down 一步 → 断言 0019 的表被删、0018 的改动仍在
-// 且版本退回 18 → 再 up 一次确认可重复应用。
+// 在独立的临时库 lyidc_mig_check 上跑：全量 up → 断言最新迁移（0020）给 orders 加出
+// coupon_counted 并把 coupons.used_count 的注释改成 P4 口径、0019 的 operation_logs 仍在，
+// 且版本 20 → down 一步 → 断言 0020 的列被删、注释还原、0019 的表仍在且版本退回 19 →
+// 再 down 两步确认 0019/0018 的 down 不受影响 → 再全量 up 一次确认可重复应用。
 // 本机/CI 没有 MySQL 时 t.Skip（与集成测试同一口径）。
 
 const roundTripDSN = "root:lyidc123@tcp(127.0.0.1:3306)/lyidc_mig_check?charset=utf8mb4&parseTime=true&loc=UTC&multiStatements=true"
@@ -83,16 +84,7 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	// columnType 返回 instances 某列的 COLUMN_TYPE（列不存在时返回空串）。
 	columnType := func(column string) string {
 		t.Helper()
-		var columnType string
-		err := sqlDB.QueryRow("SELECT COLUMN_TYPE FROM information_schema.columns "+
-			"WHERE table_schema = 'lyidc_mig_check' AND table_name = 'instances' AND column_name = ?", column).Scan(&columnType)
-		if err == sql.ErrNoRows {
-			return ""
-		}
-		if err != nil {
-			t.Fatalf("查询列 %s 失败: %v", column, err)
-		}
-		return columnType
+		return columnTypeOf(t, sqlDB, "instances", column)
 	}
 
 	// isInt 判断列类型是不是 int（MySQL 5.7 会带显示宽度，如 int(11) / int(10) unsigned）。
@@ -125,7 +117,7 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 		return n
 	}
 
-	// 1) 全量 up：0017 建表、0018 三项改动与 0019 的 operation_logs 都在，版本停在 19。
+	// 1) 全量 up：0017 建表、0018 三项改动、0019 的 operation_logs 与 0020 的占用列都在，版本停在 20。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("全量 up 失败: %v", err)
 	}
@@ -163,9 +155,26 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	if !strings.Contains(fulltextDDL, "WITH PARSER `ngram`") {
 		t.Fatalf("operation_logs 的 FULLTEXT 未使用 ngram 解析器:\n%s", fulltextDDL)
 	}
+	// 0020（P4 优惠码「下单即占用」）：orders 加出 coupon_counted（TINYINT(1) NOT NULL DEFAULT 0），
+	// 并把 coupons.used_count 的列注释改成 P4 口径（只改注释，不改类型与默认值）。
+	if got := columnTypeOf(t, sqlDB, "orders", "coupon_counted"); !strings.HasPrefix(got, "tinyint(1)") {
+		t.Fatalf("up 后 orders.coupon_counted 列类型 = %q，期望 tinyint(1)", got)
+	}
+	var couponCountedDefault string
+	if err := sqlDB.QueryRow("SELECT COLUMN_DEFAULT FROM information_schema.columns " +
+		"WHERE table_schema = 'lyidc_mig_check' AND table_name = 'orders' AND column_name = 'coupon_counted'").
+		Scan(&couponCountedDefault); err != nil {
+		t.Fatalf("查询 orders.coupon_counted 默认值失败: %v", err)
+	}
+	if couponCountedDefault != "0" {
+		t.Fatalf("orders.coupon_counted 默认值 = %q，期望 \"0\"（历史行必须默认未占用）", couponCountedDefault)
+	}
+	if got := columnCommentOf(t, sqlDB, "coupons", "used_count"); !strings.Contains(got, "已占用次数") {
+		t.Fatalf("up 后 coupons.used_count 列注释 = %q，期望含「已占用次数」", got)
+	}
 	version, dirty, err := migrator.Version()
-	if err != nil || version != 19 || dirty {
-		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 19/clean", version, dirty, err)
+	if err != nil || version != 20 || dirty {
+		t.Fatalf("up 后版本 = %d/dirty=%v err=%v，期望 20/clean", version, dirty, err)
 	}
 
 	// 占位行（status=provisioning、host_id=-订单号）与已交付行各插一条：
@@ -182,9 +191,28 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	insertInstance(7, -7, "provisioning")
 	insertInstance(8, 90001, "active")
 
-	// 2) down 一步：只撤销 0019（operation_logs 被删），0018 的改动原样保留，版本退回 18。
+	// 2) down 一步：只撤销 0020（占用列被删、used_count 注释还原），0019 的 operation_logs
+	//    与 0018 的改动原样保留，版本退回 19。
 	if err := migrator.Steps(-1); err != nil {
 		t.Fatalf("down 一步失败: %v", err)
+	}
+	if got := columnTypeOf(t, sqlDB, "orders", "coupon_counted"); got != "" {
+		t.Fatalf("down 0020 后 orders.coupon_counted 仍存在: %q", got)
+	}
+	if got := columnCommentOf(t, sqlDB, "coupons", "used_count"); got != "已使用次数（本阶段只读不增）" {
+		t.Fatalf("down 0020 后 coupons.used_count 列注释 = %q，期望还原为 0005 原文", got)
+	}
+	if n := countTable("operation_logs"); n != 1 {
+		t.Fatalf("down 0020 不应影响 0019 的表（存在性 = %d），期望 1", n)
+	}
+	version, dirty, err = migrator.Version()
+	if err != nil || version != 19 || dirty {
+		t.Fatalf("down 0020 后版本 = %d/dirty=%v err=%v，期望 19/clean", version, dirty, err)
+	}
+
+	// 3) 再 down 一步：撤销 0019（operation_logs 被删），0018 的改动原样保留，版本退回 18。
+	if err := migrator.Steps(-1); err != nil {
+		t.Fatalf("down 第二步失败: %v", err)
 	}
 	if n := countTable("operation_logs"); n != 0 {
 		t.Fatalf("down 0019 后 operation_logs 仍存在（存在性 = %d），期望 0", n)
@@ -197,9 +225,9 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 		t.Fatalf("down 0019 后版本 = %d/dirty=%v err=%v，期望 18/clean", version, dirty, err)
 	}
 
-	// 3) 再 down 一步：0018 撤销（列消失、host_id 回到无符号、枚举收起、占位行被清），版本退回 17。
+	// 4) 再 down 一步：0018 撤销（列消失、host_id 回到无符号、枚举收起、占位行被清），版本退回 17。
 	if err := migrator.Steps(-1); err != nil {
-		t.Fatalf("down 第二步失败: %v", err)
+		t.Fatalf("down 第三步失败: %v", err)
 	}
 	if n := countMaps(); n != 1 {
 		t.Fatalf("down 0018 不应影响 0017 的表，存在性 = %d，期望 1", n)
@@ -228,7 +256,7 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 		t.Fatalf("down 后版本 = %d/dirty=%v err=%v，期望 17/clean", version, dirty, err)
 	}
 
-	// 4) 再全量 up：0018 与 0019 都可重复应用（up 幂等由版本号保证）。
+	// 5) 再全量 up：0018 / 0019 / 0020 都可重复应用（up 幂等由版本号保证）。
 	if err := migrator.Up(); err != nil {
 		t.Fatalf("二次 up 失败: %v", err)
 	}
@@ -247,8 +275,41 @@ func TestMigrationsUpDownRoundTrip(t *testing.T) {
 	if n := countIndex("operation_logs", "ft_operation_logs_search"); n != 1 {
 		t.Fatalf("二次 up 后 FULLTEXT 索引存在性 = %d，期望 1", n)
 	}
-	version, dirty, err = migrator.Version()
-	if err != nil || version != 19 || dirty {
-		t.Fatalf("二次 up 后版本 = %d/dirty=%v err=%v，期望 19/clean", version, dirty, err)
+	if got := columnTypeOf(t, sqlDB, "orders", "coupon_counted"); !strings.HasPrefix(got, "tinyint(1)") {
+		t.Fatalf("二次 up 后 orders.coupon_counted 列类型 = %q，期望 tinyint(1)", got)
 	}
+	version, dirty, err = migrator.Version()
+	if err != nil || version != 20 || dirty {
+		t.Fatalf("二次 up 后版本 = %d/dirty=%v err=%v，期望 20/clean", version, dirty, err)
+	}
+}
+
+// columnTypeOf 返回指定表某列的 COLUMN_TYPE（表或列不存在时返回空串）。
+func columnTypeOf(t *testing.T, db *sql.DB, table, column string) string {
+	t.Helper()
+	var columnType string
+	err := db.QueryRow("SELECT COLUMN_TYPE FROM information_schema.columns "+
+		"WHERE table_schema = 'lyidc_mig_check' AND table_name = ? AND column_name = ?", table, column).Scan(&columnType)
+	if err == sql.ErrNoRows {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("查询列 %s.%s 失败: %v", table, column, err)
+	}
+	return columnType
+}
+
+// columnCommentOf 返回指定表某列的 COLUMN_COMMENT（列不存在时返回空串）。
+func columnCommentOf(t *testing.T, db *sql.DB, table, column string) string {
+	t.Helper()
+	var comment string
+	err := db.QueryRow("SELECT COLUMN_COMMENT FROM information_schema.columns "+
+		"WHERE table_schema = 'lyidc_mig_check' AND table_name = ? AND column_name = ?", table, column).Scan(&comment)
+	if err == sql.ErrNoRows {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("查询列注释 %s.%s 失败: %v", table, column, err)
+	}
+	return comment
 }

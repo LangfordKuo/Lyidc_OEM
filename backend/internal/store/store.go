@@ -47,6 +47,10 @@ var (
 	ErrInviterAlreadyBound = errors.New("已绑定邀请关系")
 	// ErrNoFieldsToUpdate 表示更新请求里没有任何可写字段（调用方一般已前置校验为 40001）。
 	ErrNoFieldsToUpdate = errors.New("没有提供任何可更新字段")
+	// ErrCouponExhausted 表示优惠码使用次数已达上限（P4 安全整改 finding#09）：
+	// 下单时条件自增占用影响行数为 0（券已用尽，含并发抢占）→ 拒绝下单、订单不落库；
+	// 或迁移前下单的历史单（coupon_counted=0）支付时补记占用失败 → 拒绝入账、订单保持 pending。
+	ErrCouponExhausted = errors.New("优惠码使用次数已用尽")
 )
 
 // mysqlDuplicateEntry 是 MySQL 唯一键冲突错误码。

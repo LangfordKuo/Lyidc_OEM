@@ -77,6 +77,8 @@ func IsOrderSettled(status string) bool {
 //   - ConfigJSON 是所选配置项快照 {"<配置项 id>": "<所选值 id>"}（阶段 5a 直达口径，见契约 14.5），
 //     交付时用于原样拼装上游 configoption[<配置项 id>]=<所选值 id>；
 //   - CouponID / CouponCode 为下单快照；CouponCode 空串表示未用码；
+//     CouponCounted（迁移 0020，P4）标记本单是否已占用该券的一次使用次数——下单即占用、
+//     取消 pending 时释放，支付成功不再自增（口径见契约 12.5）；
 //   - PayChannel / ChannelTradeNo / PayTime 在支付成功时写入（余额支付时 PayChannel=balance）；
 //   - HostID / ProvisionError / DeliveredAt 在交付链路写入（阶段 5a）：host_id 为上游主机 ID，
 //     provision_error 为最近一次失败原因（成功清空），delivered_at 为交付完成时间；
@@ -96,20 +98,26 @@ type Order struct {
 	FinalAmount    Money  `gorm:"column:final_amount"`
 	// PriceBreakdownJSON 是 R7 成交价差价明细快照（迁移 0013，契约 10.2.1 / 12.4）：
 	// {base, deltas[], total}，amount = base + Σ deltas[].amount。存量订单为 NULL。
-	PriceBreakdownJSON string     `gorm:"column:price_breakdown_json"`
-	CouponID           *uint64    `gorm:"column:coupon_id"`
-	CouponCode         string     `gorm:"column:coupon_code"`
-	Status             string     `gorm:"column:status"`
-	Type               string     `gorm:"column:type"`
-	PayChannel         string     `gorm:"column:pay_channel"`
-	ChannelTradeNo     string     `gorm:"column:channel_trade_no"`
-	PayTime            *time.Time `gorm:"column:pay_time"`
-	HostID             *int       `gorm:"column:host_id"`
-	InstanceID         *uint64    `gorm:"column:instance_id"`
-	ProvisionError     string     `gorm:"column:provision_error"`
-	DeliveredAt        *time.Time `gorm:"column:delivered_at"`
-	CreatedAt          time.Time  `gorm:"column:created_at"`
-	UpdatedAt          time.Time  `gorm:"column:updated_at"`
+	PriceBreakdownJSON string  `gorm:"column:price_breakdown_json"`
+	CouponID           *uint64 `gorm:"column:coupon_id"`
+	CouponCode         string  `gorm:"column:coupon_code"`
+	// CouponCounted 标记本单是否已占用该券的一次使用次数（迁移 0020，P4 安全整改 finding#09）：
+	// 下单时在同一事务内条件自增 `coupons.used_count` 并置 1；取消 `pending` 订单时同事务释放并置 0。
+	// 支付成功**不再**自增（幂等：重复回调/重复余额支付只消耗一次）。
+	// 迁移 0020 之前下单的历史行为 0（不回填），由支付链路按老口径补记一次。
+	// 该列不进任何对外视图。
+	CouponCounted  bool       `gorm:"column:coupon_counted"`
+	Status         string     `gorm:"column:status"`
+	Type           string     `gorm:"column:type"`
+	PayChannel     string     `gorm:"column:pay_channel"`
+	ChannelTradeNo string     `gorm:"column:channel_trade_no"`
+	PayTime        *time.Time `gorm:"column:pay_time"`
+	HostID         *int       `gorm:"column:host_id"`
+	InstanceID     *uint64    `gorm:"column:instance_id"`
+	ProvisionError string     `gorm:"column:provision_error"`
+	DeliveredAt    *time.Time `gorm:"column:delivered_at"`
+	CreatedAt      time.Time  `gorm:"column:created_at"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at"`
 }
 
 // TableName 返回订单表名。

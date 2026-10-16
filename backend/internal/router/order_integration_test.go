@@ -454,34 +454,61 @@ func TestOrderCancelThenNotify(t *testing.T) {
 	}
 }
 
-// TestOrderCouponOveruseDoesNotBlock 验证极端并发超用不阻断入账（used_count 停在 max_uses）。
-func TestOrderCouponOveruseDoesNotBlock(t *testing.T) {
+// TestOrderCouponOveruseBlockedAtCreation 验证 max_uses 在**下单时**即被原子占用（P4 安全整改
+// finding#09，契约 12.5）：同一张 max_uses=1 的券只能成全 1 单，后续下单在创建接口就被 40002 拒绝、
+// 订单不落库。整改前这里可以连下多单、全部支付成功（实测 100% 券 1 次上限成交 3 单）。
+func TestOrderCouponOveruseBlockedAtCreation(t *testing.T) {
 	gdb := testDatabase(t)
 	engine := newStage4Engine(t, gdb, "", nil)
 	gateway := newFakeEpayGateway(t)
 	seedEpaySetting(t, gdb, gateway.baseURL(), "https://oem.example.com/api/v1/payments/epay/notify")
 	product := seedOrderProduct(t, gdb, model.ProductStatusOn)
-	// max_uses=1：第一单支付占用后，第二单支付时条件自增影响行数为 0（不阻断）。
-	coupon := seedCoupon(t, gdb, "ONCE", "fixed", "1", `[]`, func(c *model.Coupon) { c.MaxUses = 1 })
+	// 100% 券（= 渗透实测用的形态）：max_uses=1。
+	coupon := seedCoupon(t, gdb, "FREE100", "percent", "100", `[]`, func(c *model.Coupon) { c.MaxUses = 1 })
 
 	token, _ := memberTokenFor(t, engine, "overuseuser")
 	first := createOrder(t, engine, token, map[string]any{
 		"product_id": product.ID, "cycle": "annual", "config": map[string]any{}, "coupon_code": coupon.Code,
 	})
-	second := createOrder(t, engine, token, map[string]any{
-		"product_id": product.ID, "cycle": "annual", "config": map[string]any{}, "coupon_code": coupon.Code,
-	})
+	if first.FinalAmount != "0.00" {
+		t.Fatalf("100%% 券的应付金额 = %s，期望 0.00", first.FinalAmount)
+	}
+	// 下单即占用：订单刚建出来 used_count 就已经是 1。
+	if got := couponUsedCount(t, gdb, coupon.ID); got != 1 {
+		t.Fatalf("下单后 used_count = %d，期望 1（下单即占用）", got)
+	}
+	if !orderCouponCounted(t, gdb, first.ID) {
+		t.Fatalf("订单 %d 的 coupon_counted 应为 1（已占用标记）", first.ID)
+	}
 
-	for _, order := range []orderView{first, second} {
-		if ack := notifyAck(t, engine, gateway.notifyValues(order.TradeNo, order.FinalAmount)); ack != "success" {
-			t.Fatalf("回调应答 = %q，期望 success", ack)
+	// 第 2、3 单：创建接口直接 40002，订单不落库（「不得先落订单再回滚式补救」）。
+	for i := 2; i <= 3; i++ {
+		rec, envelope := doAPI(t, engine, http.MethodPost, "/api/v1/orders", token, map[string]any{
+			"product_id": product.ID, "cycle": "annual", "config": map[string]any{}, "coupon_code": coupon.Code,
+		})
+		if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+			t.Fatalf("第 %d 单应 40002：HTTP %d, body=%s", i, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(envelope.Message, "优惠码使用次数已用尽") {
+			t.Fatalf("第 %d 单 message = %q", i, envelope.Message)
 		}
 	}
-	if got := getOrderView(t, engine, token, second.ID); got.Status != model.OrderStatusPaid {
-		t.Fatalf("超用订单仍应入账为 paid，得到 %s", got.Status)
+	if got := orderCount(t, gdb); got != 1 {
+		t.Fatalf("被拒的下单不应落库：订单行数 = %d，期望 1", got)
 	}
 	if got := couponUsedCount(t, gdb, coupon.ID); got != 1 {
-		t.Fatalf("used_count = %d，期望停在 max_uses=1", got)
+		t.Fatalf("被拒后 used_count = %d，期望 1", got)
+	}
+
+	// 支付成功那 1 单：入账照常，且**不再自增**（占用已在下单时发生）。
+	if ack := notifyAck(t, engine, gateway.notifyValues(first.TradeNo, first.FinalAmount)); ack != "success" {
+		t.Fatalf("回调应答 = %q，期望 success", ack)
+	}
+	if got := getOrderView(t, engine, token, first.ID); got.Status != model.OrderStatusPaid {
+		t.Fatalf("订单状态 = %s，期望 paid", got.Status)
+	}
+	if got := couponUsedCount(t, gdb, coupon.ID); got != 1 {
+		t.Fatalf("支付后 used_count = %d，期望仍为 1", got)
 	}
 }
 
@@ -663,7 +690,7 @@ func TestSettingsRawValueNotLeakedInOrderFlows(t *testing.T) {
 // 小工具
 // ---------------------------------------------------------------------------
 
-// couponUsedCount 直接读库取优惠码已用次数。
+// couponUsedCount 直接读库取优惠码已占用次数（P4 起语义为「已占用」，含待支付订单的在途占用）。
 func couponUsedCount(t *testing.T, gdb *gorm.DB, couponID uint64) int {
 	t.Helper()
 	var coupon model.Coupon
@@ -671,6 +698,44 @@ func couponUsedCount(t *testing.T, gdb *gorm.DB, couponID uint64) int {
 		t.Fatalf("读取优惠码失败: %v", err)
 	}
 	return coupon.UsedCount
+}
+
+// setCouponUsedCount 直接写库设置优惠码已占用次数（用于构造「券已用尽」与历史遗留单场景）。
+func setCouponUsedCount(t *testing.T, gdb *gorm.DB, couponID uint64, used int) {
+	t.Helper()
+	if err := gdb.Model(&model.Coupon{}).Where("id = ?", couponID).
+		Update("used_count", used).Error; err != nil {
+		t.Fatalf("设置优惠码已占用次数失败: %v", err)
+	}
+}
+
+// orderCouponCounted 直接读库取订单的「已占用优惠码次数」标记（该列不进对外视图）。
+func orderCouponCounted(t *testing.T, gdb *gorm.DB, orderID uint64) bool {
+	t.Helper()
+	var order model.Order
+	if err := gdb.First(&order, orderID).Error; err != nil {
+		t.Fatalf("读取订单失败: %v", err)
+	}
+	return order.CouponCounted
+}
+
+// setOrderCouponCounted 直接写库改写订单的占用标记（用于构造迁移 0020 之前下单的历史遗留单）。
+func setOrderCouponCounted(t *testing.T, gdb *gorm.DB, orderID uint64, counted bool) {
+	t.Helper()
+	if err := gdb.Model(&model.Order{}).Where("id = ?", orderID).
+		Update("coupon_counted", counted).Error; err != nil {
+		t.Fatalf("改写订单占用标记失败: %v", err)
+	}
+}
+
+// orderCount 返回库内订单总行数（用于断言「被拒的下单不落库」）。
+func orderCount(t *testing.T, gdb *gorm.DB) int64 {
+	t.Helper()
+	var total int64
+	if err := gdb.Model(&model.Order{}).Count(&total).Error; err != nil {
+		t.Fatalf("统计订单行数失败: %v", err)
+	}
+	return total
 }
 
 // setMemberBalance 直接写库设置会员余额。
@@ -681,6 +746,8 @@ func setMemberBalance(t *testing.T, gdb *gorm.DB, memberID uint64, balance strin
 		t.Fatalf("设置余额失败: %v", err)
 	}
 }
+
+// memberBalance（读库取会员余额）复用 recharge_integration_test.go 的同名辅助。
 
 // ledgerForRef 读库取指定关联单据的流水。
 func ledgerForRef(t *testing.T, gdb *gorm.DB, memberID uint64, kind string, refID uint64) model.Ledger {
