@@ -18,7 +18,13 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { rememberOrder } from '@/lib/checkout'
 import { formatMoney } from '@/lib/format'
-import { EPAY_TYPES, PAY_METHODS, gotoPayurl } from '@/lib/pay'
+import {
+  EPAY_TYPES,
+  PAYURL_REJECTED_MESSAGE,
+  PAY_METHODS,
+  gotoPayurl,
+  isAllowedPayurl,
+} from '@/lib/pay'
 import { cn } from '@/lib/utils'
 
 interface PayDialogProps {
@@ -76,6 +82,13 @@ export default function PayDialog({ order, open, onOpenChange, balance, onPaid }
         const payurl = result.pay.payurl
         if (!payurl) {
           setError('支付渠道未返回支付地址，请稍后重试或改用余额支付')
+          return
+        }
+        // P5 安全整改 finding#07：渠道地址先过协议白名单——`javascript:` / `data:` / `vbscript:` /
+        // 协议相对地址（`//evil`）一律不跳转，原地给出可读提示（不静默失败）。
+        // 校验放在展示二维码之前，因此二维码分支里的「打开收银台」按钮拿到的地址必然合法。
+        if (!isAllowedPayurl(payurl)) {
+          setError(PAYURL_REJECTED_MESSAGE)
           return
         }
         // 记录订单号：渠道回跳结果页时据此找回订单。
@@ -139,11 +152,25 @@ export default function PayDialog({ order, open, onOpenChange, balance, onPaid }
                 {qr.payurl}
               </p>
             </div>
+            {error ? (
+              <Alert variant="destructive">
+                <AlertCircleIcon aria-hidden />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+
             <DialogFooter className="gap-2 sm:justify-between">
               <Button variant="ghost" onClick={() => setQr(null)}>
                 返回修改
               </Button>
-              <Button onClick={() => gotoPayurl(qr.payurl)}>
+              <Button
+                onClick={() => {
+                  // 二维码分支的地址在展示前已过白名单；这里仍按返回值兜底，绝不静默失败。
+                  if (!gotoPayurl(qr.payurl)) {
+                    setError(PAYURL_REJECTED_MESSAGE)
+                  }
+                }}
+              >
                 <ExternalLinkIcon data-icon="inline-start" aria-hidden />
                 打开收银台
               </Button>

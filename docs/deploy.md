@@ -184,6 +184,7 @@ tar -xzf lyidc-oem-v1.0.0-linux-amd64.tar.gz && cd lyidc-oem-v1.0.0-linux-amd64
 | ☐ | 检查项 | 口径 |
 | --- | --- | --- |
 | ☐ | **`jwt.secret` 已非默认值** | `config.yaml` 里的 `jwt.secret` 不能是 `lyidc-dev-secret-change-me`、不能留空，**长度 ≥ 32 个字符**（会员与管理员 token 共用这一个密钥，弱密钥等于管理员身份可被伪造）。**已安装实例会自动轮换**：启动时若检测到默认/弱 `jwt.secret`，服务会生成随机强密钥、写回配置文件并打一条 WARN「已检测到默认/弱 jwt.secret，已自动轮换为随机密钥并写回配置文件」；**轮换会让此前签发的全部令牌立即失效**（用户需重新登录一次）。写回失败（配置只读/权限不足）时**服务照常启动**，只是密钥仅本次进程有效，日志会给出手工修改指引——此时请手工改成 ≥ 32 字符的随机值后重启。详见 `docs/api-contract.md` 第 25 节 |
+| ☐ | **安全响应头已生效** | 静态页与 `/api` 各 `curl -I` 一次，6 个头（见「部署后核对安全响应头」）都要在；静态侧缺头说明 nginx 的 `location` 没加那 6 行 |
 | ☐ | 安装向导已关闭 | 访问一次 `/install` 应看到「系统已安装」；要重装需清空数据库后重启 |
 | ☐ | 数据库口令已改 | `.env` 的 `MYSQL_ROOT_PASSWORD` 不是示例值，且与向导第 2 步填的一致 |
 
@@ -259,14 +260,73 @@ server {
     root /path/to/dist;
     index index.html;
 
+    # 静态产物由 nginx 直出、不经 Go，因此安全响应头必须在这里加（契约 1.3）。
+    location /        {
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        try_files $uri $uri/ /index.html;   # SPA 路由回退
+    }
+
+    # 若另配了 location /assets/ 且自带 add_header（如 Cache-Control），
+    # 必须把那 6 行**再写一遍**：nginx 的 add_header 只要在当前层级出现过就不再继承父层级。
+    # location /assets/ {
+    #     add_header Cache-Control "public, immutable";
+    #     add_header X-Content-Type-Options "nosniff" always;
+    #     ...（其余 5 行同上）
+    # }
+
+    # /api 与 /install 由 Go 后端处理，6 个安全头由后端中间件设置（internal/securityheaders）。
+    # 这里**不要**再写 add_header，否则同名头会出现两行（值一致但没必要）。
     location /api/    { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $host; }
     location /install { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $host; }
-    location /        { try_files $uri $uri/ /index.html; }   # SPA 路由回退
 }
 ```
 
 > 只起静态服务器而**不**反代 `/api/v1` 的话：页面能打开但所有接口 404——这是最常见的“装好了却用不了”。
 > `/install` 走的也是后端（安装页由后端内嵌提供），同样需要反代。
+
+### 部署后核对安全响应头
+
+**口径**：6 个头在两条链路上取值必须完全一致——静态资源（`/`、`/assets/*`）由 nginx 加，
+`/api/**` 与 `/install` 由 Go 中间件加。用 `curl -I` 各打一次即可核对（`-k` 按需加在 https 上）：
+
+```bash
+curl -sI http://<主机>:8088/                 # 静态：nginx 直出
+curl -sI http://<主机>:8088/api/v1/health    # 后端：Go 中间件
+curl -sI http://<主机>:8088/install          # 后端：Go 中间件
+```
+
+三条都应当能看到这 6 行（顺序不固定）：
+
+```
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; object-src 'none'
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: geolocation=(), camera=(), microphone=()
+Strict-Transport-Security: max-age=31536000
+```
+
+一条命令核对（期望输出 6）：
+
+```bash
+curl -sI http://<主机>:8088/ | grep -ciE '^(x-content-type-options|x-frame-options|content-security-policy|referrer-policy|permissions-policy|strict-transport-security):'
+```
+
+几点必须知道的口径：
+
+- **缺头只可能是 nginx 侧**：`/api/**` 与 `/install` 的头由后端设置，与部署方式无关；
+  静态页缺头说明静态站点的 `location` 没加那 6 行（或加了 `location /assets/` 却没在块内重复）。
+- **HSTS 不带 `includeSubDomains` / `preload`**：主域的子域未必属于本系统，带上会误伤；
+  浏览器只在 HTTPS 响应上生效，明文部署（http://）下留头无害，不用删。
+- **CSP 只有三条指令**（`frame-ancestors` / `base-uri` / `object-src`），**刻意没有** `script-src` /
+  `style-src`：前端是 Vite 产物且可能带内联样式，上全量 CSP 会把页面整死。本批目标是消灭点击劫持
+  与插件/表单劫持，不是上全量 CSP。
+- **反代链路若还有一层 CDN / 云 WAF**：确认它不会剥掉或改写这几个头（部分 CDN 只透传白名单头）。
 
 ---
 

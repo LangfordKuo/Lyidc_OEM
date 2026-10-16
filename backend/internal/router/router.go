@@ -23,6 +23,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/oplog"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/scheduler"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/securityheaders"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
@@ -177,7 +178,10 @@ func New(opts Options) *gin.Engine {
 
 	engine := gin.New()
 	engine.HandleMethodNotAllowed = true
-	engine.Use(gin.Recovery(), requestLogger(opts.Logger))
+	// P5 安全整改（契约 1.3）：安全响应头挂在最外层——在 Recovery 与访问日志**之前**写头，
+	// 因此 2xx / 4xx（含 NoRoute 的 404、NoMethod 的 405）/ 5xx（含 Recovery 恢复出的 500）
+	// 一律带齐 6 个头。放在 c.Next() 之前，业务 handler 若显式设置同名头仍以 handler 为准。
+	engine.Use(securityheaders.Middleware(), gin.Recovery(), requestLogger(opts.Logger))
 
 	st := store.New(opts.DB)
 	tokens := auth.NewTokenManager(opts.JWT)

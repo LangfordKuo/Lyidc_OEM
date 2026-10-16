@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAsync } from '@/hooks/useAsync'
 import { ledgerTypeLabel, rechargeStatusLabel, rechargeStatusTone } from '@/lib/financeText'
 import { formatDateTime, formatMoney } from '@/lib/format'
-import { EPAY_TYPES, gotoPayurl } from '@/lib/pay'
+import { EPAY_TYPES, PAYURL_REJECTED_MESSAGE, gotoPayurl, isAllowedPayurl } from '@/lib/pay'
 import { CONSOLE_PAGE_SIZE } from '@/lib/pagination'
 import { validateRechargeAmount } from '@/lib/validate'
 import { cn } from '@/lib/utils'
@@ -79,6 +79,12 @@ export default function ConsoleRecharge() {
       const payurl = result.pay.payurl
       if (!payurl) {
         setError('支付渠道未返回支付地址，请稍后重试')
+        return
+      }
+      // P5 安全整改 finding#07：渠道地址先过协议白名单，不合法一律不跳转并给出可读提示
+      // （`gotoPayurl` 内部同样兜一道，这里判一次是为了拿到可读文案，不静默失败）。
+      if (!isAllowedPayurl(payurl)) {
+        setError(PAYURL_REJECTED_MESSAGE)
         return
       }
       toast.info(`充值单 ${result.recharge.trade_no} 已创建，即将跳转支付渠道…`)

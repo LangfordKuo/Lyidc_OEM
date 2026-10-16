@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,8 +156,10 @@ func (p *Epay) CreateOrder(ctx context.Context, req CreateRequest) (*CreateResul
 	}
 	result, err := parseEpayCreateResponse(body)
 	if err != nil {
-		// 响应原文可能很长，只记前 200 字节便于排查。
-		p.logger.Warn("易支付下单响应异常", "status", resp.StatusCode, "body", truncateForLog(body))
+		// 响应原文可能很长，只记脱敏摘要便于排查。
+		// **绝不回显完整 payurl**：它常带签名参数，且非法协议（`javascript:` 等）本身就是攻击载荷。
+		p.logger.Warn("易支付下单响应异常",
+			"status", resp.StatusCode, "body", redactEpayBody(body))
 		return nil, err
 	}
 	result.PayType = payType
@@ -312,7 +315,7 @@ func (f *flexibleString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// parseEpayCreateResponse 解析下单响应：code=1 且带 payurl 才算成功。
+// parseEpayCreateResponse 解析下单响应：code=1 且带**协议合法**的 payurl 才算成功。
 func parseEpayCreateResponse(body []byte) (*CreateResult, error) {
 	var parsed epayCreateResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -328,6 +331,12 @@ func parseEpayCreateResponse(body []byte) (*CreateResult, error) {
 	if strings.TrimSpace(parsed.PayURL) == "" {
 		return nil, fmt.Errorf("%w: 渠道未返回支付链接（payurl）", ErrGatewayResponse)
 	}
+	// P5 安全整改 finding#07（契约 12.2.1）：payurl 是要交给浏览器跳转的地址，必须过协议白名单。
+	// 网关被指向攻击者（或网关方/MITM 被控）时返回 `javascript:…` 即可在站点源执行任意 JS
+	// 并外带 localStorage 里的会员 JWT；`data:` / `vbscript:` / `//attacker` / 相对地址同样有害。
+	if err := validatePayurl(parsed.PayURL); err != nil {
+		return nil, err
+	}
 
 	extra := make(map[string]string, 2)
 	if parsed.QRCode != "" {
@@ -341,6 +350,84 @@ func parseEpayCreateResponse(body []byte) (*CreateResult, error) {
 		PayURL:  parsed.PayURL,
 		Extra:   extra,
 	}, nil
+}
+
+// validatePayurl 校验渠道返回的支付链接：必须是**绝对地址**且协议为 http / https
+// （契约 12.2.1，P5 安全整改 finding#07）。
+//
+// 拒绝的情况一律沿用 ErrGatewayResponse 语义（上层映射 `50002`，**不新增错误码**），
+// 且错误文案里**不含** payurl 本身——它可能带签名参数，也可能就是攻击载荷。
+func validatePayurl(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("%w: 渠道返回的支付链接不是合法地址", ErrGatewayResponse)
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+	default:
+		// 覆盖 `javascript:` / `data:` / `vbscript:`、`//evil`（无 scheme）、`/relative`（无 scheme）。
+		return fmt.Errorf("%w: 渠道返回的支付链接协议不受支持（仅允许 http / https 绝对地址）", ErrGatewayResponse)
+	}
+	if parsed.Host == "" {
+		// 覆盖 `http:evil.com` 这类 opaque 写法与 `https:///x` 这类缺主机名的写法。
+		return fmt.Errorf("%w: 渠道返回的支付链接缺少主机名（必须是绝对地址）", ErrGatewayResponse)
+	}
+	return nil
+}
+
+// payurlTarget 返回 payurl 的「协议 + 主机」摘要，只用于日志。
+//
+// **绝不回显完整地址**：payurl 通常带签名参数，原样落日志等于把渠道凭据写进文件；
+// 解析不出主机时只回协议（如 `javascript:`），同样不带上路径与查询串。
+func payurlTarget(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "无法解析"
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if parsed.Host == "" {
+		if scheme == "" {
+			return "无协议"
+		}
+		return scheme + ":"
+	}
+	return scheme + "://" + parsed.Host
+}
+
+// urlQueryPattern 匹配 URL 里 `?` 之后的查询串，用于日志脱敏（payurl 常带签名参数）。
+var urlQueryPattern = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://[^\s"'<>]*)\?[^\s"'<>]*`)
+
+// redactEpayBody 生成下单响应用于日志的**脱敏摘要**（P5 安全整改 finding#07）：
+//
+//   - 响应是合法 JSON 时只回 code / msg / trade_no 与 payurl 的「协议 + 主机」，
+//     不回显 payurl 原文；
+//   - 不是 JSON 时只留前 200 字节，并把其中 URL 的查询串抹掉（防签名参数落日志）。
+//
+// 摘要本身也可能被渠道塞进任意内容，但它是**日志内容**而非跳转目标，风险等级与 payurl 不同；
+// 这里只保证「payurl 与查询串不进日志」这条硬要求。
+func redactEpayBody(body []byte) string {
+	var parsed epayCreateResponse
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		summary := map[string]string{"code": string(parsed.Code)}
+		if message := strings.TrimSpace(parsed.Msg); message != "" {
+			summary["msg"] = message
+		}
+		if tradeNo := strings.TrimSpace(parsed.TradeNo); tradeNo != "" {
+			summary["trade_no"] = tradeNo
+		}
+		if payurl := strings.TrimSpace(parsed.PayURL); payurl != "" {
+			summary["payurl_target"] = payurlTarget(payurl)
+		}
+		if encoded, err := json.Marshal(summary); err == nil {
+			return string(encoded)
+		}
+	}
+	return stripURLQueries(truncateForLog(body))
+}
+
+// stripURLQueries 把文本里 URL 的查询串替换成省略号（`https://gw/x?a=1` → `https://gw/x?…`）。
+func stripURLQueries(text string) string {
+	return urlQueryPattern.ReplaceAllString(text, "$1?…")
 }
 
 // truncateForLog 截断响应正文用于日志。

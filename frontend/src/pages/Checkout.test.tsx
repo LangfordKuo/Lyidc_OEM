@@ -2,21 +2,22 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { gotoPayurl } from '@/lib/pay'
+import { PAYURL_REJECTED_MESSAGE, gotoPayurl } from '@/lib/pay'
 import { makeCouponValid, makeMember, makeOrder, makeProductDetail } from '@/test/fixtures'
 import { fail, installFetchMock, ok, renderApp, requestBody, seedMemberToken } from '@/test/harness'
 
 // 支付跳转替身：jsdom 里不触发真实导航，只记录跳转地址。
+// 返回值固定 true（=「已发起跳转」）——P5 起调用方按返回值判定是否给出「地址不合法」提示。
 vi.mock('@/lib/pay', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/pay')>()
-  return { ...actual, gotoPayurl: vi.fn() }
+  return { ...actual, gotoPayurl: vi.fn(() => true) }
 })
 
 const BALANCE = '250.00'
 
 /** 结算页依赖：登录态 + 商品详情 + 余额 +（默认）已选年付的下单草稿。 */
-function mockCheckout(options: { draft?: boolean; balance?: string } = {}) {
-  const { draft = true, balance = BALANCE } = options
+function mockCheckout(options: { draft?: boolean; balance?: string; payurl?: string } = {}) {
+  const { draft = true, balance = BALANCE, payurl = 'https://pay.example.com/pay/xxx' } = options
   if (draft) {
     sessionStorage.setItem(
       'lyidc.checkout.draft.1',
@@ -49,7 +50,7 @@ function mockCheckout(options: { draft?: boolean; balance?: string } = {}) {
           channel: 'epay',
           pay_type: 'alipay',
           channel_trade_no: '2026100822001',
-          payurl: 'https://pay.example.com/pay/xxx',
+          payurl,
         },
       })
     }
@@ -275,6 +276,23 @@ describe('结算页', () => {
       trade_no: 'O20261008TEST0001',
       productId: 1,
     })
+  })
+
+  it('渠道支付地址是脚本协议时给出可读提示，且不跳转、不静默失败', async () => {
+    // 真实跑一遍协议白名单（只 mock 跳转函数）：接口回的 payurl 是 `javascript:` 载荷。
+    vi.mocked(gotoPayurl).mockClear()
+    mockCheckout({ payurl: 'javascript:alert(document.cookie)' })
+    const user = userEvent.setup()
+    await renderCheckout()
+
+    await user.click(screen.getByRole('button', { name: '提交订单' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: '前往支付' }))
+
+    expect(await within(dialog).findByText(PAYURL_REJECTED_MESSAGE)).toBeInTheDocument()
+    // 一次跳转都没发生，且仍停在支付弹窗里（用户可改用余额支付）。
+    expect(gotoPayurl).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('button', { name: '前往支付' })).toBeInTheDocument()
   })
 
   it('下单失败展示后端 message，且不打开支付弹窗', async () => {

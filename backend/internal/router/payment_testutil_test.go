@@ -85,6 +85,7 @@ func (g *fakeEpayGateway) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	g.creates = append(g.creates, createCall{form: r.PostForm})
+	payURL := g.payURL
 	g.mu.Unlock()
 
 	params := map[string]string{}
@@ -99,7 +100,14 @@ func (g *fakeEpayGateway) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"code":%s,"msg":"渠道拒绝下单"}`, g.rejectCode)
 		return
 	}
-	_, _ = fmt.Fprintf(w, `{"code":1,"trade_no":%q,"payurl":%q}`, g.tradeNo, g.payURL)
+	_, _ = fmt.Fprintf(w, `{"code":1,"trade_no":%q,"payurl":%q}`, g.tradeNo, payURL)
+}
+
+// setPayURL 改写下单返回的 payurl（用于构造 `javascript:` 等非法协议场景，P5 finding#07）。
+func (g *fakeEpayGateway) setPayURL(payurl string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.payURL = payurl
 }
 
 // created 返回收到的下单请求（最近一次在最后）。

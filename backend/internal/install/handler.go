@@ -20,6 +20,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/auth"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/securityheaders"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 )
@@ -44,7 +45,9 @@ var adminUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{3,32}$`)
 func (s *Supervisor) newInstallEngine() *gin.Engine {
 	engine := gin.New()
 	engine.HandleMethodNotAllowed = true
-	engine.Use(gin.Recovery())
+	// P5 安全整改（契约 1.3）：安装页与 /install/api/** 同样带齐 6 个安全响应头
+	// （与正常模式引擎同一份实现，不复制取值）。
+	engine.Use(securityheaders.Middleware(), gin.Recovery())
 
 	page := engine.Group(PathPage)
 	{

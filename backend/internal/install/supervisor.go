@@ -18,6 +18,7 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/db"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
+	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/securityheaders"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 )
@@ -156,6 +157,11 @@ func (s *Supervisor) ConfigPath() string { return s.configPath }
 //   - 未安装：/api/v1/health 照常返回（db=down），其它 /api/** 返回 503（50301），
 //     浏览器页面请求 302 跳转到 /install。
 func (s *Supervisor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// P5 安全整改（契约 1.3）：这里写的是**监督器自己**产出的响应（未安装时的 302 跳转、
+	// 503 包、安装模式的健康检查），它们不经过两个 gin 引擎，因此在入口再兜一层，
+	// 保证 Go 侧没有任何一条响应漏掉安全头。Set 语义，与引擎内的中间件重复写同值无害。
+	securityheaders.Apply(w.Header())
+
 	path := r.URL.Path
 
 	if isInstallPath(path) {

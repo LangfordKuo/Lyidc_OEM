@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-10-12T22:04:04Z",
-  "updated_at": "2026-10-16T19:23:53Z",
+  "updated_at": "2026-10-16T21:57:42Z",
   "files": {
     ".dockerignore": {
       "role": "index",
@@ -65,9 +65,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "98956e3bb477a4b8bb07f94e35dfe6c71fbfb7dc50948034cfb29acf0ae08f37",
-      "size": 147014,
-      "normalized_sha256": "98956e3bb477a4b8bb07f94e35dfe6c71fbfb7dc50948034cfb29acf0ae08f37"
+      "sha256": "68c340f423fa33881a689880750304d57d7f80449fe4391cffdb4cee99c57a7b",
+      "size": 149454,
+      "normalized_sha256": "68c340f423fa33881a689880750304d57d7f80449fe4391cffdb4cee99c57a7b"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -429,10 +429,10 @@
     },
     "backend/internal/install/handler.go": {
       "role": "index",
-      "sha256": "530dfa0bac4040cdd8d3a87c801cf22007a45cf19c99ba157d1bfa77747fe231",
-      "size": 22868,
-      "normalized_sha256": "530dfa0bac4040cdd8d3a87c801cf22007a45cf19c99ba157d1bfa77747fe231",
-      "format_sha256": "530dfa0bac4040cdd8d3a87c801cf22007a45cf19c99ba157d1bfa77747fe231",
+      "sha256": "368ccd2e12de454d55b32a2a796eae7916fd3e42b396c63663667ca7cdd09024",
+      "size": 23136,
+      "normalized_sha256": "368ccd2e12de454d55b32a2a796eae7916fd3e42b396c63663667ca7cdd09024",
+      "format_sha256": "368ccd2e12de454d55b32a2a796eae7916fd3e42b396c63663667ca7cdd09024",
       "format_kind": "gofmt"
     },
     "backend/internal/install/install_integration_test.go": {
@@ -459,6 +459,14 @@
       "format_sha256": "57f65b3ae9a2f7224d3360bb7f4992a67c87097166119ad45e4db9b44d8b7dcc",
       "format_kind": "gofmt"
     },
+    "backend/internal/install/security_headers_test.go": {
+      "role": "observe",
+      "sha256": "dfcc059cbcaed2d318ed079f1baf878dd6a14d97804d5ccde917fbdf6b9cbb37",
+      "size": 3882,
+      "normalized_sha256": "dfcc059cbcaed2d318ed079f1baf878dd6a14d97804d5ccde917fbdf6b9cbb37",
+      "format_sha256": "dfcc059cbcaed2d318ed079f1baf878dd6a14d97804d5ccde917fbdf6b9cbb37",
+      "format_kind": "gofmt"
+    },
     "backend/internal/install/state.go": {
       "role": "index",
       "sha256": "cbd809722a06b60b7ba5465b17c650bde542ae3fe67916677d4cc02d9114f535",
@@ -469,10 +477,10 @@
     },
     "backend/internal/install/supervisor.go": {
       "role": "index",
-      "sha256": "98217dc88a0294b2d905dc09d22fdfacebb0d06a2e4c1d94332ac716d55e7da8",
-      "size": 20722,
-      "normalized_sha256": "98217dc88a0294b2d905dc09d22fdfacebb0d06a2e4c1d94332ac716d55e7da8",
-      "format_sha256": "98217dc88a0294b2d905dc09d22fdfacebb0d06a2e4c1d94332ac716d55e7da8",
+      "sha256": "1b307f05c8fa2b1d62bc47f79d069dd56b247590b50b6d0d8c50fde07fd35c6f",
+      "size": 21181,
+      "normalized_sha256": "1b307f05c8fa2b1d62bc47f79d069dd56b247590b50b6d0d8c50fde07fd35c6f",
+      "format_sha256": "1b307f05c8fa2b1d62bc47f79d069dd56b247590b50b6d0d8c50fde07fd35c6f",
       "format_kind": "gofmt"
     },
     "backend/internal/install/supervisor_test.go": {
@@ -729,10 +737,18 @@
     },
     "backend/internal/payment/epay.go": {
       "role": "index",
-      "sha256": "c5ee81f04047919674650dcd7e46f43860209b60efcc5ccec6eae6c0dfdefc80",
-      "size": 11672,
-      "normalized_sha256": "c5ee81f04047919674650dcd7e46f43860209b60efcc5ccec6eae6c0dfdefc80",
-      "format_sha256": "c5ee81f04047919674650dcd7e46f43860209b60efcc5ccec6eae6c0dfdefc80",
+      "sha256": "87edceead7ad86b20029589eadc21c46a3d1f4e75f8124177cc8fbb42e8ed504",
+      "size": 15673,
+      "normalized_sha256": "87edceead7ad86b20029589eadc21c46a3d1f4e75f8124177cc8fbb42e8ed504",
+      "format_sha256": "87edceead7ad86b20029589eadc21c46a3d1f4e75f8124177cc8fbb42e8ed504",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/payment/epay_payurl_test.go": {
+      "role": "observe",
+      "sha256": "962fe8da3bc2ee37a925ca26afb06362d1338603292921177e59a540cfd86545",
+      "size": 7415,
+      "normalized_sha256": "962fe8da3bc2ee37a925ca26afb06362d1338603292921177e59a540cfd86545",
+      "format_sha256": "962fe8da3bc2ee37a925ca26afb06362d1338603292921177e59a540cfd86545",
       "format_kind": "gofmt"
     },
     "backend/internal/payment/epay_test.go": {
@@ -1241,10 +1257,18 @@
     },
     "backend/internal/router/payment_testutil_test.go": {
       "role": "observe",
-      "sha256": "f8a8b2333b2c1d598f4fc9f4e6309d34195c2d9a01a5ef5df86c6a197122f01f",
-      "size": 11976,
-      "normalized_sha256": "f8a8b2333b2c1d598f4fc9f4e6309d34195c2d9a01a5ef5df86c6a197122f01f",
-      "format_sha256": "f8a8b2333b2c1d598f4fc9f4e6309d34195c2d9a01a5ef5df86c6a197122f01f",
+      "sha256": "db098f9e9512b127fe757887dc720155001f507c2e3be8bc0dd7abb866576ebb",
+      "size": 12218,
+      "normalized_sha256": "db098f9e9512b127fe757887dc720155001f507c2e3be8bc0dd7abb866576ebb",
+      "format_sha256": "db098f9e9512b127fe757887dc720155001f507c2e3be8bc0dd7abb866576ebb",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/router/payurl_security_test.go": {
+      "role": "observe",
+      "sha256": "7fb2b0687f72dad8900a627367ac314316acd80bdd5ed6ad5e70093ffe2c4a1a",
+      "size": 6456,
+      "normalized_sha256": "7fb2b0687f72dad8900a627367ac314316acd80bdd5ed6ad5e70093ffe2c4a1a",
+      "format_sha256": "7fb2b0687f72dad8900a627367ac314316acd80bdd5ed6ad5e70093ffe2c4a1a",
       "format_kind": "gofmt"
     },
     "backend/internal/router/product_description.go": {
@@ -1441,10 +1465,10 @@
     },
     "backend/internal/router/router.go": {
       "role": "index",
-      "sha256": "4d2704e1ebe024c8abfb9a2d325da636eb24f8faab0b7647217343bb16272e0a",
-      "size": 40967,
-      "normalized_sha256": "4d2704e1ebe024c8abfb9a2d325da636eb24f8faab0b7647217343bb16272e0a",
-      "format_sha256": "4d2704e1ebe024c8abfb9a2d325da636eb24f8faab0b7647217343bb16272e0a",
+      "sha256": "9fcae7b4cc795d5679d1cf1b42a93eeee0be0ebbf377483613437fe3d5792852",
+      "size": 41410,
+      "normalized_sha256": "9fcae7b4cc795d5679d1cf1b42a93eeee0be0ebbf377483613437fe3d5792852",
+      "format_sha256": "9fcae7b4cc795d5679d1cf1b42a93eeee0be0ebbf377483613437fe3d5792852",
       "format_kind": "gofmt"
     },
     "backend/internal/router/router_test.go": {
@@ -1461,6 +1485,14 @@
       "size": 17031,
       "normalized_sha256": "b5b301ef8d80e7e10e95e6d09612975a00efbf8d7af4e4c8f7da501798b708d8",
       "format_sha256": "b5b301ef8d80e7e10e95e6d09612975a00efbf8d7af4e4c8f7da501798b708d8",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/router/security_headers_test.go": {
+      "role": "observe",
+      "sha256": "d201be94a2672f323ddd34bfbc755eb04289eb20a40bbca780d6ee68b3c03709",
+      "size": 4890,
+      "normalized_sha256": "d201be94a2672f323ddd34bfbc755eb04289eb20a40bbca780d6ee68b3c03709",
+      "format_sha256": "d201be94a2672f323ddd34bfbc755eb04289eb20a40bbca780d6ee68b3c03709",
       "format_kind": "gofmt"
     },
     "backend/internal/router/settings_backup_handler.go": {
@@ -1613,6 +1645,22 @@
       "size": 21789,
       "normalized_sha256": "2852b5b85d045afa372a9d3ce3bfd00754f1903b107f4f3f48b7d39e0b3f05a5",
       "format_sha256": "2852b5b85d045afa372a9d3ce3bfd00754f1903b107f4f3f48b7d39e0b3f05a5",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/securityheaders/securityheaders.go": {
+      "role": "index",
+      "sha256": "329fd2ce95678ef4364d48ac894e28f6a32b854535d477f8609cdd0fbdfc56bf",
+      "size": 4634,
+      "normalized_sha256": "329fd2ce95678ef4364d48ac894e28f6a32b854535d477f8609cdd0fbdfc56bf",
+      "format_sha256": "329fd2ce95678ef4364d48ac894e28f6a32b854535d477f8609cdd0fbdfc56bf",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/securityheaders/securityheaders_test.go": {
+      "role": "observe",
+      "sha256": "a50e67e621edc4a70f3cecf368a4fbba59f828f7a4bbe934c3f414d0f9e67944",
+      "size": 4873,
+      "normalized_sha256": "a50e67e621edc4a70f3cecf368a4fbba59f828f7a4bbe934c3f414d0f9e67944",
+      "format_sha256": "a50e67e621edc4a70f3cecf368a4fbba59f828f7a4bbe934c3f414d0f9e67944",
       "format_kind": "gofmt"
     },
     "backend/internal/settings/backup.go": {
@@ -2459,9 +2507,9 @@
     },
     "deploy/docker/nginx-default.conf.template": {
       "role": "index",
-      "sha256": "614d3430eed5aebab757996f3ca201b5f944b3cf9f63936f87049854f03b0272",
-      "size": 1956,
-      "normalized_sha256": "b4af33baabd8be4896f2b71aabd6336bc1ad019b51464a02738f6ce0c5ea377d"
+      "sha256": "355099f571f68d23297062bafa6547f6cd431d63657214079bf5fdef03c37767",
+      "size": 3715,
+      "normalized_sha256": "355099f571f68d23297062bafa6547f6cd431d63657214079bf5fdef03c37767"
     },
     "docs/RELEASE.md": {
       "role": "index",
@@ -2471,15 +2519,15 @@
     },
     "docs/api-contract.md": {
       "role": "index",
-      "sha256": "fb361a50a574819b7b1ac8c38bb57cce5d9ee31e91b73de72ba0c181cb3c0d4f",
-      "size": 593938,
-      "normalized_sha256": "fb361a50a574819b7b1ac8c38bb57cce5d9ee31e91b73de72ba0c181cb3c0d4f"
+      "sha256": "91aa873ad859baae265e9cc3845191b939760372996e61149950b7047586d686",
+      "size": 614072,
+      "normalized_sha256": "91aa873ad859baae265e9cc3845191b939760372996e61149950b7047586d686"
     },
     "docs/deploy.md": {
       "role": "index",
-      "sha256": "2bb2b2a1d50b488fb7566c94ce3bfdf02823b41456a4fb514ae78e276ada2682",
-      "size": 21436,
-      "normalized_sha256": "2bb2b2a1d50b488fb7566c94ce3bfdf02823b41456a4fb514ae78e276ada2682"
+      "sha256": "d162cf633e17c0fa9d7d92fb52ed45572596a003481b4833a1c443dcd9afc68c",
+      "size": 24847,
+      "normalized_sha256": "d162cf633e17c0fa9d7d92fb52ed45572596a003481b4833a1c443dcd9afc68c"
     },
     "docs/references/upstream/012_前台产品功能": {
       "role": "index",
@@ -2933,9 +2981,9 @@
     },
     "frontend/src/components/checkout/PayDialog.tsx": {
       "role": "index",
-      "sha256": "bfb559ad083468c143f1d6c6c0fe1fa4f8f8c14cd9a40b9232c47614fa45fc81",
-      "size": 9537,
-      "normalized_sha256": "11025251eee4468314c1d9c6b5d5dc16ea5949e0c5f813351b4b2e792b4ab34f"
+      "sha256": "c389712dcb8779fdb55a8572f5650c28967d3dafd6c7b7ec5461042064cf4c54",
+      "size": 10322,
+      "normalized_sha256": "c389712dcb8779fdb55a8572f5650c28967d3dafd6c7b7ec5461042064cf4c54"
     },
     "frontend/src/components/common/ChoiceChips.test.tsx": {
       "role": "observe",
@@ -3429,11 +3477,17 @@
       "size": 1427,
       "normalized_sha256": "246a7727ec436d033c08d21638065f6a2c48adb8b09261b8cfe068c2964f8303"
     },
+    "frontend/src/lib/pay.test.ts": {
+      "role": "observe",
+      "sha256": "37ee2537e69b4327bf12d140542b0cc104ee3666806a99809ce8b032b83fc7e1",
+      "size": 3319,
+      "normalized_sha256": "37ee2537e69b4327bf12d140542b0cc104ee3666806a99809ce8b032b83fc7e1"
+    },
     "frontend/src/lib/pay.ts": {
       "role": "index",
-      "sha256": "3895c2bdf51813703423732660a37bd32dcda9a2587bc7c9d5afdc4222e240bf",
-      "size": 1147,
-      "normalized_sha256": "557f14afe6f02a3fb0bfddf6ff3f81dcea1f810755695b23939ba2971dd7482a"
+      "sha256": "c5f32f5675c73ca27b4fe51f7f3703b098476e072775fd6aadbd2dbbe3a9d1f3",
+      "size": 2792,
+      "normalized_sha256": "c5f32f5675c73ca27b4fe51f7f3703b098476e072775fd6aadbd2dbbe3a9d1f3"
     },
     "frontend/src/lib/priceQuote.test.ts": {
       "role": "observe",
@@ -3515,9 +3569,9 @@
     },
     "frontend/src/pages/Checkout.test.tsx": {
       "role": "observe",
-      "sha256": "2ed85bc58377b9e6ab57f97fc1d97c022323c5d3a1bbc72578dc0f4f094acf18",
-      "size": 14882,
-      "normalized_sha256": "2ed85bc58377b9e6ab57f97fc1d97c022323c5d3a1bbc72578dc0f4f094acf18"
+      "sha256": "1bf4908c034971521b26e3cbfe75ed8bd494aac4c9452955e60cd7141326a510",
+      "size": 16012,
+      "normalized_sha256": "1bf4908c034971521b26e3cbfe75ed8bd494aac4c9452955e60cd7141326a510"
     },
     "frontend/src/pages/Checkout.tsx": {
       "role": "index",
@@ -3557,15 +3611,15 @@
     },
     "frontend/src/pages/ConsoleRecharge.test.tsx": {
       "role": "observe",
-      "sha256": "321f9a8488fd349389d52bff8bc17a8153c0b9df47906fad8ca1bf8805299067",
-      "size": 4643,
-      "normalized_sha256": "321f9a8488fd349389d52bff8bc17a8153c0b9df47906fad8ca1bf8805299067"
+      "sha256": "6da43ba28cc5b06156952021986190c3a24e713dfcbbf61b85bf5dbf098f8681",
+      "size": 5591,
+      "normalized_sha256": "6da43ba28cc5b06156952021986190c3a24e713dfcbbf61b85bf5dbf098f8681"
     },
     "frontend/src/pages/ConsoleRecharge.tsx": {
       "role": "index",
-      "sha256": "a228ff2103283e09e540ed592c4a76388c6fdce32bf3d827cbdf88a622227496",
-      "size": 13555,
-      "normalized_sha256": "a228ff2103283e09e540ed592c4a76388c6fdce32bf3d827cbdf88a622227496"
+      "sha256": "cdc5db4d8c4ff4d05912a073e14b61ac91b90a871e2d341b81859a005e607328",
+      "size": 13936,
+      "normalized_sha256": "cdc5db4d8c4ff4d05912a073e14b61ac91b90a871e2d341b81859a005e607328"
     },
     "frontend/src/pages/ConsoleReferral.test.tsx": {
       "role": "observe",

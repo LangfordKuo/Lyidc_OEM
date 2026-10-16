@@ -2,19 +2,21 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { gotoPayurl } from '@/lib/pay'
+import { PAYURL_REJECTED_MESSAGE, gotoPayurl } from '@/lib/pay'
 import { makeLedgerEntry, makeMember, makeRecharge } from '@/test/fixtures'
 import { installFetchMock, ok, renderApp, requestBody, seedMemberToken } from '@/test/harness'
 
 // 支付跳转替身：jsdom 里不触发真实导航，只记录跳转地址。
+// 返回值固定 true（=「已发起跳转」）——P5 起调用方按返回值判定是否给出「地址不合法」提示。
 vi.mock('@/lib/pay', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/pay')>()
-  return { ...actual, gotoPayurl: vi.fn() }
+  return { ...actual, gotoPayurl: vi.fn(() => true) }
 })
 
 // 会员区「余额充值」：金额校验（前端预校验不请求）与创建充值单参数。
 
-function mockRecharge() {
+function mockRecharge(options: { payurl?: string } = {}) {
+  const { payurl = 'https://pay.example.com/pay/yyy' } = options
   return installFetchMock((url, init) => {
     if (url.pathname === '/api/v1/members/me') {
       return ok(makeMember({ balance: '180.00' }))
@@ -32,7 +34,7 @@ function mockRecharge() {
           channel: 'epay',
           pay_type: 'alipay',
           channel_trade_no: '2026100822002',
-          payurl: 'https://pay.example.com/pay/yyy',
+          payurl,
         },
       })
     }
@@ -108,6 +110,21 @@ describe('会员区 · 余额充值', () => {
     await waitFor(() =>
       expect(gotoPayurl).toHaveBeenCalledWith('https://pay.example.com/pay/yyy'),
     )
+  })
+
+  it('渠道支付地址是脚本协议时给出可读提示，且不跳转、不静默失败', async () => {
+    // 真实跑一遍协议白名单（只 mock 跳转函数）：接口回的 payurl 是 `javascript:` 载荷。
+    mockRecharge({ payurl: 'javascript:alert(document.cookie)' })
+    vi.mocked(gotoPayurl).mockClear()
+    const user = userEvent.setup()
+    const input = await renderRecharge()
+
+    await user.click(screen.getByRole('button', { name: '¥100' }))
+    expect(input).toHaveValue('100')
+    await user.click(screen.getByRole('button', { name: '去支付' }))
+
+    expect(await screen.findByText(PAYURL_REJECTED_MESSAGE)).toBeInTheDocument()
+    expect(gotoPayurl).not.toHaveBeenCalled()
   })
 
   it('展示充值记录与余额流水（收入为正、支出为负）', async () => {
