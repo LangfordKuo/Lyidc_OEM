@@ -317,9 +317,48 @@ func (s *Supervisor) enterInstalledLocked(marker settings.Installed) {
 		s.detail = "系统已安装"
 	}
 	if s.engine == nil {
+		// 契约 25.1：弱密钥必须在**构造令牌服务之前**轮换——引擎构造时会把 s.jwt 快照进
+		// 令牌服务，之后再改 s.jwt 就不再生效。
+		s.rotateWeakJWTSecretLocked()
 		s.engine = s.opts.BuildEngine(s.gdb, s.jwt)
 		s.logger.Info("正常模式引擎已就绪", "installed_at", marker.At, "source", marker.Source)
 	}
+}
+
+// rotateWeakJWTSecretLocked 在**已安装**实例上检测到默认/弱 jwt.secret 时自动轮换并写回
+// 配置文件（P1 安全整改，契约 25.1）。调用方必须持有写锁，且必须在构造正常模式引擎之前调用。
+//
+// 「已安装」判定复用本状态机既有实现（installed 标记存在、或存量库自动补标记后进入已安装态），
+// 不另立标记、不另写一套探测 SQL。
+//
+// 三条硬要求（都写在这里，改的时候别丢）：
+//  1. 日志只说明「已轮换」，**绝不出现密钥本身或任何片段**；
+//  2. 写回失败**不阻止启动**：改用仅本次进程有效的随机密钥，并给出明确的人工处置指引；
+//  3. 密钥不是弱值时**完全不碰配置文件**，因此第二次启动不会重复轮换。
+func (s *Supervisor) rotateWeakJWTSecretLocked() {
+	if !s.jwt.IsWeakSecret() {
+		return
+	}
+
+	rotation := config.RotateWeakJWTSecret(s.jwt, s.configPath)
+	if !rotation.Rotated {
+		// 连随机密钥都生成不出来（crypto/rand 失败）：沿用原值，服务照常启动。
+		s.logger.Warn("jwt.secret 是默认/弱密钥，且无法生成随机密钥，本次沿用原值（服务照常启动）",
+			"config_key", "jwt.secret", "error", rotation.WriteErr)
+		return
+	}
+
+	// 无论写回成功与否，本次进程都改用新密钥：旧密钥泄露出去的那些令牌从这一刻起失效。
+	s.jwt.Secret = rotation.Secret
+	if rotation.Written {
+		s.logger.Warn("已检测到默认/弱 jwt.secret，已自动轮换为随机密钥并写回配置文件；"+
+			"该密钥此前可被离线伪造，本次轮换使已签发的全部旧令牌立即失效",
+			"config_key", "jwt.secret", "config_path", s.configPath)
+		return
+	}
+	s.logger.Warn("已检测到默认/弱 jwt.secret，但写回配置文件失败，已改用仅本次进程有效的随机密钥；"+
+		"请手工把配置文件里的 jwt.secret 改成 32 个字符以上的随机值（否则每次重启都会再次轮换、旧令牌每次失效）",
+		"config_key", "jwt.secret", "config_path", s.configPath, "error", rotation.WriteErr)
 }
 
 // handleLocked 返回当前生效 DSN 对应的数据库句柄：可复用时复用，否则新建并替换旧句柄。

@@ -2,8 +2,6 @@ package install
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -475,7 +473,8 @@ func (s *Supervisor) handleComplete(c *gin.Context) {
 		return
 	}
 
-	secret, err := generateJWTSecret()
+	// 密钥生成与启动时的弱密钥自动轮换共用同一实现，保证两处强度同口径（契约 25.1）。
+	secret, err := config.GenerateJWTSecret()
 	if err != nil {
 		failInternal(c, s.logger, err)
 		return
@@ -603,15 +602,6 @@ func clearInstallProgressLocked(ctx context.Context, st *store.Store, logger *sl
 	if err := st.DeleteSetting(ctx, settings.KeyInstallProgress); err != nil {
 		logger.Warn("安装向导：清理安装进度标记失败（不影响使用）", "error", err)
 	}
-}
-
-// generateJWTSecret 生成 32 字节随机 JWT 密钥（base64url，43 字符）。
-func generateJWTSecret() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("生成 JWT 密钥失败: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 // workingDir 返回运行目录（失败时返回空串）。

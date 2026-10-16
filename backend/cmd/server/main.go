@@ -83,10 +83,6 @@ func main() {
 	} else {
 		logger.Info("配置加载完成", "path", cfg.SourcePath)
 	}
-	if cfg.JWT.UsesDefaultSecret() {
-		logger.Warn("jwt.secret 正在使用开发默认密钥，生产环境必须修改（安装向导完成时会自动替换为随机密钥）",
-			"config_key", "jwt.secret")
-	}
 
 	gin.SetMode(ginMode(cfg.Server.Mode))
 
@@ -175,6 +171,17 @@ func main() {
 	startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupProbeTimeout)
 	supervisor.Init(startupCtx)
 	cancelStartup()
+
+	// 启动安全基线（契约 25.1）：**已安装**实例上的默认/弱 jwt.secret 由 Supervisor 在构造令牌
+	// 服务**之前**自动轮换并写回配置文件（写回失败则退回仅本次进程有效的随机密钥，照常启动），
+	// 对应日志在 Supervisor 里输出。**未安装**时密钥由安装向导「完成」步骤生成，这里沿用既有口径
+	// 只打 WARN：不轮换、不写文件、不拒绝启动、不改监听地址。
+	//
+	// 判定放在 Init 之后：是否已安装只能由安装状态机的实际探测结论决定，此前无从得知。
+	if !supervisor.IsInstalled() && cfg.JWT.IsWeakSecret() {
+		logger.Warn("jwt.secret 正在使用开发默认密钥或长度不足 32 个字符，生产环境必须修改（安装向导完成时会自动替换为随机密钥）",
+			"config_key", "jwt.secret")
+	}
 
 	// 支付渠道参数与上游对接**凭据**（账号 / 密钥 / 超时）都在后台设置（settings 表）里，
 	// 由 router 按当前设置动态构造：启动时不做读取（数据库可能不可用），管理员改完设置下一次调用

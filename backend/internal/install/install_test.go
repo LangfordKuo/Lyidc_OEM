@@ -387,9 +387,11 @@ func TestValidateAdminRequest(t *testing.T) {
 }
 
 func TestGenerateJWTSecret(t *testing.T) {
+	// 密钥生成已提到 config 包共用（安装向导与启动时的弱密钥轮换同口径，契约 25.1），
+	// 本用例改为调用共用实现，断言口径不变。
 	seen := make(map[string]bool)
 	for i := 0; i < 16; i++ {
-		secret, err := generateJWTSecret()
+		secret, err := config.GenerateJWTSecret()
 		if err != nil {
 			t.Fatalf("生成密钥失败: %v", err)
 		}

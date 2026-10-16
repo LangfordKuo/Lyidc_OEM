@@ -18,7 +18,7 @@ release.yml[OV8L]: F:发布流水线：tag 触发三平台发布包、GHCR 双�
 main.go[ER7S]: F:数据库迁移 CLI：up/down/version 执行 golang-migrate | R:code:backend/migrations/migrations.go,code:backend/internal/config/config.go | A:main,run | S:强制为 DSN 打开 multiStatements；服务启动不执行迁移，只有安装向导第 3 步与一键升级（helper 用新包内的它跑 up）会执行
 
 ===D:/Project/Lyidc_OEM/backend/cmd/server/===
-main.go[EA9M]: F:后端 HTTP 服务入口：装配配置、安装监督器与正常模式引擎 | R:code:backend/internal/install/supervisor.go,code:backend/internal/router/router.go,code:backend/internal/config/config.go | A:main | S:未安装时进程照常启动由 Supervisor 热切换；flag 解析前先分流 upgrade-helper 子命令（不读配置不连库不监听端口）；启动日志输出构建期上游地址、未注入时给出明确警告；生产向 router 传 ServerAddr、DatabaseDSN 与 UpstreamBaseURL（R14 恢复后追迁移必须用带 multiStatements 的 DSN）；R18 操作日志写入器与 R19 缓存管理器都在 BuildEngine 内构造，热切换与进程退出都要 Close（缓存 Close 会停掉文件缓存的定期清理协程）
+main.go[EA9M]: F:后端 HTTP 服务入口：装配配置、安装监督器与正常模式引擎 | R:code:backend/internal/install/supervisor.go,code:backend/internal/router/router.go,code:backend/internal/config/config.go,code:backend/internal/config/jwt.go | A:main | S:未安装时进程照常启动由 Supervisor 热切换；flag 解析前先分流 upgrade-helper 子命令（不读配置不连库不监听端口）；启动日志输出构建期上游地址并警告未注入；生产向 router 传 ServerAddr、DatabaseDSN 与 UpstreamBaseURL（R14 恢复后追迁移须带 multiStatements）；R18 操作日志写入器与 R19 缓存管理器都在 BuildEngine 内构造，热切换与退出都要 Close；弱密钥告警须在 supervisor.Init 后按 !IsInstalled() 判定（已安装由状态探测决定），否则已安装实例会先后打出矛盾的告警
 
 ===D:/Project/Lyidc_OEM/backend/===
 config.example.yaml[FC6T]: F:后端部署级配置示例与取值口径 | R:code:backend/internal/config/config.go | A:- | S:真实 config.yaml 已被 gitignore 且含密码绝不入库；用户可设置项不进本文件（一律走 settings 表）；R17 起上游地址也不在此，改走构建期注入
@@ -35,6 +35,7 @@ category.go[DB7S]: F:商品两级分类的纯函数派生规则（地域主类+�
 ===D:/Project/Lyidc_OEM/backend/internal/config/===
 config.go[CR8M]: F:后端配置加载、校验与缺省值定义 | R:code:backend/config.example.yaml | A:Load,Validate,MaskDSN,ResolvePath | S:配置只承载部署级参数；DatabaseConfigured 区分「没有配置文件」与「配置了但连不上」两种安装场景，只看键是否显式非空
 save.go[CR8M]: F:安装向导合并写回配置文件与可写性试写 | R:code:backend/internal/config/config.go | A:SaveMerged,CheckWritable,ResolveWritePath | S:同目录临时文件原子替换且权限 0600；保留既有键、注释与顺序只更新 dsn/jwt.secret；调用方须保证参数不落日志
+jwt.go[CS8T]: F:JWT 密钥的弱值判定、随机生成与已安装实例的自动轮换写回 | R:code:backend/internal/config/config.go,code:backend/internal/config/save.go,code:backend/internal/install/supervisor.go,code:backend/internal/auth/token.go | A:IsWeakSecret,GenerateJWTSecret,RotateWeakJWTSecret,JWTSecretRotation | S:长度按去除首尾空白后的字符数（rune）而非字节计——11 个汉字（33 字节）仍判为弱值；密钥不弱时完全不碰文件，轮换天然幂等；写回失败不返回 error 也不回滚密钥（Rotated=true/Written=false），由调用方改内存兜底；写回复用 SaveMerged 故只改 jwt.secret 一个标量，yaml.v3 往返不保留空行属既有行为
 
 ===D:/Project/Lyidc_OEM/backend/internal/db/===
 db.go[CP8T]: F:MySQL 连接池建立、DSN 归一与健康探测 | R:code:backend/internal/config/config.go | A:Open,NormalizeDSN,PingFunc,Close | S:DSN 强制 parseTime=true 且 loc=UTC，时间列统一按 UTC 读写与开发机时区解耦
@@ -48,10 +49,10 @@ email.go[CM7M]: F:纯标准库 SMTP 邮件发送与 RFC5322 报文组装 | R:- |
 
 ===D:/Project/Lyidc_OEM/backend/internal/install/===
 dbconfig.go[ID7M]: F:安装向导数据库连接测试、自动建库与失败原因翻译 | R:code:backend/internal/install/handler.go | A:testDatabaseConnection,createDatabase,describeConnectError | S:库名限制字母数字下划线防拼接注入；结果视图不含密码也不回显完整 DSN
-handler.go[IU8L]: F:安装向导六步 API：环境检查、数据库、建表、管理员、站点与完成 | R:code:backend/internal/install/state.go,code:backend/internal/install/dbconfig.go,code:backend/internal/install/migrate.go,code:backend/internal/install/views.go,code:backend/internal/config/save.go | A:newInstallEngine,handleComplete,handleAdmin,handleSite | S:装完后 /install 与 /install/api/* 永久关闭防重装覆盖数据；JWT 密钥由向导随机生成，响应与日志不得回显密码
+handler.go[IU8L]: F:安装向导六步 API：环境检查、数据库、建表、管理员、站点与完成 | R:code:backend/internal/install/state.go,code:backend/internal/install/dbconfig.go,code:backend/internal/install/migrate.go,code:backend/internal/install/views.go,code:backend/internal/config/save.go,code:backend/internal/config/jwt.go | A:newInstallEngine,handleComplete,handleAdmin,handleSite | S:装完后 /install 与 /install/api/* 永久关闭防重装覆盖数据；JWT 密钥由向导随机生成，复用 config.GenerateJWTSecret（与启动时的弱密钥自动轮换同一实现，不得另复制一份），响应与日志不得回显密码与密钥
 migrate.go[IR7S]: F:安装向导初始化建表：执行内嵌 SQL 迁移并回报版本 | R:code:backend/migrations/migrations.go,code:backend/cmd/migrate/main.go | A:runMigrations,availableMigrations | S:与 cmd/migrate 完全同一套 golang-migrate 执行方式，不复制迁移 SQL；重复执行第 3 步幂等返回 no_change
 state.go[IW8T]: F:安装状态机：五种安装场景与向导续装步骤判定 | R:- | A:State,NeedsWizard,FirstStep | S:状态由每次探测的实际环境判定，不依赖任何本地标志位；续装态保证刷新页面或重启进程后落回正确步骤
-supervisor.go[IA9L]: F:安装监督器：状态探测、请求分发与正常模式引擎热切换 | R:code:backend/internal/install/state.go,code:backend/internal/router/router.go,code:backend/internal/store/store.go | A:Supervisor,NewSupervisor,Init,ServeHTTP | S:安装完成免重启热切换数据库句柄与 JWT 配置；健康检查已安装看 /api/v1/health、未安装看 /install/api/status；核心表以 settings/admins 判定
+supervisor.go[IA9L]: F:安装监督器：状态探测、请求分发与正常模式引擎热切换 | R:code:backend/internal/install/state.go,code:backend/internal/router/router.go,code:backend/internal/store/store.go,code:backend/internal/config/jwt.go | A:Supervisor,NewSupervisor,Init,ServeHTTP,enterInstalledLocked | S:安装完成免重启热切换数据库句柄与 JWT 配置；健康检查已安装看 /api/v1/health、未安装看 /install/api/status；核心表以 settings/admins 判定；进入已安装态时必须先轮换弱 jwt.secret 再构造引擎——引擎构造会把 s.jwt 快照进令牌服务，之后再改 s.jwt 不生效；轮换日志只记键名与路径、绝不出现密钥本身或片段，写回失败只降级为内存密钥、不阻止启动
 views.go[IU7M]: F:安装向导页面渲染与各步骤状态视图组装 | R:code:backend/internal/install/web/install.html,code:backend/internal/install/web/installed.html,code:backend/internal/install/state.go | A:renderInstallPage,renderInstalledPage,buildStatus | S:视图与错误文本不得包含密码与完整 DSN；页面由 html/template 渲染注入配置路径
 
 ===D:/Project/Lyidc_OEM/backend/internal/install/web/===
@@ -249,8 +250,8 @@ nginx-default.conf.template[OV7T]: F:前端 nginx 站点配置模板（envsubst 
 
 ===D:/Project/Lyidc_OEM/docs/===
 RELEASE.md[SO6T]: F:发版流程、tag 命名规则与发布后核对清单 | R:code:.github/workflows/release.yml | A:- | S:tag 必须 v 前缀才触发流水线；latest 只在 v* tag 更新；发布后用上一版部署在「系统更新」核对新版本与产物
-api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码；最新 v33（R20 商品同步：10.7 接口/字段边界/调用量实测，24.6.2 失效点），v32 缓存接线、v31 基础设施、v30 日志页与超时、v29 三通道日志；23.10 的实测数字是关键字超时口径的依据
-deploy.md[SO7M]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种部署方式收尾都走同一安装向导（compose 第 2 步填 mysql）；备份默认挂载 deploy/backups/；容器不适用一键升级；上游地址构建期固定，本地打包要给 UPSTREAM_BASE_URL
+api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码；契约版本 v33（R20 商品同步；P1 安全整改新增第 25 节「启动安全基线」，该节只描述进程启动行为、不改任何接口且不升版本）；变更记录为第 26 节；23.10 的实测数字是关键字超时口径的依据
+deploy.md[SO7M]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种方式都用同一安装向导（compose 第 2 步填 mysql）；备份在 deploy/backups/；容器不适用一键升级；上游地址构建期固定、打包须给 UPSTREAM_BASE_URL；弱 jwt.secret 自动轮换、旧令牌失效
 
 ===D:/Project/Lyidc_OEM/docs/references/upstream/===
 012_前台产品功能[SI6L]: F:上游前台产品与主机接口的参考实录（HostController） | R:code:docs/references/upstream/021_服务模块接口 | A:- | S:是上游文档实录而非本系统契约；auth.* 开关字段（reinstall/crack_pass 等）决定会员端可执行操作
