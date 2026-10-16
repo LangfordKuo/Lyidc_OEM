@@ -6,7 +6,9 @@
 //   - **绝不提供下载**：本包与接口层都只输出元信息（时间 / 大小 / 版本 / 操作人 / 文件名），
 //     没有任何函数把备份文件内容回给调用方，也没有任何函数把内容写进日志；
 //   - **备份目录绝不在 Web 根内**：缺省 `<安装目录>/backups`（与 `dist/` 同级），
-//     设置项解析结果落在 `<安装目录>/dist` 内时一律拒绝使用（启动与每次使用都校验）；
+//     设置项解析结果落在 `<安装目录>/dist` 内时一律拒绝使用（启动、每次使用与**真正写文件之前**
+//     都校验）；判定前两侧路径先经 normalizeDirPath 归一（`\\?\` 扩展长度路径等 Windows
+//     等价写法归一到同一形态），设备路径 / 卷路径 / 空段等无法可靠判定的形态一律拒绝；
 //   - **接口只接受备份 ID**：ID 必须匹配 `lyidc-backup-<UTC 时间戳>-<8 位随机串>`，
 //     服务端据此在自己的白名单（备份目录）里解析路径，并复核结果仍在目录内且不是符号链接。
 //
@@ -192,7 +194,7 @@ func (s *Service) BackupDir(ctx context.Context) DirState {
 	}
 	if err := s.checkDir(state.Dir); err != nil {
 		state.OutsideWebRoot = false
-		state.Message = err.Error()
+		state.Message = Reason(err)
 	}
 	return state
 }
@@ -278,7 +280,7 @@ func (s *Service) resolveReport(dir string) (DirReport, error) {
 	}
 	if err := s.checkDir(report.Dir); err != nil {
 		report.OutsideWebRoot = false
-		report.Message = err.Error()
+		report.Message = Reason(err)
 		return report, err
 	}
 	if info, err := os.Lstat(report.Dir); err == nil && info.IsDir() {
@@ -310,23 +312,79 @@ func (s *Service) resolveConfigured(dir string) string {
 	return filepath.Join(s.installDir, dir)
 }
 
+// dirError 是「备份目录不可用」的具体原因：Unwrap 到 ErrDirUnusable 供接口映射错误码，
+// reason 则是不带哨兵前缀的可读原因，供接口 message 与日志使用。
+//
+// 拆开两者的目的是让 message 只有一层前缀：调用方拿到 reason 直接用，
+// 需要包成 error 时再包一次，避免出现「备份目录不可用: 备份目录不可用: …」。
+type dirError struct{ reason string }
+
+func (e *dirError) Error() string { return ErrDirUnusable.Error() + ": " + e.reason }
+func (e *dirError) Unwrap() error { return ErrDirUnusable }
+
+// dirUnusable 构造一条带可读原因的目录不可用错误。
+func dirUnusable(format string, args ...any) error {
+	return &dirError{reason: fmt.Sprintf(format, args...)}
+}
+
+// Reason 取目录不可用错误的可读原因（不含「备份目录不可用」前缀）；其他错误原样返回 Error()。
+func Reason(err error) string {
+	var target *dirError
+	if errors.As(err, &target) {
+		return target.reason
+	}
+	return err.Error()
+}
+
 // checkDir 校验备份目录：不能落在 Web 根内、不能是已存在的非目录对象。
+//
+// 两侧（配置目录与 Web 根）都先过 normalizeDirPath 再做包含判定：只有两侧形态一致，
+// `\\?\<Web 根>` 这类 Windows 等价写法才不会被判成「在 Web 根外」（契约 21.4 第 2 条）。
+// 归一化失败（设备路径、卷路径、空段、段内尾随空格或点……）一律拒绝——
+// 无法可靠判定包含关系时不放行，绝不用「判不出来就当不在 Web 根内」兜底。
 func (s *Service) checkDir(dir string) error {
 	if dir == "" {
-		return fmt.Errorf("%w: 备份目录为空", ErrDirUnusable)
+		return dirUnusable("备份目录为空")
+	}
+	normalizedDir, err := normalizeDirPath(dir)
+	if err != nil {
+		return dirUnusable("%s", err)
+	}
+	normalizedRoot, err := normalizeDirPath(s.webRoot)
+	if err != nil {
+		// Web 根由部署方固定（默认 <安装目录>/dist）；它自身形态非法说明部署被改坏，
+		// 此时包含关系无从判定，只能拒绝写入而不是放行。
+		return dirUnusable("Web 根目录（%s）的形态不受支持（%v），无法判定备份目录是否在其内",
+			s.webRoot, err)
 	}
 	// 符号链接解析后比较，防止用链接把备份目录指进 Web 根。
-	if within(canonicalDir(dir), canonicalDir(s.webRoot)) {
-		return fmt.Errorf("%w: 备份目录不能位于 Web 根（%s）内——备份含管理员密码哈希等敏感数据，绝不能被 Web 服务器读取",
-			ErrDirUnusable, s.webRoot)
+	if within(canonicalDir(normalizedDir), canonicalDir(normalizedRoot)) {
+		return dirUnusable("备份目录不能位于 Web 根（%s）内——备份含管理员密码哈希等敏感数据，绝不能被 Web 服务器读取",
+			s.webRoot)
 	}
 	if info, err := os.Lstat(dir); err == nil {
 		if !info.IsDir() {
-			return fmt.Errorf("%w: %s 已存在且不是目录", ErrDirUnusable, dir)
+			// Windows 上 junction 等重解析点既不带 ModeSymlink、也不会被 IsDir 判为目录
+			// （EvalSymlinks 同样不解析它），因此统一按「不是真实目录」拒绝：
+			// 备份目录必须是一个真实存在的目录，绝不允许经由链接或重解析点落进 Web 根。
+			return dirUnusable("%s 已存在且不是真实目录（文件、符号链接、junction 等重解析点一律不接受）", dir)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%w: %s 是符号链接，请改用真实目录", ErrDirUnusable, dir)
+			return dirUnusable("%s 是符号链接，请改用真实目录", dir)
 		}
+	}
+	return nil
+}
+
+// verifyWritableDir 是**真正写备份文件之前**的最后一道目录校验（契约 21.4 第 2 条）：
+// 设置落库之后仍可能被手工改库改成 Web 根内的路径，保存设置时的那次校验不构成写入时的保证。
+//
+// 纵深防御：不依赖 BackupDir 的内部顺序，任何写入路径都必须独立通过它。
+// 拒绝时记 WARN（只记目录与原因，不含任何备份内容），调用方在创建目录与导出之前就返回。
+func (s *Service) verifyWritableDir(dir string) error {
+	if err := s.checkDir(dir); err != nil {
+		s.logger.Warn("拒绝写入数据库备份：备份目录校验未通过", "dir", dir, "reason", err)
+		return err
 	}
 	return nil
 }
@@ -368,6 +426,121 @@ func canonicalDir(path string) string {
 		current = parent
 	}
 }
+
+// normalizeDirPath 把备份目录路径归一到**可比形态**，供 Web 根包含判定使用（契约 21.4）。
+//
+// 两侧（配置目录与 Web 根）必须走同一个函数：只要有一侧没归一化，Windows 上等价的两种写法
+// 就会被判成不同目录，把备份目录写成 `\\?\<Web 根>` 即可绕过「备份目录不得位于 Web 根内」。
+//
+// 支持（归一化后交给 filepath 处理；`/` 与 `\` 等价、盘符大小写不敏感、8.3 短名与符号链接
+// 由调用方的 canonicalDir 统一展开）：
+//
+//   - 普通绝对路径 `D:\data\backups` 与相对路径（调用方已按安装目录解析）；
+//   - 扩展长度路径 `\\?\D:\data\backups` → 去掉 `\\?\` 前缀后按普通绝对路径处理；
+//   - `\\?\UNC\server\share\backups` → 还原为 `\\server\share\backups`。
+//
+// 「盘符相对」的拒绝（`C:`、`C:foo`）只在 Windows 上生效：非 Windows 平台上冒号只是普通文件名字符。
+//
+// 一律拒绝（返回面向管理员的可读原因，调用方包成 ErrDirUnusable）：
+//
+//   - 设备命名空间 `\\.\C:`、`\\.\PhysicalDrive0` 等——设备路径不受支持；
+//   - 卷路径 `\\?\Volume{GUID}\…` 与 `\\?\GLOBALROOT\…`；
+//   - 其它无法识别的 `\\?\…` 形态（例如 `\\?\C:foo` 这种盘符相对写法）与裸盘符相对写法 `C:foo`；
+//   - NUL 或控制字符；
+//   - 空段（连续分隔符）与以空格或点结尾的路径段——Win32 会静默去掉段尾的空格与点，
+//     同一个目录因此会出现多种写法，任何依赖字符串比较的判定都不可靠。
+func normalizeDirPath(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("备份目录为空")
+	}
+	for _, r := range raw {
+		if r == 0 || r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("备份目录路径不能包含 NUL 或控制字符（U+%04X）", r)
+		}
+	}
+
+	// 盘符（`C:`）是 Windows 概念：非 Windows 平台上冒号只是普通文件名字符，不做盘符判定。
+	windows := filepath.Separator == '\\'
+
+	path := raw
+	switch {
+	case hasPrefixFold(path, `\\?\`):
+		rest := path[4:]
+		switch {
+		case hasPrefixFold(rest, `UNC\`):
+			path = `\\` + rest[4:]
+		case hasPrefixFold(rest, `Volume{`):
+			return "", fmt.Errorf(`卷路径不受支持（%s）：请填写带盘符的普通目录路径`, raw)
+		case hasPrefixFold(rest, `GLOBALROOT`):
+			return "", fmt.Errorf(`GLOBALROOT 路径不受支持（%s）：请填写带盘符的普通目录路径`, raw)
+		case isDriveAbsolute(rest):
+			path = rest
+		default:
+			return "", fmt.Errorf(`不支持的扩展长度路径形态（%s）：只接受 \\?\<盘符>:\… 与 \\?\UNC\<服务器>\<共享>\…`, raw)
+		}
+	case hasPrefixFold(path, `\\.\`):
+		return "", fmt.Errorf("设备路径不受支持（%s）：请填写普通目录路径", raw)
+	}
+	// 盘符相对写法（`C:`、`C:foo`）在 Windows 上表示「C 盘的当前目录」，语义随进程工作目录变化。
+	if windows && len(path) >= 2 && path[1] == ':' && isASCIILetter(path[0]) && !isDriveAbsolute(path) {
+		return "", fmt.Errorf(`盘符相对路径不受支持（%s）：请写成 %c:\… 或相对安装目录的路径`, raw, path[0])
+	}
+
+	// Windows 上 `/` 与 `\` 等价，统一成平台分隔符后按段检查。
+	sep := string(filepath.Separator)
+	body := path
+	if windows {
+		body = strings.ReplaceAll(body, "/", `\`)
+	}
+	// 前导分隔符（UNC 的 `\\`、根路径的 `/` 或 `\`）不是空段。
+	unc := strings.HasPrefix(body, `\\`)
+	switch {
+	case unc:
+		body = body[2:]
+		if body == "" || strings.HasPrefix(body, `\`) {
+			return "", fmt.Errorf(`UNC 路径必须以 \\<服务器>\<共享> 开头：%s`, raw)
+		}
+	case strings.HasPrefix(body, sep):
+		body = body[1:]
+	}
+	// 结尾分隔符合法（`C:\`、`/opt/`），不算空段。
+	body = strings.TrimRight(body, sep)
+	if body == "" {
+		// 只有「根路径」会走到这里（前导分隔符已剥掉）：它是合法目录，按原样归一。
+		return filepath.Clean(path), nil
+	}
+	segments := strings.Split(body, sep)
+	if unc && len(segments) < 2 {
+		return "", fmt.Errorf(`UNC 路径必须包含服务器与共享名（\\<服务器>\<共享>\…）：%s`, raw)
+	}
+	for _, segment := range segments {
+		switch {
+		case segment == "":
+			return "", fmt.Errorf("备份目录路径含空段（连续分隔符）：%s", raw)
+		case segment == "." || segment == "..":
+			// 相对段交给 filepath.Clean 解析，不按「以点结尾」处理。
+		case strings.HasSuffix(segment, " ") || strings.HasSuffix(segment, "."):
+			return "", fmt.Errorf("备份目录路径段 %q 以空格或点结尾（Win32 会静默去掉它们，同一个目录会出现两种写法）：请改写该段", segment)
+		}
+	}
+	return filepath.Clean(path), nil
+}
+
+// hasPrefixFold 是不区分大小写的前缀判断（Windows 的路径前缀与盘符都不区分大小写）。
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// isDriveAbsolute 判断 s 是否为 `<盘符>:\…` / `<盘符>:/…` 形态（盘符后必须紧跟分隔符）。
+func isDriveAbsolute(s string) bool {
+	if len(s) < 3 || s[1] != ':' || !isASCIILetter(s[0]) {
+		return false
+	}
+	return s[2] == '\\' || s[2] == '/'
+}
+
+// isASCIILetter 判断字节是否为 ASCII 字母。
+func isASCIILetter(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
 
 // evalPath 解析符号链接；路径（或其父目录）不存在时退回原值。
 func evalPath(path string) string {
@@ -495,7 +668,12 @@ func (s *Service) Create(ctx context.Context, operator string) (Backup, error) {
 
 	dir := s.BackupDir(ctx)
 	if !dir.Valid() {
+		// 拒绝写入必须留痕（只记目录与原因，绝不含任何备份内容）。
+		s.logger.Warn("拒绝写入数据库备份：备份目录校验未通过", "dir", dir.Dir, "reason", dir.Message)
 		return Backup{}, fmt.Errorf("%w: %s", ErrDirUnusable, dir.Message)
+	}
+	if err := s.verifyWritableDir(dir.Dir); err != nil {
+		return Backup{}, err
 	}
 	if err := os.MkdirAll(dir.Dir, 0o750); err != nil {
 		return Backup{}, fmt.Errorf("%w: 创建目录失败: %v", ErrDirUnusable, err)

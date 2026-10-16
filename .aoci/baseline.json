@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-10-12T22:04:04Z",
-  "updated_at": "2026-10-16T15:25:10Z",
+  "updated_at": "2026-10-16T17:43:40Z",
   "files": {
     ".dockerignore": {
       "role": "index",
@@ -59,15 +59,15 @@
     },
     "README.md": {
       "role": "index",
-      "sha256": "31d474881945cf2f86ec51009041aeeda08857d7fb1079b8ab9ae6c097b2569c",
+      "sha256": "751d492fa4c55e9cb23a433c91a54f2703530435539821151cb5fe5e059d9281",
       "size": 7943,
-      "normalized_sha256": "31d474881945cf2f86ec51009041aeeda08857d7fb1079b8ab9ae6c097b2569c"
+      "normalized_sha256": "751d492fa4c55e9cb23a433c91a54f2703530435539821151cb5fe5e059d9281"
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "d2a84a09063a4508efd4b58997d64802f7dc4be80b9b6ef561d5e6e9b4db7987",
-      "size": 145335,
-      "normalized_sha256": "d2a84a09063a4508efd4b58997d64802f7dc4be80b9b6ef561d5e6e9b4db7987"
+      "sha256": "83b8d81bfee70a18ff563acc121b19df5cf8f8fa04ef5a3c4fd055b7bab1c18f",
+      "size": 145509,
+      "normalized_sha256": "83b8d81bfee70a18ff563acc121b19df5cf8f8fa04ef5a3c4fd055b7bab1c18f"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -309,10 +309,10 @@
     },
     "backend/internal/dbbackup/integration_test.go": {
       "role": "observe",
-      "sha256": "a2bab41be850d8871bd8a4c8085b49df0a0d69e495e10d2bad1852dbae17ad0e",
-      "size": 22590,
-      "normalized_sha256": "a2bab41be850d8871bd8a4c8085b49df0a0d69e495e10d2bad1852dbae17ad0e",
-      "format_sha256": "a2bab41be850d8871bd8a4c8085b49df0a0d69e495e10d2bad1852dbae17ad0e",
+      "sha256": "226dde95a20d5ab8471ceeeda1bbef7cf7df9c497f27edbdf5778e2fde2ca3fd",
+      "size": 25899,
+      "normalized_sha256": "226dde95a20d5ab8471ceeeda1bbef7cf7df9c497f27edbdf5778e2fde2ca3fd",
+      "format_sha256": "226dde95a20d5ab8471ceeeda1bbef7cf7df9c497f27edbdf5778e2fde2ca3fd",
       "format_kind": "gofmt"
     },
     "backend/internal/dbbackup/load.go": {
@@ -339,12 +339,28 @@
       "format_sha256": "1b5709c4fb4f0dbe4b0777482cefddb5bde0b873994c3115a6bded9de24b3745",
       "format_kind": "gofmt"
     },
+    "backend/internal/dbbackup/path_normalize_test.go": {
+      "role": "observe",
+      "sha256": "0eec2279304a83d032a582ad4f047aebedb107647ea8ce606826ac826efb023e",
+      "size": 12053,
+      "normalized_sha256": "0eec2279304a83d032a582ad4f047aebedb107647ea8ce606826ac826efb023e",
+      "format_sha256": "0eec2279304a83d032a582ad4f047aebedb107647ea8ce606826ac826efb023e",
+      "format_kind": "gofmt"
+    },
+    "backend/internal/dbbackup/path_normalize_windows_test.go": {
+      "role": "observe",
+      "sha256": "dcf6149d0669fa295bf6c34ae4a5d6b4b77798e373ac19036c22ff5e64dfb1d6",
+      "size": 3417,
+      "normalized_sha256": "dcf6149d0669fa295bf6c34ae4a5d6b4b77798e373ac19036c22ff5e64dfb1d6",
+      "format_sha256": "dcf6149d0669fa295bf6c34ae4a5d6b4b77798e373ac19036c22ff5e64dfb1d6",
+      "format_kind": "gofmt"
+    },
     "backend/internal/dbbackup/service.go": {
       "role": "index",
-      "sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
-      "size": 30496,
-      "normalized_sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
-      "format_sha256": "77d1a1f149db0ebd5512692906c9d16854256ac13d9aab43175b95443c565e38",
+      "sha256": "f49874088e84db9afce5510025f3ff6965aeab95e7e25b34b0c965194fabd5c8",
+      "size": 39509,
+      "normalized_sha256": "f49874088e84db9afce5510025f3ff6965aeab95e7e25b34b0c965194fabd5c8",
+      "format_sha256": "f49874088e84db9afce5510025f3ff6965aeab95e7e25b34b0c965194fabd5c8",
       "format_kind": "gofmt"
     },
     "backend/internal/dbbackup/service_test.go": {
@@ -977,10 +993,10 @@
     },
     "backend/internal/router/db_backup_settings_integration_test.go": {
       "role": "observe",
-      "sha256": "0f686000474860cd41bdcdb2b19ef0d074f819b05aaafd00ce1d2748864ae1f2",
-      "size": 10640,
-      "normalized_sha256": "0f686000474860cd41bdcdb2b19ef0d074f819b05aaafd00ce1d2748864ae1f2",
-      "format_sha256": "0f686000474860cd41bdcdb2b19ef0d074f819b05aaafd00ce1d2748864ae1f2",
+      "sha256": "d8a211b3804cb5660111f7252fb40bc07d94995143d357e307458e6a01fa2af2",
+      "size": 15200,
+      "normalized_sha256": "d8a211b3804cb5660111f7252fb40bc07d94995143d357e307458e6a01fa2af2",
+      "format_sha256": "d8a211b3804cb5660111f7252fb40bc07d94995143d357e307458e6a01fa2af2",
       "format_kind": "gofmt"
     },
     "backend/internal/router/delivery_integration_test.go": {
@@ -2435,9 +2451,9 @@
     },
     "docs/api-contract.md": {
       "role": "index",
-      "sha256": "9069412f1871ec33895b15c4066405aa5e2f4159db066ce42a40303e755fb55f",
-      "size": 567530,
-      "normalized_sha256": "9069412f1871ec33895b15c4066405aa5e2f4159db066ce42a40303e755fb55f"
+      "sha256": "8ac55b57c31621ee7b1abd44e363f4a762c7e19d9af2718e52d24c79f0007227",
+      "size": 579389,
+      "normalized_sha256": "8ac55b57c31621ee7b1abd44e363f4a762c7e19d9af2718e52d24c79f0007227"
     },
     "docs/deploy.md": {
       "role": "index",

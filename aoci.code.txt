@@ -8,7 +8,7 @@ AGENTS.md[SG7S]: F:宿主 Agent 使用 AOCI 仓库认知层的接入与收尾合
 Dockerfile.backend[OV8T]: F:多阶段构建后端镜像：golang 静态编译到 alpine 运行 | R:code:deploy/docker/backend-entrypoint.sh,code:backend/cmd/server/main.go,code:backend/cmd/migrate/main.go | A:- | S:构建上下文必须是仓库根；容器内必须监听 0.0.0.0:8080；ARG VERSION/COMMIT/BUILT_AT/UPSTREAM_BASE_URL/UPDATES_API_BASE/UPDATES_DOWNLOAD_BASE 注入 buildinfo（R17 上游地址与 P2 更新源地址同机制，后两者缺省空串=未注入、运行时回退官方 GitHub）；容器里不做一键升级（升级=换镜像+手动 migrate up）
 Dockerfile.frontend[OV7T]: F:多阶段构建前端镜像：node 产物交 nginx 托管并反代后端 | R:code:deploy/docker/nginx-default.conf.template | A:- | S:BACKEND_UPSTREAM 填错表现为首页正常但 /api 与 /install 返回 502；模板由 entrypoint envsubst 渲染，换后端不需重建镜像
 LICENSE[SZ3L]: F:GNU GPL v3 许可证全文 | R:- | A:- | S:-
-README.md[SG6S]: F:项目总览：部署方式、功能清单、目录结构与本地开发命令 | R:code:docs/deploy.md,code:docs/api-contract.md,code:docs/RELEASE.md | A:- | S:改接口先改 docs/api-contract.md 且版本号同步（现 v34）；功能清单须随能力同步更新（含一键升级、备份不可下载、上游回推、上游地址与更新源构建期固定、日志与缓存）
+README.md[SG6S]: F:项目总览：部署方式、功能清单、目录结构与本地开发命令 | R:code:docs/deploy.md,code:docs/api-contract.md,code:docs/RELEASE.md | A:- | S:改接口先改 docs/api-contract.md 且版本号同步（现 v35）；功能清单须随能力同步更新（含一键升级、备份不可下载、上游回推、上游地址与更新源构建期固定、日志与缓存）
 
 ===D:/Project/Lyidc_OEM/.github/workflows/===
 ci.yml[OQ6T]: F:持续集成：后端 gofmt/vet/test 与前端 tsc/build/vitest | R:code:backend/go.mod,code:frontend/package.json | A:- | S:后端集成测试靠 LYIDC_TEST_DSN 指向 MySQL5.7 测试库；gofmt 列出未格式化文件即失败拒绝合并
@@ -250,7 +250,7 @@ nginx-default.conf.template[OV7T]: F:前端 nginx 站点配置模板（envsubst 
 
 ===D:/Project/Lyidc_OEM/docs/===
 RELEASE.md[SO6T]: F:发版流程、tag 命名规则与发布后核对清单 | R:code:.github/workflows/release.yml | A:- | S:tag 必须 v 前缀才触发流水线；latest 只在 v* tag 更新；发布后用上一版部署在「系统更新」核对新版本与产物
-api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts | A:- | S:任何接口变更必须先改本文档再改代码；契约版本 v34（P2 更新源改为构建期固定：19.5/19.7/20.2 第 13 条/20.7 第 8 条/20.8 改写）；变更记录为第 26 节；23.10 的实测数字是关键字超时口径的依据
+api-contract.md[SG9L]: F:全站 API 契约：统一响应包、错误码、认证与各业务接口定义 | R:code:backend/internal/response/codes.go,code:frontend/src/api/types.ts,code:backend/internal/dbbackup/service.go | A:- | S:任何接口变更必须先改本文档再改代码；契约版本 v35（P3 备份目录校验归一化：21.4 第 2 条、21.10 校验顺序与错误表改写）；变更记录为第 26 节；23.10 的实测数字是关键字超时口径的依据
 deploy.md[SO7M]: F:三种部署方式、环境变量、升级与故障排查指南 | R:code:deploy/docker-compose.yml,code:deploy/.env.example | A:- | S:三种方式都用同一安装向导；上游与更新源地址都构建期固定（打包须给 UPSTREAM_BASE_URL，更新源两个变量可选、未注入回退官方 GitHub，下载地址须 https）；弱 jwt.secret 自动轮换
 
 ===D:/Project/Lyidc_OEM/docs/references/upstream/===
@@ -519,7 +519,7 @@ dump.go[PR8M]: F:数据库备份导出引擎：一致性快照逐表导出可重
 load.go[PR9L]: F:数据库恢复引擎：流式分词重放备份 SQL，覆盖式重建并删除备份里不存在的表 | R:code:backend/internal/dbbackup/service.go,code:backend/internal/dbbackup/migrate.go | A:loadDatabase,splitStatements,stripComments,statementTable | S:备份用反斜杠转义，连接启用 NO_BACKSLASH_ESCAPES 时必须直接拒绝而不是改 sql_mode（否则字符串被静默改写）；FOREIGN_KEY_CHECKS=0 是会话变量，退出前必须还原（连接会回池）；语句前的 -- 注释必须剥掉（否则表名收集失败会把备份内的表当多余表删掉），但 MySQL 可执行注释 /*! ... */ 必须原样保留——剥掉会让恢复出的表静默丢表结构选项（如 FULLTEXT 的 ngram 解析器，R18 修正并有用例）
 metadata.go[PR6T]: F:备份元信息 sidecar（<文件名>.json）的读取与原子写入 | R:code:backend/internal/dbbackup/service.go | A:Metadata,readMeta,writeMeta | S:元信息刻意不入库：恢复是覆盖式的，存库会被旧备份带回旧状态使恢复点之后的备份从列表消失；sidecar 丢失只降级展示
 migrate.go[PR8S]: F:恢复后追迁移：读内嵌迁移最新版本并在低版本库上执行 up | R:code:backend/internal/dbbackup/service.go,code:backend/migrations/embed.go | A:latestMigrationVersion,migrateUp,multiStatementDSN | S:与安装向导、cmd/migrate 同一套 golang-migrate 与内嵌迁移文件，但刻意不 import install；迁移文件含多语句，必须用 DSN 上 multiStatements=true 新开连接
-service.go[PS9L]: F:数据库备份服务：目录解析与 Web 根校验、备份 ID 白名单、创建/列表/删除/恢复编排 | R:code:backend/internal/dbbackup/dump.go,code:backend/internal/dbbackup/load.go,code:backend/internal/dbbackup/metadata.go,code:backend/internal/dbbackup/migrate.go,code:backend/internal/settings/backup.go | A:NewService,BackupDir,InspectDir,PrepareDir,Create,Restore | S:备份目录解析结果落在 <安装目录>/dist（Web 根）内一律拒绝（启动校验一次、每次使用再校验，含符号链接解析）；ID 形状即白名单，形状外一律 404，解析后再复核仍在目录内且是普通文件；写操作经 mu 串行化，恢复绝不与导出并发；InspectDir/PrepareDir 与设置接口共用同一套 checkDir 口径（PrepareDir 追加 0750 创建与写入探针），读取不建目录、校验失败不落库由调用方保证
+service.go[PS9L]: F:数据库备份服务：备份目录路径归一化与 Web 根校验、备份 ID 白名单、创建/列表/删除/恢复编排 | R:code:backend/internal/dbbackup/dump.go,code:backend/internal/dbbackup/load.go,code:backend/internal/dbbackup/metadata.go,code:backend/internal/dbbackup/migrate.go,code:backend/internal/settings/backup.go,code:docs/api-contract.md | A:NewService,BackupDir,InspectDir,PrepareDir,Create,Restore | S:Web 根判定必须把两侧都过 normalizeDirPath：只归一化一侧会让 `\\?\<Web 根>` 这类等价写法判成「在 Web 根外」。归一化失败（`\\.\` 设备、卷/GLOBALROOT、空段、段尾空格或点）一律拒绝，判不出来不放行。Create 在 MkdirAll 与导出前独立复验一次（可被手工改库绕过），拒绝时不建目录不留文件。ID 形状即白名单，形状外一律 404，解析后再复核仍在目录内且为普通文件；写操作经 mu 串行化；InspectDir/PrepareDir 与设置接口共用 checkDir，读取不建目录。
 
 ===D:/Project/Lyidc_OEM/backend/internal/oplog/===
 oplog.go[CO8S]: F:操作日志条目模型、结果推导与摘要脱敏（三通道写入的公共内核） | R:code:backend/internal/model/operation_log.go,code:backend/internal/oplog/writer.go | A:Entry,StatusFromHTTPStatus,Sanitize | S:Sanitize 只认 ASCII 密钥名 + 等号/冒号（不误伤「修改密码」等中文摘要），是兜底第二道闸门——第一道是请求体整体不落库；字段按 MySQL 字符列宽截断，写入前不报错只在落库前归一

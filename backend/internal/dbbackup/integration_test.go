@@ -468,6 +468,91 @@ func TestCreateRejectsDirInsideWebRoot(t *testing.T) {
 	}
 }
 
+// TestCreateRejectsManuallyEditedWebRootDir 覆盖「写前再校验」（契约 21.4 第 2 条，P3 finding#10）：
+// 保存设置时的校验可以被**手工改库**绕过，因此真正写备份文件之前必须再校验一次。
+// 库内目录被改成 Web 根内的路径（普通写法与 `\\?\` 扩展长度路径写法）后创建备份：
+// 必须拒绝、**目录未被创建、文件未落盘**；改回 Web 根外后照常能备份且文件落在配置目录。
+func TestCreateRejectsManuallyEditedWebRootDir(t *testing.T) {
+	gdb, dsn := prepareBackupDatabase(t)
+	install := t.TempDir()
+	webRoot := filepath.Join(install, WebRootName)
+	if err := os.MkdirAll(webRoot, 0o755); err != nil {
+		t.Fatalf("建立 Web 根失败: %v", err)
+	}
+	service, err := NewService(Options{
+		InstallDir: install,
+		DB:         gdb,
+		DSN:        dsn,
+		Settings:   settings.NewReader(store.New(gdb)),
+		Logger:     discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("构造备份服务失败: %v", err)
+	}
+	ctx := context.Background()
+
+	// setDir 直接写库（绕过接口与保存时的校验），模拟「手工改库」。
+	setDir := func(dir string) {
+		t.Helper()
+		encoded, err := settings.DBBackup{Dir: dir}.Encode()
+		if err != nil {
+			t.Fatalf("序列化设置失败: %v", err)
+		}
+		exec(t, gdb, "INSERT INTO settings (`key`,value,created_at,updated_at) VALUES (?,?,NOW(),NOW()) "+
+			"ON DUPLICATE KEY UPDATE value = VALUES(value)", settings.KeyDBBackup, encoded)
+	}
+
+	insideDir := filepath.Join(webRoot, "backups")
+	for _, dir := range []string{
+		insideDir,          // 普通写法（既有行为，不得退化）
+		`\\?\` + insideDir, // 扩展长度路径写法（本次修复的核心）
+	} {
+		setDir(dir)
+
+		if _, err := service.Create(ctx, "admin"); !errors.Is(err, ErrDirUnusable) {
+			t.Fatalf("库内目录被手工改成 %q（Web 根内）后创建备份必须被拒绝，实际 %v", dir, err)
+		}
+		if _, err := os.Lstat(insideDir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("被拒绝的备份不得创建目录：%s", insideDir)
+		}
+		entries, err := os.ReadDir(webRoot)
+		if err != nil {
+			t.Fatalf("读取 Web 根失败: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("被拒绝的备份不得在 Web 根里留下任何文件：%v", entries)
+		}
+		view, err := service.List(ctx)
+		if err != nil {
+			t.Fatalf("列表失败: %v", err)
+		}
+		if view.BackupDirOutsideWebRoot || view.BackupDirMessage == "" {
+			t.Fatalf("列表应如实报告目录不可用：%+v", view)
+		}
+	}
+
+	// 对照：改回 Web 根外 → 正常备份，且文件只落在配置目录、绝不在 Web 根里。
+	outside := filepath.Join(install, "dumps")
+	setDir(outside)
+	record, err := service.Create(ctx, "admin")
+	if err != nil {
+		t.Fatalf("Web 根外的目录必须能正常备份：%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, record.FileName)); err != nil {
+		t.Fatalf("备份文件应落在配置目录：%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(webRoot, record.FileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("备份文件绝不得落在 Web 根内")
+	}
+	entries, err := os.ReadDir(webRoot)
+	if err != nil {
+		t.Fatalf("读取 Web 根失败: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("Web 根里不得出现任何备份产物：%v", entries)
+	}
+}
+
 // TestDeleteAndList 覆盖列表与删除的白名单口径（契约 21.3 / 21.4）。
 func TestDeleteAndList(t *testing.T) {
 	gdb, dsn := prepareBackupDatabase(t)

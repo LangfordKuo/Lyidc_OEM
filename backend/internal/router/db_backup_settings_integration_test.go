@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -185,6 +186,103 @@ func TestDBBackupSettingsEndpoints(t *testing.T) {
 	list = listDBBackups(t, engine, adminToken)
 	if list.BackupDir != defaultDir || len(list.Backups) != 0 || list.TotalSizeBytes != 0 {
 		t.Fatalf("旧目录的备份不得出现在新目录列表里：%+v", list)
+	}
+}
+
+// TestDBBackupSettingsRejectsExtendedLengthWebRoot 覆盖 P3 安全整改 finding#10 的接口级断言：
+// 把备份目录写成 `\\?\<Web 根>` 时接口必须回 40002（可读原因）、不落库、不创建目录；
+// 库内设置被**手工改成** Web 根后调用创建备份同样必须拒绝，且 Web 根里不出现任何备份产物。
+func TestDBBackupSettingsRejectsExtendedLengthWebRoot(t *testing.T) {
+	gdb := testDatabase(t)
+	installDir := t.TempDir()
+	webRoot := filepath.Join(installDir, dbbackup.WebRootName)
+	if err := os.MkdirAll(webRoot, 0o755); err != nil {
+		t.Fatalf("建立 Web 根失败：%v", err)
+	}
+
+	service, err := dbbackup.NewService(dbbackup.Options{
+		InstallDir: installDir,
+		DB:         gdb,
+		DSN:        testDSN(),
+		Settings:   settings.NewReader(store.New(gdb)),
+		Logger:     silentLogger(),
+	})
+	if err != nil {
+		t.Fatalf("构造备份服务失败：%v", err)
+	}
+	engine := New(Options{
+		CacheDir:    t.TempDir(),
+		Logger:      silentLogger(),
+		DB:          gdb,
+		JWT:         config.JWTConfig{Secret: testJWTSecret, ExpireHours: 168},
+		DBBackup:    service,
+		DatabaseDSN: testDSN(),
+	})
+	seedAdmin(t, gdb, "root", "admin123456", model.RoleAdmin, model.StatusActive)
+	adminToken, _ := loginAdmin(t, engine, "root", "admin123456")
+
+	const path = "/api/v1/admin/settings/db_backup"
+	insideDir := filepath.Join(webRoot, "backups")
+
+	// ① 接口级：普通写法与 `\\?\` 扩展长度路径写法都必须 40002，且不落库、不创建目录。
+	for _, dir := range []string{insideDir, `\\?\` + insideDir} {
+		rec, envelope := doAPI(t, engine, http.MethodPut, path, adminToken, map[string]any{"dir": dir})
+		if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+			t.Fatalf("目录 %q 应被拒绝为 40002：HTTP %d / code %d / body=%s",
+				dir, rec.Code, envelope.Code, rec.Body.String())
+		}
+		if !strings.Contains(envelope.Message, "Web 根") {
+			t.Fatalf("目录 %q 的拒绝原因应说明 Web 根：%s", dir, envelope.Message)
+		}
+		if _, err := os.Lstat(insideDir); !os.IsNotExist(err) {
+			t.Fatalf("被拒绝的目录 %q 不得被创建", dir)
+		}
+		if got := getDBBackupSettings(t, engine, adminToken, path); got.Dir != "" || !got.Default {
+			t.Fatalf("被拒绝的保存不得落库（dir=%q）：%+v", dir, got)
+		}
+	}
+
+	// ② 写前复验：绕过接口把库内目录手工改成 Web 根内的 `\\?\` 写法后，创建备份必须拒绝。
+	outsideDir := filepath.Join(installDir, "dumps")
+	for _, dir := range []string{`\\?\` + insideDir, insideDir} {
+		if err := gdb.Exec("INSERT INTO settings (`key`,value,created_at,updated_at) VALUES (?,?,NOW(),NOW()) "+
+			"ON DUPLICATE KEY UPDATE value = VALUES(value)",
+			settings.KeyDBBackup, `{"dir":`+strconv.Quote(dir)+`}`).Error; err != nil {
+			t.Fatalf("手工改库失败：%v", err)
+		}
+		rec, envelope := doAPI(t, engine, http.MethodPost, "/api/v1/admin/db-backups", adminToken, nil)
+		if rec.Code != http.StatusBadRequest || envelope.Code != response.CodeValidationFailed {
+			t.Fatalf("库内目录被手工改成 %q 后创建备份应被拒绝为 40002：HTTP %d / code %d / body=%s",
+				dir, rec.Code, envelope.Code, rec.Body.String())
+		}
+		if _, err := os.Lstat(insideDir); !os.IsNotExist(err) {
+			t.Fatalf("被拒绝的备份不得创建目录（dir=%q）", dir)
+		}
+		entries, err := os.ReadDir(webRoot)
+		if err != nil {
+			t.Fatalf("读取 Web 根失败：%v", err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("被拒绝的备份不得在 Web 根里留下任何文件（dir=%q）：%v", dir, entries)
+		}
+	}
+
+	// ③ 对照：Web 根外的目录照常能保存与备份，产物只落在配置目录。
+	if err := gdb.Exec("INSERT INTO settings (`key`,value,created_at,updated_at) VALUES (?,?,NOW(),NOW()) "+
+		"ON DUPLICATE KEY UPDATE value = VALUES(value)",
+		settings.KeyDBBackup, `{"dir":`+strconv.Quote(outsideDir)+`}`).Error; err != nil {
+		t.Fatalf("写回合法目录失败：%v", err)
+	}
+	rec, envelope := doAPI(t, engine, http.MethodPost, "/api/v1/admin/db-backups", adminToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Web 根外的目录应能正常备份：HTTP %d / body=%s", rec.Code, rec.Body.String())
+	}
+	record := decodeData[dbBackupRecordView](t, envelope)
+	if _, err := os.Stat(filepath.Join(outsideDir, record.FileName)); err != nil {
+		t.Fatalf("备份文件应落在配置目录：%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(webRoot, record.FileName)); !os.IsNotExist(err) {
+		t.Fatalf("备份文件绝不得落在 Web 根内")
 	}
 }
 
