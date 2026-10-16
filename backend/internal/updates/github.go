@@ -40,7 +40,6 @@ const (
 )
 
 const (
-	defaultGitHubAPIBase = "https://api.github.com"
 	// DefaultRequestTimeout 是单次检查访问 GitHub 的超时（契约 19.4）。
 	DefaultRequestTimeout = 8 * time.Second
 	// maxResponseBytes 是 GitHub 响应体的读取上限（契约 19.4）。
@@ -94,17 +93,17 @@ type Client struct {
 	agent   string
 }
 
-// NewClient 构造生产用客户端：访问 api.github.com，超时 DefaultRequestTimeout。
+// NewClient 构造生产用客户端：访问官方 OfficialAPIBase，超时 DefaultRequestTimeout。
 // version 只用于 User-Agent，不影响请求语义。
 func NewClient(logger *slog.Logger, version string) *Client {
-	return newClient(defaultGitHubAPIBase, DefaultRequestTimeout, logger, version)
+	return newClient(OfficialAPIBase, DefaultRequestTimeout, logger, version)
 }
 
-// NewClientFor 按指定 API 基地址与超时构造客户端（更新源注入，契约 19.5 / 20.8）；
-// 基地址为空时退回官方的 api.github.com。
+// NewClientFor 按生效的 API 基地址与超时构造客户端（更新源为构建期固定项，契约 19.5 / 20.8）；
+// 基地址为空时退回官方 OfficialAPIBase（不会发生：Source.APIBase 恒非空）。
 func NewClientFor(baseURL string, timeout time.Duration, logger *slog.Logger, version string) *Client {
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL = defaultGitHubAPIBase
+		baseURL = OfficialAPIBase
 	}
 	return newClient(baseURL, timeout, logger, version)
 }

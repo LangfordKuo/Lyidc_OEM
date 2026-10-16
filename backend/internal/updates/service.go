@@ -86,10 +86,16 @@ type Options struct {
 	Store Store
 	// Settings 读取更新源设置（仓库与可选 Token），每次检查都重读，改完即生效。
 	Settings *settings.Reader
+	// Source 是生效的更新源地址（P2：构建期固定项，契约 19.5）。**生产必须传**
+	// updates.ResolveSource(...) 的结果；零值时按官方 OfficialAPIBase 处理，便于测试。
+	//
+	// 它取代了旧版从设置里读 api_base 的做法：库内遗留的 api_base / download_base 一律不读，
+	// 因此残留旧值（哪怕是攻击者主机）不可能改变本进程的出网目标。
+	Source Source
 	// Fetcher 访问 GitHub；nil 时使用默认 Client。与 FetcherFor 二选一：
 	// 注入 Fetcher 时忽略 API 基地址（测试用固定桩），生产走 FetcherFor（R13-B 的更新源注入，契约 19.5）。
 	Fetcher Fetcher
-	// FetcherFor 按当前设置的 API 基地址构造访问器（契约 19.5 / 20.8）；nil 时退化为 Fetcher。
+	// FetcherFor 按生效的 API 基地址构造访问器（契约 19.5 / 20.8）；nil 时退化为 Fetcher。
 	FetcherFor func(apiBase string, timeout time.Duration) Fetcher
 	Logger     *slog.Logger
 	// Interval 是定时刷新间隔；零值取 DefaultInterval。
@@ -104,6 +110,7 @@ type Options struct {
 type Service struct {
 	store        Store
 	settings     *settings.Reader
+	source       Source
 	fetcher      Fetcher
 	fetcherFor   func(apiBase string, timeout time.Duration) Fetcher
 	logger       *slog.Logger
@@ -146,9 +153,15 @@ func NewService(opts Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
+	// 更新源地址由构建期固定（P2）：零值按官方缺省补齐，避免测试构造出空地址。
+	source := opts.Source
+	if strings.TrimSpace(source.APIBase) == "" {
+		source.APIBase = OfficialAPIBase
+	}
 	return &Service{
 		store:        opts.Store,
 		settings:     opts.Settings,
+		source:       source,
 		fetcher:      fetcher,
 		fetcherFor:   fetcherFor,
 		logger:       logger,
@@ -159,11 +172,11 @@ func NewService(opts Options) *Service {
 	}
 }
 
-// fetcherForConfig 按当前设置选出这一次检查用的访问器（契约 19.5 / 20.8）：
-// 注入的固定 Fetcher 优先（测试），否则按 api_base 构造（缺省 api.github.com）。
-func (s *Service) fetcherForConfig(apiBase string) Fetcher {
+// fetcherForConfig 选出这一次检查用的访问器（契约 19.5 / 20.8）：注入的固定 Fetcher 优先
+// （测试），否则按**构建期固定的** Source.APIBase 构造——地址不来自任何 HTTP 入参。
+func (s *Service) fetcherForConfig() Fetcher {
 	if s.fetcherFor != nil {
-		return s.fetcherFor(apiBase, DefaultRequestTimeout)
+		return s.fetcherFor(s.source.APIBase, DefaultRequestTimeout)
 	}
 	return s.fetcher
 }
@@ -184,7 +197,7 @@ func (s *Service) Check(ctx context.Context) (View, error) {
 		return View{}, err
 	}
 
-	release, err := s.fetcherForConfig(cfg.Value.APIBaseOr()).Latest(ctx, repo, cfg.Value.GitHubToken)
+	release, err := s.fetcherForConfig().Latest(ctx, repo, cfg.Value.GitHubToken)
 	if err != nil {
 		// 调用方已放弃请求时不把「被取消」写成失败态，避免污染下一次展示。
 		if ctxErr := ctx.Err(); ctxErr != nil {

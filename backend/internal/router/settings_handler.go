@@ -31,6 +31,9 @@ type settingsHandler struct {
 	reader *settings.Reader
 	// upstreamBaseURL 是构建期注入的上游地址（R17）：GET 只读回显它，PUT 一律拒绝修改它。
 	upstreamBaseURL string
+	// updateSource 是构建期固定的更新源（P2，契约 19.5）：GET 只读回显生效值并标记不可改，
+	// PUT 出现 api_base / download_base 一律 40002。库内旧值不参与（settings 已不含这两个字段）。
+	updateSource updates.Source
 	// notify 是通知能力（阶段 6b）：设置页的「发送测试邮件」经它发送并留痕。
 	notify NotificationTrigger
 	// backups 是数据库备份服务（R15，契约 21.10）：备份目录设置接口用它做解析、Web 根判定、
@@ -683,45 +686,65 @@ func upstreamSettingsViewOf(baseURL string, value settings.Upstream, meta settin
 }
 
 // updatesSettingsView 是 updates.github 设置的对外视图（Token 只输出配置标志与掩码，契约 19.5）。
-// api_base / download_base 是 R13-B 的更新源注入项，回显**配置原值**（空串表示按缺省）。
+//
+// api_base / download_base 回显**当前生效值**（构建期注入；api_base 未注入时即官方缺省，
+// download_base 未注入时为空串表示走 Release 资产自带的 browser_download_url）；
+// fixed 恒为 true，供界面直接把这两个输入框渲染成只读项（不依赖前端硬编码假设）。
 type updatesSettingsView struct {
 	Repo                  string  `json:"repo"`
 	GitHubTokenConfigured bool    `json:"github_token_configured"`
 	GitHubTokenMasked     string  `json:"github_token_masked"`
 	APIBase               string  `json:"api_base"`
 	DownloadBase          string  `json:"download_base"`
+	Fixed                 bool    `json:"fixed"`
 	UpdatedBy             *uint64 `json:"updated_by"`
 	UpdatedAt             *string `json:"updated_at"`
 }
 
 // updatesSettingsUpdateRequest 是 PUT /admin/settings/updates 请求体：字段均可选但至少一个。
-// github_token 三态：省略（键缺席或 null）=保持不变、给新值=替换、空串=清空；
-// api_base / download_base 省略=不变、空串=清除（契约 19.5）。
+// github_token 三态：省略（键缺席或 null）=保持不变、给新值=替换、空串=清空。
+//
+// **没有 api_base / download_base 两个可写字段**（P2）：更新源由构建期固定，请求体里出现
+// 它们（含 null 与空串）一律 40002。这里显式声明为 json.RawMessage 以区分「键缺席」与
+// 「键在场」——RawMessage 只要键在场（含 null）就非 nil，因此三种形态走同一条拒绝路径。
 type updatesSettingsUpdateRequest struct {
-	Repo         *string `json:"repo"`
-	GitHubToken  *string `json:"github_token"`
-	APIBase      *string `json:"api_base"`
-	DownloadBase *string `json:"download_base"`
+	Repo         *string         `json:"repo"`
+	GitHubToken  *string         `json:"github_token"`
+	APIBase      json.RawMessage `json:"api_base"`
+	DownloadBase json.RawMessage `json:"download_base"`
 }
 
-// provided 判断请求是否至少提供了一个字段。
-func (r updatesSettingsUpdateRequest) provided() bool {
-	return r.Repo != nil || r.GitHubToken != nil || r.APIBase != nil || r.DownloadBase != nil
+// fixedAddressProvided 判断请求体里是否出现了任一构建期固定地址字段（含 null 与空串）。
+func (r updatesSettingsUpdateRequest) fixedAddressProvided() bool {
+	return r.APIBase != nil || r.DownloadBase != nil
 }
+
+// provided 判断请求是否至少提供了一个**可写**字段。
+func (r updatesSettingsUpdateRequest) provided() bool {
+	return r.Repo != nil || r.GitHubToken != nil
+}
+
+// updateSourceFixedMessage 是拒绝修改更新源地址时的可读原因（契约 19.5）。
+const updateSourceFixedMessage = "更新源地址由系统固定（构建期注入），不可修改：请从请求体中移除 api_base / download_base；仓库与 GitHub Token 仍可修改"
 
 // getUpdatesSettings 处理 GET /api/v1/admin/settings/updates。
+// 两个地址回显**构建期生效值**（只读，恒带 fixed=true），不是库内设置。
 func (h *settingsHandler) getUpdatesSettings(c *gin.Context) {
 	state, err := h.reader.Updates(c.Request.Context())
 	if err != nil {
 		h.failSettings(c, err)
 		return
 	}
-	response.Success(c, updatesSettingsViewOf(state.Value, state.Meta))
+	response.Success(c, updatesSettingsViewOf(h.updateSource, state.Value, state.Meta))
 }
 
 // updateUpdatesSettings 处理 PUT /api/v1/admin/settings/updates：局部更新并立即生效
 // （下一次检查即使用新仓库与新 Token）。修改仓库时同一请求内清空检查缓存（契约 19.5），
 // 旧仓库的结果不得冒充新仓库。
+//
+// P2：**更新源地址不可修改**——请求体里只要出现 api_base 或 download_base（含 null 与空串）
+// 就 40002 拒绝且不落库，校验发生在合并与写库之前，因此这次请求连 repo / github_token 也不会
+// 被改动。地址只能由构建方通过 -ldflags 注入（见 buildinfo.UpdatesAPIBase）。
 func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 	admin, ok := adminFromContext(c)
 	if !ok {
@@ -731,6 +754,10 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 
 	var req updatesSettingsUpdateRequest
 	if !bindJSON(c, &req) {
+		return
+	}
+	if req.fixedAddressProvided() {
+		response.Fail(c, response.CodeValidationFailed, updateSourceFixedMessage)
 		return
 	}
 	if !req.provided() {
@@ -745,10 +772,8 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 		return
 	}
 	merged, err := current.Value.Apply(settings.UpdatesUpdate{
-		Repo:         req.Repo,
-		GitHubToken:  req.GitHubToken,
-		APIBase:      req.APIBase,
-		DownloadBase: req.DownloadBase,
+		Repo:        req.Repo,
+		GitHubToken: req.GitHubToken,
 	})
 	if err != nil {
 		failRuleError(c, err)
@@ -765,30 +790,32 @@ func (h *settingsHandler) updateUpdatesSettings(c *gin.Context) {
 		failDB(c, h.logger, err)
 		return
 	}
-	// 仓库或 API 基地址变化都会让旧结果失去意义：同一请求内清空检查缓存（契约 19.5 第 3 条）。
-	if merged.Repo != current.Value.Repo || merged.APIBase != current.Value.APIBase {
+	// 仓库变化会让旧结果失去意义：同一请求内清空检查缓存（契约 19.5 第 3 条）。
+	// 地址不再参与判定——它是构建期固定值，本接口改不了。
+	if merged.Repo != current.Value.Repo {
 		if err := h.store.DeleteSetting(ctx, updates.KeyCheck); err != nil {
 			failDB(c, h.logger, err)
 			return
 		}
 	}
 	h.logger.Info("后台设置已更新", "key", settings.KeyUpdates, "admin_id", admin.ID,
-		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil,
-		"api_base", merged.APIBase, "download_base_changed", req.DownloadBase != nil)
+		"repo", merged.Repo, "github_token_changed", req.GitHubToken != nil)
 	// R18：操作日志摘要——GitHub Token 明文绝不落库（只记是否更换）。
 	setOplogSummary(c, fmt.Sprintf("已保存更新源设置（repo=%s，更换 Token=%t）",
 		merged.Repo, req.GitHubToken != nil))
-	response.Success(c, updatesSettingsViewOf(merged, settingMeta(setting)))
+	response.Success(c, updatesSettingsViewOf(h.updateSource, merged, settingMeta(setting)))
 }
 
 // updatesSettingsViewOf 组装更新源设置视图（Token 只输出配置标志与掩码）。
-func updatesSettingsViewOf(value settings.Updates, meta settings.Meta) updatesSettingsView {
+// source 是构建期固定的生效更新源（只读），fixed 恒为 true。
+func updatesSettingsViewOf(source updates.Source, value settings.Updates, meta settings.Meta) updatesSettingsView {
 	view := updatesSettingsView{
 		Repo:                  value.Repo,
 		GitHubTokenConfigured: value.GitHubToken != "",
 		GitHubTokenMasked:     settings.MaskSecret(value.GitHubToken),
-		APIBase:               value.APIBase,
-		DownloadBase:          value.DownloadBase,
+		APIBase:               source.APIBase,
+		DownloadBase:          source.DownloadBase,
+		Fixed:                 true,
 		UpdatedBy:             meta.UpdatedBy,
 	}
 	if meta.UpdatedAt != nil {

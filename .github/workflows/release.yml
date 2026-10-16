@@ -10,6 +10,12 @@
 # Variables），如 https://lyew.com。上游地址是**构建期固定**项（契约 8.6，R17）：包与镜像都
 # 在构建时把它烧进二进制，运行时只读、任何界面与接口都改不了——换地址只能改该变量并重跑发布。
 # 地址不进仓库任何入库文件（本仓库公开）。
+#
+# 更新源地址同样是构建期固定项（契约 19.5，P2），但是**可选**的两个变量：
+#   UPDATES_API_BASE      检查更新访问的 API 根地址；未设置 → 运行时回退官方 https://api.github.com
+#   UPDATES_DOWNLOAD_BASE 资产下载基地址（必须 https）；未设置 → 用 Release 资产自带的下载地址
+# 未设置是合法状态（地址不是秘密、功能照常可用），一旦设置就必须合法：流水线在这里先校验，
+# 坏地址宁可失败也不随包发出去。
 name: Release
 
 on:
@@ -95,6 +101,42 @@ jobs:
           fi
           echo "上游地址已设置（构建期注入，运行时不可修改）"
 
+      # 更新源地址是**可选**变量（见文件头说明）：未设置即不注入，运行时回退官方 GitHub。
+      # 一旦设置就必须合法——地址会随包发出去，坏地址在这里失败远好过发布后才发现。
+      - name: 校验构建期变量 UPDATES_API_BASE / UPDATES_DOWNLOAD_BASE（可选）
+        env:
+          UPDATES_API_BASE: ${{ vars.UPDATES_API_BASE }}
+          UPDATES_DOWNLOAD_BASE: ${{ vars.UPDATES_DOWNLOAD_BASE }}
+        run: |
+          set -euo pipefail
+          check_base() {
+            label="$1"
+            value="$2"
+            require_https="$3"
+            if [ -z "${value}" ]; then
+              echo "${label} 未设置：本次不注入，运行时回退官方缺省（契约 19.5）"
+              return 0
+            fi
+            case "${value}" in
+              http://*|https://*) ;;
+              *) echo "::error::${label} 必须是 http(s) 绝对地址，收到：${value}"; exit 1 ;;
+            esac
+            case "${value}" in
+              *\?*|*\#*) echo "::error::${label} 不能带查询串或片段，收到：${value}"; exit 1 ;;
+              *://*@*)   echo "::error::${label} 不能带用户信息，收到：${value}"; exit 1 ;;
+              */)        echo "::error::${label} 不能以 / 结尾，收到：${value}"; exit 1 ;;
+            esac
+            if [ "${require_https}" = "https" ]; then
+              case "${value}" in
+                https://*) ;;
+                *) echo "::error::${label} 必须使用 https（http 明文下载等于把「装什么二进制」交给链路上任何人），收到：${value}"; exit 1 ;;
+              esac
+            fi
+            echo "${label} 已设置：${value}（构建期注入，运行时不可修改）"
+          }
+          check_base UPDATES_API_BASE "${UPDATES_API_BASE}" ""
+          check_base UPDATES_DOWNLOAD_BASE "${UPDATES_DOWNLOAD_BASE}" https
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -122,6 +164,9 @@ jobs:
         env:
           # 地址只经环境变量进打包脚本，再经 -ldflags 进二进制（不落任何入库文件）。
           UPSTREAM_BASE_URL: ${{ vars.UPSTREAM_BASE_URL }}
+          # 更新源地址可选：未设置时打包脚本原样收到空串，脚本据此不注入。
+          UPDATES_API_BASE: ${{ vars.UPDATES_API_BASE }}
+          UPDATES_DOWNLOAD_BASE: ${{ vars.UPDATES_DOWNLOAD_BASE }}
         run: |
           set -euo pipefail
           bash scripts/package.sh \
@@ -179,8 +224,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 与 build-packages 同一道闸门：镜像里的后端二进制同样要在构建期烧入上游地址。
+      # 与 build-packages 同一道闸门：镜像里的后端二进制同样要在构建期烧入上游地址，
+      # 以及（可选的）更新源地址——后者未设置合法，设置了就必须合法。
       - name: 校验构建期变量 UPSTREAM_BASE_URL
+        env:
+          UPDATES_API_BASE: ${{ vars.UPDATES_API_BASE }}
+          UPDATES_DOWNLOAD_BASE: ${{ vars.UPDATES_DOWNLOAD_BASE }}
         run: |
           set -euo pipefail
           if [ -z "${{ vars.UPSTREAM_BASE_URL }}" ]; then
@@ -188,6 +237,33 @@ jobs:
             exit 1
           fi
           echo "上游地址已设置（构建期注入，运行时不可修改）"
+          check_base() {
+            label="$1"
+            value="$2"
+            require_https="$3"
+            if [ -z "${value}" ]; then
+              echo "${label} 未设置：本次不注入，运行时回退官方缺省（契约 19.5）"
+              return 0
+            fi
+            case "${value}" in
+              http://*|https://*) ;;
+              *) echo "::error::${label} 必须是 http(s) 绝对地址，收到：${value}"; exit 1 ;;
+            esac
+            case "${value}" in
+              *\?*|*\#*) echo "::error::${label} 不能带查询串或片段，收到：${value}"; exit 1 ;;
+              *://*@*)   echo "::error::${label} 不能带用户信息，收到：${value}"; exit 1 ;;
+              */)        echo "::error::${label} 不能以 / 结尾，收到：${value}"; exit 1 ;;
+            esac
+            if [ "${require_https}" = "https" ]; then
+              case "${value}" in
+                https://*) ;;
+                *) echo "::error::${label} 必须使用 https，收到：${value}"; exit 1 ;;
+              esac
+            fi
+            echo "${label} 已设置：${value}（构建期注入，运行时不可修改）"
+          }
+          check_base UPDATES_API_BASE "${UPDATES_API_BASE}" ""
+          check_base UPDATES_DOWNLOAD_BASE "${UPDATES_DOWNLOAD_BASE}" https
 
       # Docker 拒绝大写仓库名，而 GitHub 用户名可能含大写（如 LangfordKuo）→ 统一小写。
       - name: 计算镜像名
@@ -255,6 +331,8 @@ jobs:
             COMMIT=${{ env.COMMIT }}
             BUILT_AT=${{ env.BUILT_AT }}
             UPSTREAM_BASE_URL=${{ vars.UPSTREAM_BASE_URL }}
+            UPDATES_API_BASE=${{ vars.UPDATES_API_BASE }}
+            UPDATES_DOWNLOAD_BASE=${{ vars.UPDATES_DOWNLOAD_BASE }}
           platforms: ${{ env.PLATFORMS }}
           push: ${{ env.DRY_RUN == 'false' }}
           tags: ${{ steps.meta-backend.outputs.tags }}
@@ -315,15 +393,22 @@ jobs:
       # 本机构建同时避开了私有包需要登录、跨账号可见性等一堆与镜像本身无关的失败源。
       - name: 构建冒烟镜像（本机架构）
         env:
-          # 冒烟按正式口径构建：同样在构建期注入上游地址（R17），否则这里验的就不是真实包形态。
+          # 冒烟按正式口径构建：同样在构建期注入上游地址（R17）与更新源地址（P2），
+          # 否则这里验的就不是真实包形态。更新源两个变量未设置时传空串即为「不注入」。
           UPSTREAM_BASE_URL: ${{ vars.UPSTREAM_BASE_URL }}
+          UPDATES_API_BASE: ${{ vars.UPDATES_API_BASE }}
+          UPDATES_DOWNLOAD_BASE: ${{ vars.UPDATES_DOWNLOAD_BASE }}
         run: |
           set -euo pipefail
           if [ -z "${UPSTREAM_BASE_URL}" ]; then
             echo "::error::仓库变量 UPSTREAM_BASE_URL 未设置或为空（见 build-packages job 的说明）。"
             exit 1
           fi
-          docker build -f Dockerfile.backend  --build-arg UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL}" -t "${SMOKE_BACKEND_IMAGE}"  .
+          docker build -f Dockerfile.backend \
+            --build-arg UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL}" \
+            --build-arg UPDATES_API_BASE="${UPDATES_API_BASE}" \
+            --build-arg UPDATES_DOWNLOAD_BASE="${UPDATES_DOWNLOAD_BASE}" \
+            -t "${SMOKE_BACKEND_IMAGE}" .
           docker build -f Dockerfile.frontend -t "${SMOKE_FRONTEND_IMAGE}" .
 
       - name: 起容器并断言（未安装态 → 安装向导 → 就绪态 → 反代 → 健康检查）

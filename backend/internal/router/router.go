@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -88,6 +89,14 @@ type Options struct {
 	// 这里是给测试保留的唯一注入点：它来自进程内的构造参数，不来自任何 HTTP 入参，
 	// 因此没有任何请求能让它改变。仅当 Options.Upstream 为 nil（走默认动态构造）时生效。
 	UpstreamBaseURL string
+	// UpdatesAPIBase / UpdatesDownloadBase 是更新源地址（P2：构建期固定，不可通过任何接口或界面修改）。
+	//
+	// **生产由 cmd/server 用 buildinfo.UpdatesAPIBase / UpdatesDownloadBase 填充**；这里同样是给
+	// 测试保留的唯一注入点：值来自进程内的构造参数，不来自任何 HTTP 入参。空串表示构建时未注入
+	// → api_base 回退官方 https://api.github.com、download_base 留空（走 Release 自带的下载地址）；
+	// 与上游地址不同，未注入**不是**「功能不可用」——更新检查照常可用（契约 19.5）。
+	UpdatesAPIBase      string
+	UpdatesDownloadBase string
 	// UpstreamTimeout 是上游探活的整体超时，缺省 5s。
 	UpstreamTimeout time.Duration
 	// Delivery 是订单交付器；nil 时构造默认实现（自动交付异步执行、管理员重试用当前上游设置）。
@@ -148,6 +157,14 @@ const defaultUpstreamProbeTimeout = 5 * time.Second
 
 // backupDirCheckTimeout 是启动时校验备份目录的超时（一次主键读取，慢也不会拖住启动）。
 const backupDirCheckTimeout = 3 * time.Second
+
+// updateSourceOrigin 说明一个构建期地址的取值来源，只用于启动日志与排查（不影响任何判定）。
+func updateSourceOrigin(injected string) string {
+	if strings.TrimSpace(injected) == "" {
+		return "官方缺省（构建期未注入）"
+	}
+	return "构建期注入"
+}
 
 // New 创建 gin 引擎并注册全部路由。
 func New(opts Options) *gin.Engine {
@@ -216,10 +233,18 @@ func New(opts Options) *gin.Engine {
 
 	// R13-A：系统版本与更新检查（契约 19）。检查服务始终构造（管理端接口可用）；
 	// 后台定时刷新只在生产装配开启（EnableUpdateCheck），与到期扫描同一套装配方式。
-	// R13-B：检查访问器按当前设置里的 api_base 构造（更新源可注入，契约 19.5）；注入固定桩时优先用它。
+	// P2：更新源地址是**构建期固定项**（与版本号、上游地址同一套注入机制）——不再从 settings 读，
+	// 库内遗留的 api_base / download_base 一律忽略；未注入时回退官方 GitHub，功能照常可用。
+	updateSource := updates.ResolveSource(opts.UpdatesAPIBase, opts.UpdatesDownloadBase)
+	opts.Logger.Info("更新源（构建期固定，不可修改）",
+		"api_base", updateSource.APIBase, "api_base_origin", updateSourceOrigin(opts.UpdatesAPIBase),
+		"download_base", updateSource.DownloadBase,
+		"download_base_origin", updateSourceOrigin(opts.UpdatesDownloadBase),
+		"download_hosts", updateSource.DownloadHosts())
 	updateChecker := updates.NewService(updates.Options{
 		Store:    st,
 		Settings: settingsReader,
+		Source:   updateSource,
 		Fetcher:  opts.UpdateFetcher,
 		Logger:   opts.Logger,
 		FetcherFor: func(apiBase string, timeout time.Duration) updates.Fetcher {
@@ -240,10 +265,11 @@ func New(opts Options) *gin.Engine {
 			serverAddr = config.DefaultAddr
 		}
 		service, err := upgrade.NewService(upgrade.Options{
-			Addr:     serverAddr,
-			Checker:  updateChecker,
-			Settings: settingsReader,
-			Logger:   opts.Logger,
+			Addr:    serverAddr,
+			Checker: updateChecker,
+			// P2：资产下载地址与下载白名单都取自构建期固定的更新源，不再读 settings。
+			Source: updateSource,
+			Logger: opts.Logger,
 		})
 		if err != nil {
 			opts.Logger.Warn("一键升级不可用（无法定位安装目录）", "error", err)
@@ -305,6 +331,8 @@ func New(opts Options) *gin.Engine {
 		store: st, reader: settingsReader, notify: notifier,
 		// R17：上游地址是构建期注入值——GET 只读回显它，PUT 出现 base_url 一律 40002。
 		upstreamBaseURL: opts.UpstreamBaseURL,
+		// P2：更新源同理——GET 只读回显生效值并带 fixed=true，PUT 出现两个地址字段一律 40002。
+		updateSource: updateSource,
 		// R15：备份目录设置接口与备份运行时共用同一个服务实例（同一套目录校验口径）。
 		backups: backupService,
 		// R19 批 2：站点对外地址读取（settings:site）的缓存门面。

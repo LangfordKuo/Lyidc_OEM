@@ -1196,21 +1196,27 @@ export interface UpdatesSettings {
   repo: string
   github_token_configured: boolean
   github_token_masked: string
-  /** 检查更新访问的 API 根地址；空串表示用缺省 api.github.com（契约 19.5，仅 admin）。 */
+  /**
+   * 检查更新访问的 API 根地址：**构建期固定项的生效值**，只读；构建时未注入即官方缺省
+   * https://api.github.com（P2，契约 19.5）。请求体里带 api_base 会被后端 40002 拒绝。
+   */
   api_base: string
-  /** 资产下载基地址；空串表示原样使用 Release 的 download_url（契约 20.8）。 */
+  /** 资产下载基地址的生效值，只读；空串表示原样使用 Release 的 download_url（契约 19.5 / 20.8）。 */
   download_base: string
+  /** 两个地址恒为构建期固定值（后端恒返回 true），界面据此渲染成不可编辑项。 */
+  fixed: boolean
   updated_by: number | null
   updated_at: string | null
 }
 
+/**
+ * PUT 请求体**刻意不含** api_base / download_base（P2，契约 19.5）：更新源地址由构建期固定，
+ * 请求体里出现这两个键一律 40002。类型上就没有它们，避免界面误发必然失败的请求。
+ */
 export interface UpdateUpdatesSettingsInput {
   repo?: string
   /** 三态同上：省略 = 不变、给值 = 替换、空串 = 清空。 */
   github_token?: string
-  /** 非三态：省略 = 不变、空串 = 清除（回到缺省）；非空须为 http(s) 绝对地址。 */
-  api_base?: string
-  download_base?: string
 }
 
 // —— 一键自动升级（契约 20，R13-B；全部仅 admin 角色） ——

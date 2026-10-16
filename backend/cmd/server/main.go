@@ -150,6 +150,11 @@ func main() {
 				Cache: manager,
 				// R17：上游地址由构建期注入（任何界面/接口都改不了），设置里只剩账号与密钥。
 				UpstreamBaseURL: buildinfo.UpstreamBaseURL,
+				// P2：更新源地址同理由构建期注入——后台只读回显，PUT 一律 40002，库内旧值不生效。
+				// 与上游地址不同，未注入时回退官方 GitHub（地址不是秘密，功能照常可用），
+				// 引擎构造时会打一条 INFO 说明生效值与来源。
+				UpdatesAPIBase:      buildinfo.UpdatesAPIBase,
+				UpdatesDownloadBase: buildinfo.UpdatesDownloadBase,
 				// 阶段 5b：生产开启「到期暂停扫描」后台任务（启动延迟 + 每日一次，契约 15.5）。
 				EnableDueScan: true,
 				// R13-A：生产开启「检查更新」后台定时刷新（契约 19.4）。

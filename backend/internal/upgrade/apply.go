@@ -52,10 +52,6 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (*JobView, error)
 		return nil, reject(RejectConflict, "已有升级任务进行中（%s，阶段 %s）", job.ID, job.Phase)
 	}
 
-	cfg, err := s.settings.Updates(ctx)
-	if err != nil {
-		return nil, err
-	}
 	release, _, ok, err := s.checker.CachedRelease(ctx)
 	if err != nil {
 		return nil, err
@@ -93,10 +89,20 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (*JobView, error)
 		return nil, reject(RejectRule, "磁盘空间不足：需要约 %s，可用 %s", humanBytes(need), humanBytes(free))
 	}
 
+	// 下载地址二次校验（P2，契约 20.7 第 8 条）：两个地址都必须 https 且 host 在白名单内
+	// （GitHub 官方域 ∪ 构建期注入的 download_base 的 host）。它挡在**任何出网动作之前**，
+	// 因此被污染的 releases JSON 无法把下载引到别处——sha256 取自同一源的自洽绕过就此失效。
+	downloadBase := s.source.DownloadBase
+	checksumURL := resolveDownloadURL(downloadBase, checksum.DownloadURL)
+	downloadURL := resolveDownloadURL(downloadBase, asset.DownloadURL)
+	for _, target := range []string{checksumURL, downloadURL} {
+		if guardErr := s.guardDownloadURL(target); guardErr != nil {
+			return nil, reject(RejectRule, "%v", guardErr)
+		}
+	}
+
 	// 唯一的前置出网动作：同步取回 .sha256（几百字节）。成功即说明更新源可达，
 	// 期望摘要也在此定下，后台下载阶段只做纯粹比对（契约 20.2 第 11 条）。
-	downloadBase := cfg.Value.DownloadBase
-	checksumURL := resolveDownloadURL(downloadBase, checksum.DownloadURL)
 	ctxChecksum, cancelChecksum := context.WithTimeout(ctx, checksumTimeout)
 	expected, err := fetchChecksum(ctxChecksum, s.client, checksumURL, asset.Name)
 	cancelChecksum()
@@ -135,7 +141,7 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (*JobView, error)
 		job:         job,
 		asset:       asset,
 		checksum:    checksum,
-		downloadURL: resolveDownloadURL(downloadBase, asset.DownloadURL),
+		downloadURL: downloadURL,
 		checksumURL: checksumURL,
 		expected:    expected,
 		healthURL:   health,
@@ -166,6 +172,12 @@ func (s *Service) run(p plan) {
 		return
 	}
 	s.logf(PhaseDownloading, "开始下载 %s（%s）", p.asset.Name, humanBytes(uint64(max64(p.asset.Size, 0))))
+	// 纵深防御第二道（契约 20.7 第 8 条）：地址在前置检查里已校验过一次，这里在真正
+	// 出网下载前**再校验一次**——后台协程与前置检查之间隔着进程状态，不靠「上游一定没被改过」。
+	if err := s.guardDownloadURL(p.downloadURL); err != nil {
+		s.fail(job, "下载发布包失败："+err.Error())
+		return
+	}
 	archivePath := filepath.Join(workDir, filepath.Base(p.asset.Name))
 	written, err := downloadAsset(ctx, s.client, p.downloadURL, archivePath, p.asset.Size, s.progressReporter(job))
 	if err != nil {
@@ -300,6 +312,26 @@ func (s *Service) cleanStaleWorkDirs(currentID string) {
 			s.logger.Warn("清理陈旧升级目录失败", "dir", stale, "error", err)
 		}
 	}
+}
+
+// guardDownloadURL 校验下载地址是否允许访问（契约 20.7 第 8 条）：不通过即记 WARN 并返回
+// 面向管理员的说明。日志保留主机与协议、不含查询串（更新源地址可能带签名参数）。
+func (s *Service) guardDownloadURL(rawURL string) error {
+	err := s.source.ValidateDownloadURL(rawURL)
+	if err == nil {
+		return nil
+	}
+	s.logger.Warn("拒绝从非白名单更新源下载", "url", withoutQuery(rawURL), "error", err)
+	return err
+}
+
+// withoutQuery 去掉 URL 的查询串与片段，只留协议与主机路径（用于日志，避免回显签名参数）。
+func withoutQuery(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	if index := strings.IndexAny(trimmed, "?#"); index >= 0 {
+		return trimmed[:index]
+	}
+	return trimmed
 }
 
 // findPlatformAsset 选出本服务器平台的发布包（契约 19.3 的平台匹配口径）。

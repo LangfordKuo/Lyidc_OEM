@@ -20,6 +20,13 @@
 #   UPSTREAM_BASE_URL  上游「魔方财务系统」地址（必填，如 https://lyew.com）：构建期注入二进制，
 #                      运行时只读、任何界面与接口都改不了（契约 8.6 / 12.1，R17）。
 #                      缺失或为空直接报错退出——绝不产出连不上上游的包。
+#   UPDATES_API_BASE      更新源 API 根地址（可选，如 https://api.github.com）。P2 起更新源地址
+#                         是构建期固定项（契约 19.5）：后台只读、PUT 一律 40002，库内旧值不生效。
+#                         **未设置即不注入**，运行时回退官方 https://api.github.com（地址不是秘密，
+#                         更新检查照常可用）；设置后非法值直接报错退出，绝不产出指向坏地址的包。
+#   UPDATES_DOWNLOAD_BASE 资产下载基地址（可选，必须 https，如 https://mirror.example.com/dl）。
+#                         未设置表示原样使用 Release 资产自带的下载地址；设置后它同时进入下载
+#                         白名单（契约 20.7 第 8 条），明文 http 一律拒绝。
 #
 # 用法：
 #   UPSTREAM_BASE_URL=https://lyew.com scripts/package.sh [选项]
@@ -92,6 +99,44 @@ native_path() {
   fi
 }
 
+# 更新源地址（P2，契约 19.5）：两个都是**可选**的构建期注入项。未设置 = 不注入，
+# 运行时回退官方 GitHub（地址不是秘密，功能照常可用）——与 UPSTREAM_BASE_URL 的
+# 「必填」口径刻意不同：更新源缺省仍可用，上游地址缺省等于废包。
+UPDATES_API_BASE=${UPDATES_API_BASE:-}
+UPDATES_DOWNLOAD_BASE=${UPDATES_DOWNLOAD_BASE:-}
+
+# validate_optional_base 校验一个可选的构建期地址：空值合法（表示不注入）；非空必须是
+# http(s) 绝对地址，带主机名，不带查询串/片段/用户信息，不以 / 结尾（契约 19.5）。
+# 第三个参数传 https 时额外要求协议为 https（用于资产下载地址，见契约 20.7 第 8 条）。
+validate_optional_base() {
+  label=$1
+  value=$2
+  scheme_rule=$3
+  [ -n "$value" ] || return 0
+  case "$value" in
+    http://*|https://*) ;;
+    *) die "$label 必须是 http(s) 绝对地址，收到：$value" ;;
+  esac
+  case "$value" in
+    *\?*|*\#*) die "$label 不能带查询串或片段，收到：$value" ;;
+    *://*@*)   die "$label 不能带用户信息，收到：$value" ;;
+    */)        die "$label 不能以 / 结尾，收到：$value" ;;
+  esac
+  rest=${value#*://}
+  case "$rest" in
+    ""|/*) die "$label 缺少主机名，收到：$value" ;;
+  esac
+  if [ "$scheme_rule" = "https" ]; then
+    case "$value" in
+      https://*) ;;
+      *) die "$label 必须使用 https（http 明文下载等于把「装什么二进制」交给链路上任何人），收到：$value" ;;
+    esac
+  fi
+}
+
+validate_optional_base UPDATES_API_BASE "$UPDATES_API_BASE" ""
+validate_optional_base UPDATES_DOWNLOAD_BASE "$UPDATES_DOWNLOAD_BASE" https
+
 [ -n "$dist_dir" ]   || dist_dir="frontend/dist"
 [ -n "$outdir" ]     || outdir="build/packages"
 [ -n "$source_dir" ] || source_dir="backend"
@@ -119,14 +164,14 @@ safe_version=$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\
 [ -f "$dist_dir/index.html" ] || die "前端产物不完整：$dist_dir/index.html 不存在（请重新 npm run build）"
 command -v go >/dev/null 2>&1 || die "未找到 go 命令（后端交叉编译需要 Go 工具链）"
 
-# 版本与上游地址注入（契约 19.1 / 8.6）：四个 buildinfo 变量随 -ldflags 写入二进制，
-# 运行时只读取、不写死版本号，也不从任何界面/接口读上游地址。
+# 版本、上游地址与更新源地址注入（契约 19.1 / 8.6 / 19.5）：buildinfo 变量随 -ldflags 写入二进制，
+# 运行时只读取、不写死版本号，也不从任何界面/接口读上游地址与更新源地址。
 # 模块路径从 go.mod 读取，避免与仓库改名脱节；提交号取不到（如非 git 目录）时记为 unknown。
 module_path=$(awk '/^module /{print $2; exit}' "$source_dir/go.mod")
 build_commit=$(git -C "$(native_path "$repo_root")" rev-parse --short HEAD 2>/dev/null || echo unknown)
 built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 buildinfo_pkg="$module_path/internal/buildinfo"
-ldflags="-s -w -X $buildinfo_pkg.Version=$version -X $buildinfo_pkg.Commit=$build_commit -X $buildinfo_pkg.BuiltAt=$built_at -X $buildinfo_pkg.UpstreamBaseURL=$UPSTREAM_BASE_URL"
+ldflags="-s -w -X $buildinfo_pkg.Version=$version -X $buildinfo_pkg.Commit=$build_commit -X $buildinfo_pkg.BuiltAt=$built_at -X $buildinfo_pkg.UpstreamBaseURL=$UPSTREAM_BASE_URL -X $buildinfo_pkg.UpdatesAPIBase=$UPDATES_API_BASE -X $buildinfo_pkg.UpdatesDownloadBase=$UPDATES_DOWNLOAD_BASE"
 
 mkdir -p "$outdir"
 stage_root="$outdir/.stage"
@@ -200,6 +245,8 @@ list_zip() {
 echo "== Lyidc_OEM 打包 =="
 echo "版本：$version（文件名用：$safe_version）"
 echo "上游地址（构建期注入，运行时不可修改）：$UPSTREAM_BASE_URL"
+echo "更新源 API（构建期注入，运行时不可修改）：${UPDATES_API_BASE:-未注入，运行时回退 https://api.github.com}"
+echo "资产下载基地址（构建期注入，运行时不可修改）：${UPDATES_DOWNLOAD_BASE:-未注入，按 Release 自带的下载地址}"
 echo "平台：$platforms"
 echo "前端产物：$dist_dir"
 echo "输出目录：$outdir"

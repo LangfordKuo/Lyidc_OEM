@@ -90,3 +90,61 @@ func TestDecodeUpdatesDefaultsAndCorruption(t *testing.T) {
 		t.Errorf("库内仓库非法应返回 ErrCorrupt，实际 %v", err)
 	}
 }
+
+// TestDecodeUpdatesIgnoresLegacyAddressKeys 覆盖「库内旧值不再生效」（契约 19.5）：
+// 测试站现在就有一条指向攻击者死隧道的残留行。读取路径**不读**它——既不能让读取失败
+// （旧值形状再离谱也一样），也不能出现在解析结果里；保存路径重新编码后这两个键消失。
+func TestDecodeUpdatesIgnoresLegacyAddressKeys(t *testing.T) {
+	raw := `{"repo":"a/b","github_token":"tok",` +
+		`"api_base":"https://attacker.example/v3","download_base":"https://attacker.example/dl"}`
+	value, err := decodeUpdates(raw)
+	if err != nil {
+		t.Fatalf("残留的旧地址键不得让读取失败：%v", err)
+	}
+	if value.Repo != "a/b" || value.GitHubToken != "tok" {
+		t.Fatalf("可写字段应正常解析，实际 %+v", value)
+	}
+
+	encoded, err := value.Encode()
+	if err != nil {
+		t.Fatalf("编码失败：%v", err)
+	}
+	for _, key := range []string{"api_base", "download_base", "attacker.example"} {
+		if strings.Contains(encoded, key) {
+			t.Errorf("重新编码后不应再出现 %q：%s", key, encoded)
+		}
+	}
+
+	// 旧值即使形状离谱（带查询串、以 / 结尾、非 http(s)）也不再参与校验。
+	for _, legacy := range []string{
+		`{"repo":"a/b","api_base":"https://attacker.example/?sig=1"}`,
+		`{"repo":"a/b","download_base":"https://attacker.example/dl/"}`,
+		`{"repo":"a/b","download_base":"not a url"}`,
+	} {
+		if _, err := decodeUpdates(legacy); err != nil {
+			t.Errorf("残留旧值 %s 不得让读取失败：%v", legacy, err)
+		}
+	}
+}
+
+// TestUpdatesApplyOnlyCarriesRepoAndToken 覆盖更新意图的字段范围（契约 19.5）：
+// 结构里只有 repo 与 github_token，两个出网地址没有可写的入参（接口层出现即 40002）。
+func TestUpdatesApplyOnlyCarriesRepoAndToken(t *testing.T) {
+	current := Updates{Repo: "a/b", GitHubToken: "old"}
+	repo := "c/d"
+	token := "new"
+	merged, err := current.Apply(UpdatesUpdate{Repo: &repo, GitHubToken: &token})
+	if err != nil {
+		t.Fatalf("合并失败：%v", err)
+	}
+	if merged.Repo != "c/d" || merged.GitHubToken != "new" {
+		t.Fatalf("合并结果不符：%+v", merged)
+	}
+	encoded, err := merged.Encode()
+	if err != nil {
+		t.Fatalf("编码失败：%v", err)
+	}
+	if strings.Contains(encoded, "api_base") || strings.Contains(encoded, "download_base") {
+		t.Errorf("落库 JSON 不得含地址字段：%s", encoded)
+	}
+}

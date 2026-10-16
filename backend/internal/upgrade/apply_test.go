@@ -1,12 +1,14 @@
 package upgrade
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +20,6 @@ import (
 	"time"
 
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo"
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
 )
 
@@ -32,11 +33,11 @@ func (f fakeChecker) CachedRelease(context.Context) (updates.Release, string, bo
 	return f.release, "owner/repo", f.ok, nil
 }
 
-// fakeSettings 提供固定的更新源设置。
-type fakeSettings struct{ value settings.Updates }
-
-func (f fakeSettings) Updates(context.Context) (settings.UpdatesState, error) {
-	return settings.UpdatesState{Value: f.value}, nil
+// testSource 把假的更新源（httptest 服务器的 URL）当成**构建期注入**的更新源：
+// 地址是 https，host 由注入的 download_base 进入白名单（契约 20.7 第 8 条）。
+// 生产里这两个值来自 buildinfo，测试是从进程内构造参数注入的——没有任何 HTTP 入参能改它。
+func testSource(server *httptest.Server) updates.Source {
+	return updates.ResolveSource("", server.URL)
 }
 
 // testHarness 组装一个指向临时安装目录的升级服务。
@@ -55,7 +56,8 @@ func newHarness(t *testing.T, current, target, assetName, archiveBody, checksumB
 	dir := t.TempDir()
 	harness := &testHarness{dir: dir, exited: make(chan int, 1), helperPID: 4242, target: target}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 用 TLS 假源：下载地址必须 https（契约 20.7 第 8 条），明文 http 的 mock 源应当被拒。
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch filepath.Base(r.URL.Path) {
 		case assetName:
 			_, _ = w.Write([]byte(archiveBody))
@@ -79,13 +81,14 @@ func newHarness(t *testing.T, current, target, assetName, archiveBody, checksumB
 	t.Cleanup(func() { buildinfo.Version = previousBuildVersion })
 
 	service, err := NewService(Options{
-		Dir:      dir,
-		Addr:     "127.0.0.1:18080",
-		Args:     []string{"--config", "config.yaml"},
-		Checker:  fakeChecker{release: release, ok: true},
-		Settings: fakeSettings{},
-		Now:      testNow,
-		Exit:     func(code int) { harness.exited <- code },
+		Dir:     dir,
+		Addr:    "127.0.0.1:18080",
+		Args:    []string{"--config", "config.yaml"},
+		Checker: fakeChecker{release: release, ok: true},
+		Source:  testSource(server),
+		Client:  server.Client(),
+		Now:     testNow,
+		Exit:    func(code int) { harness.exited <- code },
 		Spawn: func(_ context.Context, h Handoff) (int, error) {
 			harness.handoffs = append(harness.handoffs, h)
 			return harness.helperPID, nil
@@ -213,8 +216,7 @@ func TestApplyRejectsWhenNoCachedRelease(t *testing.T) {
 	dir := t.TempDir()
 	service, err := NewService(Options{
 		Dir: dir, Addr: "127.0.0.1:18080",
-		Checker:  fakeChecker{ok: false},
-		Settings: fakeSettings{},
+		Checker: fakeChecker{ok: false},
 	})
 	if err != nil {
 		t.Fatalf("构造失败：%v", err)
@@ -259,7 +261,7 @@ func TestApplyRejectsMissingAssets(t *testing.T) {
 
 	// 缺少同名 .sha256：只保留发布包资产。
 	dir := t.TempDir()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(archive))
 	}))
 	defer server.Close()
@@ -268,7 +270,8 @@ func TestApplyRejectsMissingAssets(t *testing.T) {
 		Checker: fakeChecker{ok: true, release: updates.Release{TagName: "v1.1.0", Assets: []updates.Asset{
 			{Name: assetName, Size: int64(len(archive)), DownloadURL: server.URL + "/" + assetName},
 		}}},
-		Settings: fakeSettings{},
+		Source: testSource(server),
+		Client: server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("构造失败：%v", err)
@@ -286,7 +289,7 @@ func TestApplyRejectsChecksumFileUnreachable(t *testing.T) {
 	archive, _ := buildPackageArchive(t, "lyidc-oem-v1.1.0-"+platform)
 
 	dir := t.TempDir()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -296,7 +299,8 @@ func TestApplyRejectsChecksumFileUnreachable(t *testing.T) {
 			{Name: assetName, Size: int64(len(archive)), DownloadURL: server.URL + "/" + assetName},
 			{Name: assetName + ".sha256", Size: 100, DownloadURL: server.URL + "/" + assetName + ".sha256"},
 		}}},
-		Settings: fakeSettings{},
+		Source: testSource(server),
+		Client: server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("构造失败：%v", err)
@@ -555,7 +559,7 @@ func TestApplyRejectsWhenHealthURLCannotBeDerived(t *testing.T) {
 	archive, digest := buildPackageArchive(t, "lyidc-oem-v1.1.0-"+platform)
 
 	dir := t.TempDir()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, ".sha256") {
 			_, _ = w.Write([]byte(digest + "  " + assetName + "\n"))
 			return
@@ -569,8 +573,9 @@ func TestApplyRejectsWhenHealthURLCannotBeDerived(t *testing.T) {
 			{Name: assetName, Size: int64(len(archive)), DownloadURL: server.URL + "/" + assetName},
 			{Name: assetName + ".sha256", Size: 100, DownloadURL: server.URL + "/" + assetName + ".sha256"},
 		}}},
-		Settings: fakeSettings{},
-		Spawn:    func(context.Context, Handoff) (int, error) { return 0, nil },
+		Source: testSource(server),
+		Client: server.Client(),
+		Spawn:  func(context.Context, Handoff) (int, error) { return 0, nil },
 	})
 	if err != nil {
 		t.Fatalf("构造失败：%v", err)
@@ -581,6 +586,77 @@ func TestApplyRejectsWhenHealthURLCannotBeDerived(t *testing.T) {
 
 	_, err = service.Apply(context.Background(), ApplyRequest{Confirm: true, TargetVersion: "v1.1.0"})
 	assertReject(t, err, RejectRule, "健康检查地址")
+}
+
+// TestApplyRejectsNonAllowlistedDownloadURL 覆盖 apply 前的下载地址二次校验（契约 20.7 第 8 条）：
+// 明文 http 的本地 mock 源、以及不在白名单内的主机，一律 40002 拒绝、记 WARN，
+// 且**任何出网动作都不发生**（拒绝在同步前置检查里，任务状态也不落盘）。
+func TestApplyRejectsNonAllowlistedDownloadURL(t *testing.T) {
+	platform := updates.Platform()
+	assetName := "lyidc-oem-v1.1.0-" + platform + ".tar.gz"
+	archive, digest := buildPackageArchive(t, "lyidc-oem-v1.1.0-"+platform)
+
+	// 明文 http 的 mock 源：正是渗透链里「自己搭一个下游源」的形态。
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			_, _ = w.Write([]byte(digest + "  " + assetName + "\n"))
+			return
+		}
+		_, _ = w.Write([]byte(archive))
+	}))
+	defer plain.Close()
+	// 一个 https 但**未被注入**的主机：它不在白名单里。
+	tlsOnly := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			_, _ = w.Write([]byte(digest + "  " + assetName + "\n"))
+			return
+		}
+		_, _ = w.Write([]byte(archive))
+	}))
+	defer tlsOnly.Close()
+
+	previousBuildVersion := buildinfo.Version
+	buildinfo.Version = "v1.0.0"
+	t.Cleanup(func() { buildinfo.Version = previousBuildVersion })
+
+	cases := []struct {
+		name     string
+		source   updates.Source
+		baseURL  string
+		client   *http.Client
+		contains string
+	}{
+		{"明文 http 的 mock 源", updates.ResolveSource("", ""), plain.URL, plain.Client(), "必须使用 https"},
+		{"https 但未被注入的主机", updates.ResolveSource("", ""), tlsOnly.URL, tlsOnly.Client(), "不在允许范围内"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			service, err := NewService(Options{
+				Dir: t.TempDir(), Addr: "127.0.0.1:18080",
+				Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+				Checker: fakeChecker{ok: true, release: updates.Release{TagName: "v1.1.0", Assets: []updates.Asset{
+					{Name: assetName, Size: int64(len(archive)), DownloadURL: testCase.baseURL + "/" + assetName},
+					{Name: assetName + ".sha256", Size: 100, DownloadURL: testCase.baseURL + "/" + assetName + ".sha256"},
+				}}},
+				Source: testCase.source,
+				Client: testCase.client,
+				Exit:   func(int) {},
+			})
+			if err != nil {
+				t.Fatalf("构造失败：%v", err)
+			}
+			_, err = service.Apply(context.Background(), ApplyRequest{Confirm: true, TargetVersion: "v1.1.0"})
+			assertReject(t, err, RejectRule, testCase.contains)
+			if !strings.Contains(logs.String(), "拒绝从非白名单更新源下载") {
+				t.Errorf("拒绝时应记 WARN 日志，实际日志：%s", logs.String())
+			}
+			// 拒绝发生在唯一的前置出网动作之前，也不得落盘任务状态。
+			if view, jobErr := service.Job(context.Background()); jobErr != nil || view != nil {
+				t.Fatalf("被拒的发起不得落盘任务状态：%+v %v", view, jobErr)
+			}
+		})
+	}
 }
 
 func assertReject(t *testing.T, err error, kind RejectKind, contains string) {

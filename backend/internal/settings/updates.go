@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strings"
 	"unicode"
@@ -15,9 +14,6 @@ const KeyUpdates = "updates.github"
 
 // DefaultUpdatesRepo 是缺省更新仓库，即本项目的公开仓库（契约 19.5）。
 const DefaultUpdatesRepo = "LangfordKuo/Lyidc_OEM"
-
-// DefaultUpdatesAPIBase 是缺省 GitHub API 根地址（契约 19.5）。
-const DefaultUpdatesAPIBase = "https://api.github.com"
 
 // maxUpdatesTokenLen 是 GitHub Token 的长度上限（契约 19.5）。
 const maxUpdatesTokenLen = 255
@@ -32,25 +28,24 @@ var (
 //
 // GitHubToken 可选，只存数据库与进程内存，对外一律掩码（MaskSecret）；
 // 它只用于提高 GitHub API 额度，不参与任何其他用途。
+//
+// P2 起**不含两个出网基地址**（api_base / download_base）：地址改由构建期注入
+// （buildinfo.UpdatesAPIBase / UpdatesDownloadBase，经 updates.ResolveSource 生效），
+// 运行时只读、任何接口都改不了。库里遗留的这两个键被**忽略**（结构体已无该字段，
+// 旧值属惰性残留，不再读也不再生效），因此测试站指向攻击者主机的残留行不会影响行为。
 type Updates struct {
 	// Repo 是检查更新所用的 GitHub 仓库，形如 owner/name。
 	Repo string `json:"repo"`
 	// GitHubToken 可选的 GitHub Token；空串表示未配置（走未鉴权额度）。
 	GitHubToken string `json:"github_token"`
-	// APIBase 可选：检查更新访问的 API 根地址，空串表示用缺省 DefaultUpdatesAPIBase（契约 19.5）。
-	APIBase string `json:"api_base"`
-	// DownloadBase 可选：资产下载基地址，空串表示原样使用 Release 里的 download_url（契约 20.8）。
-	DownloadBase string `json:"download_base"`
 }
 
 // UpdatesUpdate 是 PUT /api/v1/admin/settings/updates 的更新意图：nil 表示不修改。
-// GitHubToken 三态语义与支付 key 一致：省略 = 保持、新值 = 替换、空串 = 清空；
-// APIBase / DownloadBase **非三态**：省略 = 不变、空串 = 清除。
+// GitHubToken 三态语义与支付 key 一致：省略 = 保持、新值 = 替换、空串 = 清空。
+// 本结构刻意不含两个出网基地址：PUT 请求体里出现它们一律被接口拒绝（契约 19.5）。
 type UpdatesUpdate struct {
-	Repo         *string
-	GitHubToken  *string
-	APIBase      *string
-	DownloadBase *string
+	Repo        *string
+	GitHubToken *string
 }
 
 // Apply 把更新意图合并到当前值并整体校验。
@@ -62,68 +57,22 @@ func (u Updates) Apply(upd UpdatesUpdate) (Updates, error) {
 	if upd.GitHubToken != nil {
 		merged.GitHubToken = strings.TrimSpace(*upd.GitHubToken)
 	}
-	if upd.APIBase != nil {
-		merged.APIBase = strings.TrimSpace(*upd.APIBase)
-	}
-	if upd.DownloadBase != nil {
-		merged.DownloadBase = strings.TrimSpace(*upd.DownloadBase)
-	}
 	if err := merged.Validate(); err != nil {
 		return Updates{}, err
 	}
 	return merged, nil
 }
 
-// Validate 校验取值：repo 必须是 owner/name；token 非空时长度不超过 255 且不含空白与控制字符；
-// 两个地址字段要么为空，要么是 http(s) 绝对地址（契约 19.5）。
+// Validate 校验取值：repo 必须是 owner/name；token 非空时长度不超过 255 且不含空白与控制字符。
+// 两个出网基地址不在本结构里（构建期固定，无可校验的入参）。
 func (u Updates) Validate() error {
 	if err := ValidateUpdatesRepo(u.Repo); err != nil {
 		return err
 	}
-	if err := validateUpdatesToken(u.GitHubToken); err != nil {
-		return err
-	}
-	if err := ValidateUpdatesBaseURL("api_base", u.APIBase); err != nil {
-		return err
-	}
-	return ValidateUpdatesBaseURL("download_base", u.DownloadBase)
+	return validateUpdatesToken(u.GitHubToken)
 }
 
-// APIBaseOr 返回生效的 API 根地址（未配置时取缺省）。
-func (u Updates) APIBaseOr() string {
-	if strings.TrimSpace(u.APIBase) == "" {
-		return DefaultUpdatesAPIBase
-	}
-	return u.APIBase
-}
-
-// ValidateUpdatesBaseURL 校验可注入的出网地址：留空合法；否则必须是 http(s) 绝对地址，
-// 不带查询串、片段与用户信息，且不以 / 结尾（拼路径时不产生双斜杠）。
-func ValidateUpdatesBaseURL(field, value string) error {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return nil
-	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil {
-		return fmt.Errorf("%w: %s 不是合法地址", ErrFormat, field)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%w: %s 只支持 http/https 地址", ErrFormat, field)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("%w: %s 缺少主机名", ErrFormat, field)
-	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
-		return fmt.Errorf("%w: %s 不能带查询串、片段或用户信息", ErrFormat, field)
-	}
-	if strings.HasSuffix(parsed.Path, "/") {
-		return fmt.Errorf("%w: %s 不能以 / 结尾", ErrFormat, field)
-	}
-	return nil
-}
-
-// Encode 返回落库用的 JSON 文本。
+// Encode 返回落库用的 JSON 文本（只含 repo 与 github_token，旧地址键在下次保存时被自然清掉）。
 func (u Updates) Encode() (string, error) { return encode(u) }
 
 // ValidateUpdatesRepo 校验仓库标识是否为 owner/name 形式。
@@ -156,6 +105,8 @@ func validateUpdatesToken(token string) error {
 }
 
 // decodeUpdates 解析库内 JSON；空值按未配置处理（仓库取缺省值）。
+// 库内遗留的 `api_base` / `download_base` 键被**忽略**：它们不是本设置的字段，
+// 生效地址只来自构建期（见 Updates 的说明），库里的旧值不参与任何判定。
 func decodeUpdates(raw string) (Updates, error) {
 	value := Updates{Repo: DefaultUpdatesRepo}
 	trimmed := strings.TrimSpace(raw)
@@ -173,13 +124,6 @@ func decodeUpdates(raw string) (Updates, error) {
 		return Updates{}, fmt.Errorf("%w: %s 的 repo 值不合法", ErrCorrupt, KeyUpdates)
 	}
 	value.GitHubToken = strings.TrimSpace(value.GitHubToken)
-	value.APIBase = strings.TrimSpace(value.APIBase)
-	value.DownloadBase = strings.TrimSpace(value.DownloadBase)
-	for field, address := range map[string]string{"api_base": value.APIBase, "download_base": value.DownloadBase} {
-		if err := ValidateUpdatesBaseURL(field, address); err != nil {
-			return Updates{}, fmt.Errorf("%w: %s 的 %s 值不合法", ErrCorrupt, KeyUpdates, field)
-		}
-	}
 	return value, nil
 }
 

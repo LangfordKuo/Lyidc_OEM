@@ -1789,6 +1789,9 @@ function AssetRow({ asset }: { asset: UpdateAsset }) {
 /**
  * 更新源设置（契约 19.5）：GitHub 仓库 + Token（三态，沿用 SecretInput，与上游 API 密钥同口径）。
  * 只提交变化的字段；Token 只回显掩码、绝不回填明文。修改仓库时后端同请求清空检查缓存，这里同步清掉红点与旧结果。
+ *
+ * P2 起两个出网地址（api_base / download_base）是**构建期固定项**：按 fixed 渲染成禁用只读输入框，
+ * 保存请求体里绝不带这两个字段（类型上也没有它们）——带了后端必然 40002。
  */
 function UpdateSourceForm() {
   const state = useAsync(fetchUpdatesSettings, [])
@@ -1867,6 +1870,7 @@ function UpdateSourceForm() {
         <p className="text-sm font-medium text-foreground">更新源设置</p>
         <p className="text-xs text-muted-foreground">
           检查更新访问的 GitHub 仓库与可选 Token；修改仓库会清空当前的检查结果。
+          更新源地址由构建期固定，不可修改。
         </p>
       </div>
       <SectionError message={error} />
@@ -1895,6 +1899,41 @@ function UpdateSourceForm() {
           hint="可选。配置后访问 GitHub 的额度更高；只存服务端，接口只回显掩码。"
         />
       </div>
+
+      {/*
+        更新源地址（P2，契约 19.5）：**构建期固定**，这里只读展示生效值——把「从哪台主机取
+        版本信息、下载待执行的二进制」留在后台可改，等于把这台服务器装什么的权限交出去。
+        保存时也绝不提交这两个字段（请求体里出现它们后端一律 40002）。
+      */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor="updates_api_base">更新源 API 地址（api_base）</FieldLabel>
+          <Input
+            id="updates_api_base"
+            name="updates_api_base"
+            value={current.api_base || '（构建时未注入）'}
+            disabled={current.fixed}
+            readOnly={current.fixed}
+          />
+        </Field>
+
+        <Field>
+          <FieldLabel htmlFor="updates_download_base">资产下载地址（download_base）</FieldLabel>
+          <Input
+            id="updates_download_base"
+            name="updates_download_base"
+            value={current.download_base || '（按 Release 自带的下载地址）'}
+            disabled={current.fixed}
+            readOnly={current.fixed}
+          />
+        </Field>
+      </div>
+      {current.fixed ? (
+        <p className="text-xs text-muted-foreground" data-testid="updates-source-fixed-hint">
+          更新源由构建期固定，不可修改：两个地址在构建时注入（与版本号同一机制），后台与接口都改不了；
+          需要换源时由运维改构建变量并重新发布。仓库与 Token 仍可在上方修改。
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button disabled={pending || !dirty || Boolean(repoError)} onClick={handleSave}>

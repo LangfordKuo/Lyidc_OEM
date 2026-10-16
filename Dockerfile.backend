@@ -32,6 +32,12 @@ ARG BUILT_AT=unknown
 # 缺省空串 = 本地构建未注入（上游功能按未配置处理）；发布流水线由仓库变量 UPSTREAM_BASE_URL 注入。
 ARG UPSTREAM_BASE_URL=""
 
+# 更新源地址也是构建期注入项（契约 19.5，P2）：运行时只读、后台 PUT 一律 40002。
+# 与上游地址不同，**缺省空串不是「功能不可用」**：运行时回退官方 https://api.github.com，
+# 更新检查照常可用；发布流水线可由仓库变量 UPDATES_API_BASE / UPDATES_DOWNLOAD_BASE 注入镜像源。
+ARG UPDATES_API_BASE=""
+ARG UPDATES_DOWNLOAD_BASE=""
+
 # CGO_ENABLED=0：纯静态编译，产出无 libc 依赖的二进制，可直接跑在 alpine 上。
 ENV CGO_ENABLED=0 \
     GOOS=${TARGETOS:-linux} \
@@ -46,7 +52,7 @@ RUN cd backend && go mod download
 # 再拷源码（migrations/ 通过 go:embed 内嵌进二进制，安装向导建表依赖它）。
 COPY backend ./backend
 RUN cd backend \
-    && ldflags="-s -w -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Version=${VERSION} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Commit=${COMMIT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.BuiltAt=${BUILT_AT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.UpstreamBaseURL=${UPSTREAM_BASE_URL}" \
+    && ldflags="-s -w -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Version=${VERSION} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.Commit=${COMMIT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.BuiltAt=${BUILT_AT} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.UpstreamBaseURL=${UPSTREAM_BASE_URL} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.UpdatesAPIBase=${UPDATES_API_BASE} -X github.com/LangfordKuo/Lyidc_OEM/backend/internal/buildinfo.UpdatesDownloadBase=${UPDATES_DOWNLOAD_BASE}" \
     && go build -trimpath -ldflags="$ldflags" -o /out/lyidc-server ./cmd/server \
     && go build -trimpath -ldflags="$ldflags" -o /out/lyidc-migrate ./cmd/migrate
 

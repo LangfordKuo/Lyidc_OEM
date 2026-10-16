@@ -78,6 +78,10 @@ const UPDATES_SETTINGS = {
   repo: 'LangfordKuo/Lyidc_OEM',
   github_token_configured: true,
   github_token_masked: 'ghp_****abcd',
+  // 两个地址是构建期固定项的生效值（P2，契约 19.5），只读展示、永不提交。
+  api_base: 'https://api.github.example/v3',
+  download_base: 'https://mirror.example.com/dl',
+  fixed: true,
   updated_by: 1,
   updated_at: '2026-10-08T06:30:00Z',
 }
@@ -122,11 +126,13 @@ const RATE_LIMIT_MESSAGE =
 interface UpdatesMock {
   cache?: () => MockResponse
   check?: () => MockResponse | Promise<MockResponse>
+  /** 更新源设置响应的覆盖（缺省用 UPDATES_SETTINGS；用于覆盖「构建时未注入」等场景）。 */
+  settings?: Partial<typeof UPDATES_SETTINGS>
 }
 
 function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin', updates: UpdatesMock = {}) {
   // 服务端保存的更新源仓库：PUT 生效，之后的 GET 回读新值（与后端一致）。
-  let repoOnServer = UPDATES_SETTINGS.repo
+  let repoOnServer = updates.settings?.repo ?? UPDATES_SETTINGS.repo
   return installFetchMock((url, init) => {
     const path = url.pathname
     if (path === '/api/v1/admin/profile') {
@@ -172,7 +178,7 @@ function mockSettings(role: 'admin' | 'finance' | 'support' = 'admin', updates: 
       if (init.method === 'PUT') {
         repoOnServer = requestBody<{ repo?: string }>(init)?.repo ?? repoOnServer
       }
-      return ok({ ...UPDATES_SETTINGS, repo: repoOnServer })
+      return ok({ ...UPDATES_SETTINGS, ...updates.settings, repo: repoOnServer })
     }
     return undefined
   })
@@ -693,6 +699,45 @@ describe('管理后台 · 系统更新（R13-A，契约 19）', () => {
     await user.type(repoInput, 'not a repo')
     expect(screen.getByText(/仓库格式应为 owner\/name/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '保存更新源设置' })).toBeDisabled()
+  })
+
+  it('更新源地址：构建期固定，只读展示生效值与说明，保存请求体绝不带这两个字段', async () => {
+    const fetchMock = await renderSettings()
+    const user = userEvent.setup()
+
+    // 两个地址按 fixed 渲染成禁用只读输入框，值是后端回显的生效值。
+    const apiBaseInput = await screen.findByLabelText('更新源 API 地址（api_base）')
+    expect(apiBaseInput).toHaveValue('https://api.github.example/v3')
+    expect(apiBaseInput).toBeDisabled()
+    const downloadBaseInput = screen.getByLabelText('资产下载地址（download_base）')
+    expect(downloadBaseInput).toHaveValue('https://mirror.example.com/dl')
+    expect(downloadBaseInput).toBeDisabled()
+    expect(screen.getByTestId('updates-source-fixed-hint')).toHaveTextContent(
+      '更新源由构建期固定，不可修改',
+    )
+
+    // 保存仓库时请求体只有 repo：地址字段一个都不发（带了后端必然 40002）。
+    const repoInput = screen.getByLabelText('GitHub 仓库（owner/name）')
+    await user.clear(repoInput)
+    await user.type(repoInput, 'octo-org/Lyidc_OEM')
+    await user.click(screen.getByRole('button', { name: '保存更新源设置' }))
+    await waitFor(() => expect(lastUpdatesPut(fetchMock)).toEqual({ repo: 'octo-org/Lyidc_OEM' }))
+    expect(lastUpdatesPut(fetchMock)).not.toHaveProperty('api_base')
+    expect(lastUpdatesPut(fetchMock)).not.toHaveProperty('download_base')
+  })
+
+  it('更新源地址未注入时：api_base 回退官方缺省，download_base 显示按 Release 下载', async () => {
+    await renderSettings('admin', {
+      settings: { api_base: 'https://api.github.com', download_base: '' },
+    })
+
+    expect(await screen.findByLabelText('更新源 API 地址（api_base）')).toHaveValue(
+      'https://api.github.com',
+    )
+    // 空串 → 给一句占位说明，而不是留一个用途不明的空白框。
+    expect(screen.getByLabelText('资产下载地址（download_base）')).toHaveValue(
+      '（按 Release 自带的下载地址）',
+    )
   })
 
   it('只有 admin 读取更新缓存：finance / support 在后台任何页面都不发起更新相关请求', async () => {

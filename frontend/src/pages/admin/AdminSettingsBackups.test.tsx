@@ -62,8 +62,9 @@ function mockSettingsPage(nodes: {
         repo: 'LangfordKuo/Lyidc_OEM',
         github_token_configured: false,
         github_token_masked: '',
-        api_base: '',
+        api_base: 'https://api.github.com',
         download_base: '',
+        fixed: true,
         updated_by: null,
         updated_at: null,
       })

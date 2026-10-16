@@ -221,8 +221,32 @@ tar -xzf lyidc-oem-v1.0.0-linux-amd64.tar.gz && cd lyidc-oem-v1.0.0-linux-amd64
   成功后清理）；三者都不含任何密钥。
 - 运行账号需要对**安装目录**有写权限（不是配置文件目录）。**容器部署不适用一键升级**（替换的是容器可写层，
   重建即失效）：请用「更新镜像」的方式（见方式一的「升级」小节）。
-- 升级源默认 GitHub；镜像/内网环境可在更新源设置里填 `api_base` 与 `download_base`
-  （只影响本机出网地址，**属于系统级信任**：指向哪里就从哪里下载二进制）。
+- **更新源地址同样是构建期固定项**（见下一节「更新源地址」）：后台「系统更新」卡片里只读展示，
+  任何接口都改不了；镜像/内网环境要换源，须改构建期变量并重新发布。
+
+### 更新源地址（构建期固定，运行时可改的只有仓库与 Token）
+
+「系统更新 / 一键升级」从哪台主机取版本信息与发布包，也由**构建期**决定（与上游地址同一机制）：
+
+| 构建期变量 | 作用 | 未注入时 |
+| --- | --- | --- |
+| `UPDATES_API_BASE` | 检查更新访问的 API 根地址 | 回退官方 `https://api.github.com` |
+| `UPDATES_DOWNLOAD_BASE` | 资产下载基地址（**必须 https**） | 用 Release 资产自带的下载地址 |
+
+- 与上游地址不同，这两个变量**都是可选的**：地址不是秘密，未注入时更新检查与升级**照常可用**
+  （自动走官方 GitHub）。注入了就必须合法——形状不对、下载地址是明文 http，打包与流水线会**直接失败**。
+- 后台「设置 → 系统更新」里两个地址是**禁用只读输入框**并标注「更新源由构建期固定，不可修改」；
+  `PUT /api/v1/admin/settings/updates` 只要请求体里出现 `api_base` / `download_base`（哪怕空串或 `null`）
+  一律 **40002** 且不落库。**仓库名与 GitHub Token 仍可改**，改完下一次检查即生效。
+- **库内旧值不再生效**：老版本写进 settings 表的 `api_base` / `download_base` 会被忽略（不再读、不再写），
+  保存一次设置就会把它们从落库 JSON 里清掉——升级到本版后无需手工清理旧值。
+- **下载地址白名单（纵深防御）**：真正下载发布包与 `.sha256` 之前，地址必须为 **https** 且 host 属于
+  `github.com` / `api.github.com` / `objects.githubusercontent.com` / `codeload.github.com`，
+  或**构建期注入的 `UPDATES_DOWNLOAD_BASE` 的主机**；否则拒绝并记 WARN。因此明文 http 的本地 mock 源
+  **不可能**被用来下发待执行的二进制。
+- **换源 = 改构建期变量并重新发布**：改 GitHub 仓库变量 `UPDATES_API_BASE` / `UPDATES_DOWNLOAD_BASE`
+  后重跑 Release 流水线（或打新 tag）；本地打包同理：`UPDATES_DOWNLOAD_BASE=https://mirror.example.com/dl scripts/package.sh -v v1.0.0`。
+- 启动日志里会打一条 INFO 说明生效的更新源与来源（构建期注入 / 官方缺省），排查时先看它。
 
 ### 前端静态托管
 

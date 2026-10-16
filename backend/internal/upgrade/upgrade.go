@@ -25,7 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
 )
 
@@ -165,11 +164,6 @@ type Checker interface {
 	CachedRelease(ctx context.Context) (release updates.Release, repo string, ok bool, err error)
 }
 
-// SettingsReader 读取更新源设置（仓库、Token、两个地址注入项）。
-type SettingsReader interface {
-	Updates(ctx context.Context) (settings.UpdatesState, error)
-}
-
 // ApplyRequest 是 POST /api/v1/admin/updates/apply 的请求体（契约 20.3）。
 type ApplyRequest struct {
 	Confirm       bool   `json:"confirm"`
@@ -216,9 +210,14 @@ type Options struct {
 	Args []string
 	// Checker 提供缓存的最新正式版（生产为 *updates.Service）。
 	Checker Checker
-	// Settings 读取更新源设置（download_base 等）。
-	Settings SettingsReader
-	Logger   *slog.Logger
+	// Source 是构建期固定的更新源（P2，契约 19.5 / 20.7 第 8 条）：下载地址由它的
+	// DownloadBase 换算，下载白名单 = GitHub 官方域 ∪ 它的 host。**不再读 settings**，
+	// 因此库内残留的 download_base 不可能把下载引到攻击者主机。
+	//
+	// 零值可用（download_base 为空 = 原样使用 Release 自带的 browser_download_url，
+	// 白名单只剩 GitHub 官方域）。
+	Source updates.Source
+	Logger *slog.Logger
 	// Now 注入时钟（测试用）；nil 时取 time.Now。
 	Now func() time.Time
 	// Exit 退出主进程（测试注入空实现）；nil 时取 os.Exit。
@@ -235,7 +234,7 @@ type Service struct {
 	addr      string
 	args      []string
 	checker   Checker
-	settings  SettingsReader
+	source    updates.Source
 	logger    *slog.Logger
 	now       func() time.Time
 	exit      func(int)
@@ -286,16 +285,16 @@ func NewService(opts Options) (*Service, error) {
 		args = append([]string(nil), os.Args[1:]...)
 	}
 	return &Service{
-		dir:      abs,
-		addr:     opts.Addr,
-		args:     args,
-		checker:  opts.Checker,
-		settings: opts.Settings,
-		logger:   logger,
-		now:      now,
-		exit:     exit,
-		client:   client,
-		spawn:    spawn,
+		dir:     abs,
+		addr:    opts.Addr,
+		args:    args,
+		checker: opts.Checker,
+		source:  opts.Source,
+		logger:  logger,
+		now:     now,
+		exit:    exit,
+		client:  client,
+		spawn:   spawn,
 	}, nil
 }
 

@@ -14,8 +14,6 @@ import (
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/config"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/model"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/response"
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/settings"
-	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/store"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/updates"
 	"github.com/LangfordKuo/Lyidc_OEM/backend/internal/upgrade"
 )
@@ -40,12 +38,13 @@ func TestUpgradeAdminEndpoints(t *testing.T) {
 	gdb := testDatabase(t)
 	dir := t.TempDir()
 	service, err := upgrade.NewService(upgrade.Options{
-		Dir:      dir,
-		Addr:     "127.0.0.1:18080",
-		Args:     []string{},
-		Checker:  stubUpgradeChecker{release: updates.Release{TagName: "v1.1.0"}, ok: true},
-		Settings: settings.NewReader(store.New(gdb)),
-		Exit:     func(int) {},
+		Dir:     dir,
+		Addr:    "127.0.0.1:18080",
+		Args:    []string{},
+		Checker: stubUpgradeChecker{release: updates.Release{TagName: "v1.1.0"}, ok: true},
+		// P2：更新源地址是构建期固定项（生产由 buildinfo 注入），测试从构造参数注入。
+		Source: updates.ResolveSource("", ""),
+		Exit:   func(int) {},
 	})
 	if err != nil {
 		t.Fatalf("构造升级服务失败：%v", err)

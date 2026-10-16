@@ -41,8 +41,10 @@ const UPDATES_SETTINGS = {
   repo: 'LangfordKuo/Lyidc_OEM',
   github_token_configured: false,
   github_token_masked: '',
-  api_base: '',
+  // 构建时未注入 → api_base 回退官方缺省、download_base 留空（P2，契约 19.5）。
+  api_base: 'https://api.github.com',
   download_base: '',
+  fixed: true,
   updated_by: null,
   updated_at: null,
 }

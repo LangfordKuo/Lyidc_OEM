@@ -11,13 +11,15 @@
 检查内容：
     A. 触发条件：push tag v*、workflow_dispatch 的 dry_run 布尔入参
     B. jobs/needs：frontend → build-packages → release；docker → smoke
-    C. build-packages：三平台 matrix、setup-go 缓存、复用前端 artifact、打包脚本调用、上传 artifact
+    C. build-packages：三平台 matrix、setup-go 缓存、复用前端 artifact、打包脚本调用、上传 artifact；
+       构建期注入项的注入与校验（R17 上游地址必填；P2 更新源地址可选但非法即失败）
     D. release：仅在 tag 且非 dry_run 时执行、contents:write、附全部产物、自动生成更新说明
     E. docker：packages:write、buildx/qemu、双镜像、latest 只在 tag 上给、GHA 缓存、dry_run 不推送
     F. smoke：mysql:5.7 service、未安装态断言、安装向导全流程、就绪态、前端 SPA 挂载点、
        反代链路、healthcheck healthy、失败 dump 日志
     G. 所有 run 脚本过 shell 语法检查（sh -n）
-    H. Dockerfile.backend / Dockerfile.frontend：多阶段、TARGETARCH 位置、HEALTHCHECK、运行时基础镜像
+    H. Dockerfile.backend / Dockerfile.frontend：多阶段、TARGETARCH 位置、HEALTHCHECK、运行时基础镜像、
+       buildinfo 注入项（Version / UpstreamBaseURL / UpdatesAPIBase / UpdatesDownloadBase）
     I. deploy/docker-compose.yml：三服务、健康检查链、数据卷、对外端口
 
 退出码：0 = 全部通过；1 = 有失败项（逐条打印）。
@@ -386,6 +388,19 @@ def check_workflow(report: Report, wf):
                  "打包脚本经 -ldflags 注入上游地址（buildinfo.UpstreamBaseURL）")
     report.check("UPSTREAM_BASE_URL" in bp_text and "::error::" in bp_text,
                  "打包 job 校验仓库变量 UPSTREAM_BASE_URL 非空（为空即失败）")
+    # P2（契约 19.5）：更新源地址也是构建期固定项，但**可选**——未设置回退官方 GitHub，
+    # 设置了就必须合法（形状校验在打包脚本与流水线各做一次，坏地址不随包发出去）。
+    report.check("$buildinfo_pkg.UpdatesAPIBase=$UPDATES_API_BASE" in package_text,
+                 "打包脚本经 -ldflags 注入更新源 API 地址（buildinfo.UpdatesAPIBase）")
+    report.check("$buildinfo_pkg.UpdatesDownloadBase=$UPDATES_DOWNLOAD_BASE" in package_text,
+                 "打包脚本经 -ldflags 注入资产下载基地址（buildinfo.UpdatesDownloadBase）")
+    report.check('validate_optional_base UPDATES_API_BASE "$UPDATES_API_BASE" ""' in package_text,
+                 "打包脚本对更新源 API 地址做形状校验（可选，非法即失败）")
+    report.check('validate_optional_base UPDATES_DOWNLOAD_BASE "$UPDATES_DOWNLOAD_BASE" https' in package_text,
+                 "打包脚本要求下载基地址为 https（契约 20.7 第 8 条）")
+    report.check("UPDATES_API_BASE" in bp_text and "UPDATES_DOWNLOAD_BASE" in bp_text
+                 and "check_base" in bp_text,
+                 "打包 job 校验仓库变量 UPDATES_API_BASE / UPDATES_DOWNLOAD_BASE（可选，非法即失败）")
 
     print("\n[D] release（仅 tag 且非 dry_run）")
     rel = job(wf, "release")
@@ -425,6 +440,13 @@ def check_workflow(report: Report, wf):
                  "后端镜像注入上游地址（build-args UPSTREAM_BASE_URL）", backend_args)
     report.check("UPSTREAM_BASE_URL" in dk_text and "::error::" in dk_text,
                  "镜像 job 校验仓库变量 UPSTREAM_BASE_URL 非空（为空即失败）")
+    # P2（契约 19.5）：镜像也注入更新源地址（可选），并先做同一套形状校验。
+    report.check("UPDATES_API_BASE=${{ vars.UPDATES_API_BASE }}" in backend_args,
+                 "后端镜像注入更新源 API 地址（build-args UPDATES_API_BASE）", backend_args)
+    report.check("UPDATES_DOWNLOAD_BASE=${{ vars.UPDATES_DOWNLOAD_BASE }}" in backend_args,
+                 "后端镜像注入资产下载基地址（build-args UPDATES_DOWNLOAD_BASE）", backend_args)
+    report.check("UPDATES_API_BASE" in dk_text and "UPDATES_DOWNLOAD_BASE" in dk_text,
+                 "镜像 job 校验两个（可选）更新源变量")
     report.check('echo "VERSION=' in dk_text, "docker job 解析版本号并写入 GITHUB_ENV")
     # 平台矩阵既可以直接写在 build 步骤里，也可以放在 workflow 级 env（本仓库用 env.PLATFORMS）。
     platforms = " ".join(
@@ -473,6 +495,9 @@ def check_workflow(report: Report, wf):
     report.check("docker build" in sm_text, "冒烟自建镜像（不依赖 registry 可拉取性）")
     # R17：冒烟按正式口径构建——同样在构建期注入上游地址，否则验的不是真实包形态。
     report.check("UPSTREAM_BASE_URL" in sm_text, "冒烟重建镜像时注入上游地址（build-arg）")
+    # P2：冒烟同样注入更新源地址（可选；空串即「不注入」），保持冒烟与正式包同形。
+    report.check("UPDATES_API_BASE" in sm_text and "UPDATES_DOWNLOAD_BASE" in sm_text,
+                 "冒烟重建镜像时注入更新源地址（build-arg）")
 
     print("\n[G] 内嵌 run 脚本的 shell 语法（sh -n）")
     for job_name in ("frontend", "build-packages", "release", "docker", "smoke"):
@@ -609,6 +634,13 @@ def main() -> int:
     report.check("ARG UPSTREAM_BASE_URL" in backend_dockerfile
                  and "buildinfo.UpstreamBaseURL=${UPSTREAM_BASE_URL}" in backend_dockerfile,
                  "Dockerfile.backend 注入上游地址（ARG UPSTREAM_BASE_URL + buildinfo.UpstreamBaseURL）")
+    # P2（契约 19.5）：更新源地址同机制注入，缺省空串 = 未注入（运行时回退官方 GitHub）。
+    report.check("ARG UPDATES_API_BASE" in backend_dockerfile
+                 and "buildinfo.UpdatesAPIBase=${UPDATES_API_BASE}" in backend_dockerfile,
+                 "Dockerfile.backend 注入更新源 API 地址（ARG + buildinfo.UpdatesAPIBase）")
+    report.check("ARG UPDATES_DOWNLOAD_BASE" in backend_dockerfile
+                 and "buildinfo.UpdatesDownloadBase=${UPDATES_DOWNLOAD_BASE}" in backend_dockerfile,
+                 "Dockerfile.backend 注入资产下载基地址（ARG + buildinfo.UpdatesDownloadBase）")
     check_dockerfile(report, DOCKERFILE_FRONTEND, "nginx", "Dockerfile.frontend")
     check_compose(report, compose or {})
 
